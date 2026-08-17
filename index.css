@@ -1,0 +1,36 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;900&display=swap');
+
+:root {
+  /* FONT FAMILY */
+  --font-chambe: 'Inter', 'Helvetica Neue', Arial, sans-serif;
+
+  /* CORAL BRAND SCALE */
+  --color-coral-400: #FF7A7E;
+  --color-coral-500: #FF5A5F;
+  --color-coral-600: #E04E53;
+
+  /* NEUTRAL NESTED SCALE */
+  --color-gris-50: #FAFAFA;
+  --color-gris-100: #F4F4F3;
+  --color-gris-200: #EAE9E8;
+  --color-gris-300: #D6D5D2;
+  --color-gris-500: #807E7A;
+  --color-gris-700: #42403E;
+  --color-gris-900: #1A1918;
+
+  /* SEMANTICS */
+  --color-success: #2ECC71;
+  --color-error: #E74C3C;
+
+  /* BORDER RADIUS */
+  --radius-button: 12px;
+  --radius-card: 16px;
+}
+
+body {
+  font-family: var(--font-chambe);
+  background-color: var(--color-gris-50);
+  color: var(--color-gris-900);
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+}
