@@ -20,6 +20,12 @@ from app.schemas.order import (
     ServiceResumenSchema,
 )
 from app.schemas.notification import NotificationSchema
+from app.schemas.chat import (
+    ConversationSchema,
+    ConversationCreateSchema,
+    MessageSchema,
+    MessageCreateSchema,
+)
 
 __all__ = [
     "RegisterSchema",
@@ -39,4 +45,8 @@ __all__ = [
     "OrderEstadoSchema",
     "ServiceResumenSchema",
     "NotificationSchema",
+    "ConversationSchema",
+    "ConversationCreateSchema",
+    "MessageSchema",
+    "MessageCreateSchema",
 ]
