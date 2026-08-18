@@ -13,6 +13,9 @@ from app.extensions import db
 from app.models.user import User, Profile, LegalAcceptance, RolUsuario, Verification
 from app.models.audit import AuditLog  # asegura creación de la tabla en create_all
 from app.models.service import Service, EstadoServicio
+from app.models.order import Dispute
+from app.models.ticket import Ticket
+from app.models.payment import Payment
 
 
 # Datos exactos de los 6 usuarios semilla (un rol por usuario).

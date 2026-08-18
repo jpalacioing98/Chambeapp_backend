@@ -7,7 +7,8 @@ from app.models.user import (
     Verification,
 )
 from app.models.service import Service, Rating, EstadoServicio
-from app.models.order import Order, EstadoOrden
+from app.models.order import Order, EstadoOrden, Dispute
+from app.models.ticket import Ticket
 from app.models.notification import Notification
 from app.models.chat import Conversation, Message
 from app.models.audit import AuditLog, write_audit
@@ -23,6 +24,8 @@ __all__ = [
     "EstadoServicio",
     "Order",
     "EstadoOrden",
+    "Dispute",
+    "Ticket",
     "Notification",
     "Conversation",
     "Message",

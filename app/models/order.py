@@ -13,6 +13,8 @@ class EstadoOrden(str, Enum):
     EN_PROGRESO = "en_progreso"
     COMPLETADO = "completado"
     CANCELADO = "cancelado"
+    # RBAC Fase 2: moderación admin (flag de orden sospechosa).
+    MARCADO = "marcado"
 
     @classmethod
     def values(cls):
@@ -49,3 +51,31 @@ class Order(db.Model):
     service = db.relationship("Service")
     proveedor = db.relationship("User", foreign_keys=[proveedor_id])
     solicitante = db.relationship("User", foreign_keys=[solicitante_id])
+
+
+class Dispute(db.Model):
+    """Disputa / escalamiento de orden con resolución de escrow (RBAC Fase 2)."""
+
+    __tablename__ = "disputes"
+
+    id = db.Column(db.Integer, primary_key=True)
+    order_id = db.Column(
+        db.Integer, db.ForeignKey("orders.id"), nullable=False, index=True
+    )
+    reason = db.Column(db.Text, nullable=False)
+    status = db.Column(
+        db.String(20), default="abierta", nullable=False, index=True
+    )  # abierta | resuelta
+    resolved_by = db.Column(
+        db.Integer, db.ForeignKey("users.id"), nullable=True
+    )
+    resolved_at = db.Column(db.DateTime, nullable=True)
+    resolution = db.Column(db.Text, nullable=True)
+    escrow_action = db.Column(
+        db.String(20), nullable=True
+    )  # release | refund
+    created_at = db.Column(
+        db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+
+    order = db.relationship("Order")

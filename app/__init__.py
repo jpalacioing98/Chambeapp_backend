@@ -14,6 +14,7 @@ from app.routes.ai import blp as ai_blp
 from app.routes.chat import blp as chat_blp
 from app.routes.chat_socket import register_chat_socketio
 from app.routes.admin import blp as admin_blp
+from app.routes.tickets import blp as tickets_blp
 from app.models.user import User
 
 
@@ -51,6 +52,7 @@ def create_app(config_class: str = "app.config.DevelopmentConfig") -> Flask:
     api.register_blueprint(ai_blp, url_prefix="/api/v1/ai")
     api.register_blueprint(chat_blp, url_prefix="/api/v1/chat")
     api.register_blueprint(admin_blp, url_prefix="/api/v1/admin")
+    api.register_blueprint(tickets_blp, url_prefix="/api/v1/tickets")
 
     # Handlers SocketIO (después de init_app)
     register_chat_socketio(socketio)

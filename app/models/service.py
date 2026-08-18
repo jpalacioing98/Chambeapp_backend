@@ -14,6 +14,9 @@ class EstadoServicio(str, Enum):
     EN_PROGRESO = "en_progreso"
     COMPLETADO = "completado"
     CANCELADO = "cancelado"
+    # RBAC Fase 2: moderación admin.
+    OCULTO = "oculto"
+    RECHAZADO = "rechazado"
 
     @classmethod
     def values(cls):
@@ -27,6 +30,7 @@ class Service(db.Model):
     solicitante_id = db.Column(
         db.Integer, db.ForeignKey("users.id"), nullable=False, index=True
     )
+    titulo = db.Column(db.String(200), nullable=True)
     categoria = db.Column(db.String(120), nullable=False)
     descripcion = db.Column(db.Text, nullable=False)
     ubicacion = db.Column(db.String(120), nullable=False, default="Valledupar")
