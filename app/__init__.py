@@ -3,7 +3,7 @@
 from flask import Flask
 from flask_smorest import Api
 
-from app.extensions import db, migrate, jwt, cache, bcrypt, socketio
+from app.extensions import db, migrate, jwt, cache, bcrypt, socketio, cors
 from app.routes.auth import blp as auth_blp
 from app.routes.users import blp as users_blp
 from app.routes.services import blp as services_blp
@@ -26,6 +26,15 @@ def create_app(config_class: str = "app.config.DevelopmentConfig") -> Flask:
     jwt.init_app(app)
     cache.init_app(app)
     bcrypt.init_app(app)
+    # CORS para /api/* (auth por Bearer header, sin cookies → sin credenciales).
+    cors.init_app(
+        app,
+        resources={r"/api/*": {
+            "origins": "*",
+            "allow_headers": ["Content-Type", "Authorization"],
+            "methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        }},
+    )
     # threading: compatible con test client/werkzeug; en prod usar eventlet.
     socketio.init_app(app, cors_allowed_origins="*", async_mode="threading")
 
