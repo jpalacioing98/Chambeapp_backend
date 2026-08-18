@@ -1,6 +1,8 @@
 """Model package exports."""
 from app.models.user import RolUsuario, User, Profile, LegalAcceptance
 from app.models.service import Service, Rating, EstadoServicio
+from app.models.order import Order, EstadoOrden
+from app.models.notification import Notification
 
 __all__ = [
     "RolUsuario",
@@ -10,4 +12,7 @@ __all__ = [
     "Service",
     "Rating",
     "EstadoServicio",
+    "Order",
+    "EstadoOrden",
+    "Notification",
 ]

@@ -7,6 +7,8 @@ from app.extensions import db, migrate, jwt, cache, bcrypt
 from app.routes.auth import blp as auth_blp
 from app.routes.users import blp as users_blp
 from app.routes.services import blp as services_blp
+from app.routes.orders import blp as orders_blp
+from app.routes.notifications import blp as notifications_blp
 
 
 def create_app(config_class: str = "app.config.DevelopmentConfig") -> Flask:
@@ -26,5 +28,7 @@ def create_app(config_class: str = "app.config.DevelopmentConfig") -> Flask:
     api.register_blueprint(auth_blp, url_prefix="/api/v1/auth")
     api.register_blueprint(users_blp, url_prefix="/api/v1/users")
     api.register_blueprint(services_blp, url_prefix="/api/v1/services")
+    api.register_blueprint(orders_blp, url_prefix="/api/v1/orders")
+    api.register_blueprint(notifications_blp, url_prefix="/api/v1/notifications")
 
     return app

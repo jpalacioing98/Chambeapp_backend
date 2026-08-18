@@ -13,6 +13,13 @@ from app.schemas.service import (
 )
 from app.schemas.rating import RatingSchema, RatingCreateSchema
 from app.schemas.users import ProfileUpdateSchema, PublicProfileSchema
+from app.schemas.order import (
+    OrderSchema,
+    OrderCreateSchema,
+    OrderEstadoSchema,
+    ServiceResumenSchema,
+)
+from app.schemas.notification import NotificationSchema
 
 __all__ = [
     "RegisterSchema",
@@ -27,4 +34,9 @@ __all__ = [
     "RatingCreateSchema",
     "ProfileUpdateSchema",
     "PublicProfileSchema",
+    "OrderSchema",
+    "OrderCreateSchema",
+    "OrderEstadoSchema",
+    "ServiceResumenSchema",
+    "NotificationSchema",
 ]
