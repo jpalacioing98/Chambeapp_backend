@@ -7,3 +7,9 @@ env/
 *.egg-info/
 .pytest_cache/
 migrations/versions/
+
+# Bases de datos locales (dev/test)
+*.db
+*.sqlite
+*.sqlite3
+instance/
