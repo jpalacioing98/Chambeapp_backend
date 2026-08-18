@@ -16,6 +16,7 @@ from app.models.service import Service, EstadoServicio
 from app.models.order import Dispute
 from app.models.ticket import Ticket
 from app.models.payment import Payment
+from app.models.config import SystemConfig, FeatureFlag
 
 
 # Datos exactos de los 6 usuarios semilla (un rol por usuario).
@@ -115,6 +116,70 @@ def seed_sample_service() -> bool:
     return True
 
 
+def seed_config() -> int:
+    """Crea SystemConfig y FeatureFlag por defecto si no existen. Devuelve nº creados."""
+    created = 0
+    now = "2026-01-01T00:00:00+00:00"
+
+    # --- SystemConfig por defecto ---
+    config_defaults = [
+        ("commission_rate", "12", "int", "Comisión de plataforma principal (%)"),
+        ("commission_rate_alt", "8", "int", "Comisión alternativa (%)"),
+        ("escrow_hours", "48", "int", "Horas de auto-liberación de escrow"),
+        ("dispute_days", "5", "int", "Días hábiles para abrir disputa"),
+        ("volume_discount", "10", "int", "Descuento por volumen (%)"),
+        (
+            "plans",
+            '{"free": {"price": 0, "features": ["1 servicio"]}, '
+            '"pro": {"price": 19900, "features": ["servicios ilimitados"]}}',
+            "json",
+            "Planes de suscripción (monedas/pesos)",
+        ),
+        (
+            "tyc_current",
+            '{"version": 1, "content": "Términos y Condiciones v1 de ChambeApp.", '
+            f'"published_at": "{now}"}}',
+            "json",
+            "Términos y Condiciones vigentes",
+        ),
+        (
+            "ai_weights",
+            '{"w_price": 0.4, "w_rating": 0.3, "w_distance": 0.3}',
+            "json",
+            "Pesos del modelo de recomendación IA",
+        ),
+    ]
+    for key, value, vtype, desc in config_defaults:
+        if SystemConfig.query.filter_by(key=key).first():
+            print(f"  SKIP config (ya existe): {key}")
+            continue
+        cfg = SystemConfig(
+            key=key, value=value, value_type=vtype, description=desc,
+            updated_by=None,
+        )
+        db.session.add(cfg)
+        created += 1
+        print(f"  CREADO config: {key} ({vtype})")
+
+    # --- FeatureFlag por defecto ---
+    flag_defaults = [
+        ("module_3d", False, "Módulo 3D/360 de portfolios"),
+        ("certificados", False, "Certificados de verificación avanzada"),
+        ("cobertura_valledupar", True, "Cobertura habilitada en Valledupar"),
+        ("mantenimiento", False, "Modo mantenimiento de la plataforma"),
+    ]
+    for key, enabled, desc in flag_defaults:
+        if FeatureFlag.query.filter_by(key=key).first():
+            print(f"  SKIP flag (ya existe): {key}")
+            continue
+        flag = FeatureFlag(key=key, enabled=enabled, description=desc)
+        db.session.add(flag)
+        created += 1
+        print(f"  CREADO flag: {key} = {enabled}")
+
+    return created
+
+
 if __name__ == "__main__":
     app = create_app()  # DevelopmentConfig -> sqlite:///chambeapp.db
     with app.app_context():
@@ -127,6 +192,8 @@ if __name__ == "__main__":
         print("Sembrando usuarios...")
         created = seed_users()
         seed_sample_service()
+        print("Sembrando configuración global y feature flags...")
+        seed_config()
 
         db.session.commit()
 

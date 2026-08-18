@@ -15,6 +15,7 @@ from app.routes.chat import blp as chat_blp
 from app.routes.chat_socket import register_chat_socketio
 from app.routes.admin import blp as admin_blp
 from app.routes.tickets import blp as tickets_blp
+from app.routes.superadmin import blp as superadmin_blp
 from app.models.user import User
 
 
@@ -53,6 +54,7 @@ def create_app(config_class: str = "app.config.DevelopmentConfig") -> Flask:
     api.register_blueprint(chat_blp, url_prefix="/api/v1/chat")
     api.register_blueprint(admin_blp, url_prefix="/api/v1/admin")
     api.register_blueprint(tickets_blp, url_prefix="/api/v1/tickets")
+    api.register_blueprint(superadmin_blp, url_prefix="/api/v1/superadmin")
 
     # Handlers SocketIO (después de init_app)
     register_chat_socketio(socketio)

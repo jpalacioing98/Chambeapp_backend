@@ -12,6 +12,7 @@ from app.models.ticket import Ticket
 from app.models.notification import Notification
 from app.models.chat import Conversation, Message
 from app.models.audit import AuditLog, write_audit
+from app.models.config import SystemConfig, FeatureFlag
 
 __all__ = [
     "RolUsuario",
@@ -31,4 +32,6 @@ __all__ = [
     "Message",
     "AuditLog",
     "write_audit",
+    "SystemConfig",
+    "FeatureFlag",
 ]
