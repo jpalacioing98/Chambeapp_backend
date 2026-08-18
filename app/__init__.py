@@ -9,6 +9,7 @@ from app.routes.users import blp as users_blp
 from app.routes.services import blp as services_blp
 from app.routes.orders import blp as orders_blp
 from app.routes.notifications import blp as notifications_blp
+from app.routes.payments import blp as payments_blp
 
 
 def create_app(config_class: str = "app.config.DevelopmentConfig") -> Flask:
@@ -30,5 +31,6 @@ def create_app(config_class: str = "app.config.DevelopmentConfig") -> Flask:
     api.register_blueprint(services_blp, url_prefix="/api/v1/services")
     api.register_blueprint(orders_blp, url_prefix="/api/v1/orders")
     api.register_blueprint(notifications_blp, url_prefix="/api/v1/notifications")
+    api.register_blueprint(payments_blp, url_prefix="/api/v1/payments")
 
     return app

@@ -52,3 +52,12 @@ class TestingConfig(Config):
     )
     CACHE_TYPE = "SimpleCache"
     PROPAGATE_EXCEPTIONS = False
+
+
+# ---------------- RF-08: Pasarela de Pagos ----------------
+# Comisión de plataforma (T&C §7.1). 12% sobre el monto del servicio.
+COMMISSION_RATE = 0.12
+# Umbral de exención: montos < 50000 COP no generan comisión (T&C §7.1).
+COMMISSION_EXEMPT_THRESHOLD = 50000
+# Plazo de auto-liberación de escrow sin quejas (RF-08.6): 48h.
+ESCROW_AUTO_RELEASE_HOURS = 48
