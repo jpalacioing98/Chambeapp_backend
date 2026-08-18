@@ -49,3 +49,18 @@ class MeSchema(Schema):
     fecha_registro = fields.DateTime()
     activo = fields.Boolean()
     profile = fields.Nested(ProfileSchema)
+
+
+class RegisterResponseSchema(Schema):
+    """Registro también retorna access/refresh token (Fase 1 RBAC)."""
+
+    id = fields.Integer()
+    email = fields.Email()
+    rol = fields.String()
+    edad_verificada = fields.Boolean()
+    acepto_tyc = fields.Boolean()
+    fecha_registro = fields.DateTime()
+    activo = fields.Boolean()
+    profile = fields.Raw()
+    access_token = fields.String()
+    refresh_token = fields.String()

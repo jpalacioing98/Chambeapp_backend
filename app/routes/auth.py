@@ -15,6 +15,7 @@ from app.schemas.auth import (
     RegisterSchema,
     LoginSchema,
     MeSchema,
+    RegisterResponseSchema,
 )
 
 blp = Blueprint("auth", __name__, description="Autenticación y registro")
@@ -26,7 +27,7 @@ TYC_VERSION = "1.0"
 @blp.route("/register")
 class Register(MethodView):
     @blp.arguments(RegisterSchema)
-    @blp.response(201, MeSchema)
+    @blp.response(201, RegisterResponseSchema)
     def post(self, data):
         """RF-01 + RF-17: registro requiere acepto_tyc=true."""
         if not data["acepto_tyc"]:
@@ -55,7 +56,26 @@ class Register(MethodView):
         db.session.add(legal)
         db.session.commit()
 
-        return user
+        access = create_access_token(
+            identity=str(user.id),
+            additional_claims={"role": user.rol.value, "role_v": user.role_version},
+        )
+        refresh = create_refresh_token(identity=str(user.id))
+        from app.schemas.auth import ProfileSchema
+
+        result = {
+            "id": user.id,
+            "email": user.email,
+            "rol": user.rol.value,
+            "edad_verificada": user.edad_verificada,
+            "acepto_tyc": user.acepto_tyc,
+            "fecha_registro": user.fecha_registro,
+            "activo": user.activo,
+            "profile": ProfileSchema().dump(user.profile),
+            "access_token": access,
+            "refresh_token": refresh,
+        }
+        return result
 
 
 @blp.route("/login")
@@ -68,9 +88,21 @@ class Login(MethodView):
             abort(401, message="Credenciales inválidas.")
         if not user.activo:
             abort(403, message="Usuario inactivo.")
+        if user.status != "active":
+            abort(403, message="Cuenta suspendida o bloqueada. Contacta soporte.")
 
-        access = create_access_token(identity=str(user.id))
+        access = create_access_token(
+            identity=str(user.id),
+            additional_claims={"role": user.rol.value, "role_v": user.role_version},
+        )
         refresh = create_refresh_token(identity=str(user.id))
+
+        # Auditoría de último login.
+        from datetime import datetime, timezone
+
+        user.last_login = datetime.now(timezone.utc)
+        db.session.commit()
+
         return {"access_token": access, "refresh_token": refresh}
 
 
@@ -78,9 +110,15 @@ class Login(MethodView):
 class Refresh(MethodView):
     @jwt_required(refresh=True)
     def post(self):
-        """Renueva access_token usando refresh_token."""
+        """Renueva access_token usando refresh_token (conserva claims de rol)."""
         user_id = get_jwt_identity()
-        access = create_access_token(identity=user_id)
+        user = db.session.get(User, int(user_id))
+        if user is None:
+            abort(401, message="Usuario no encontrado.")
+        access = create_access_token(
+            identity=str(user.id),
+            additional_claims={"role": user.rol.value, "role_v": user.role_version},
+        )
         return {"access_token": access}
 
 

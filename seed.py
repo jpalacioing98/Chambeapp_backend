@@ -10,18 +10,19 @@ idempotente: si el email ya existe, lo omite. Por defecto usa SQLite
 
 from app import create_app
 from app.extensions import db
-from app.models.user import User, Profile, LegalAcceptance, RolUsuario
+from app.models.user import User, Profile, LegalAcceptance, RolUsuario, Verification
+from app.models.audit import AuditLog  # asegura creación de la tabla en create_all
 from app.models.service import Service, EstadoServicio
 
 
 # Datos exactos de los 6 usuarios semilla (un rol por usuario).
 SEED_USERS = [
-    {"email": "trabajador@chambeapp.com", "rol": RolUsuario.TRABAJADOR},
-    {"email": "empleador@chambeapp.com", "rol": RolUsuario.EMPLEADOR},
-    {"email": "verificador@chambeapp.com", "rol": RolUsuario.VERIFICADOR},
-    {"email": "soporte@chambeapp.com", "rol": RolUsuario.SOPORTE},
-    {"email": "admin@chambeapp.com", "rol": RolUsuario.ADMIN},
-    {"email": "superadmin@chambeapp.com", "rol": RolUsuario.SUPERADMIN},
+    {"email": "trabajador@chambeapp.com", "rol": RolUsuario.TRABAJADOR, "nombre": "Trabajador Demo"},
+    {"email": "empleador@chambeapp.com", "rol": RolUsuario.EMPLEADOR, "nombre": "Empleador Demo"},
+    {"email": "verificador@chambeapp.com", "rol": RolUsuario.VERIFICADOR, "nombre": "Verificador Demo"},
+    {"email": "soporte@chambeapp.com", "rol": RolUsuario.SOPORTE, "nombre": "Soporte Demo"},
+    {"email": "admin@chambeapp.com", "rol": RolUsuario.ADMIN, "nombre": "Admin Demo"},
+    {"email": "superadmin@chambeapp.com", "rol": RolUsuario.SUPERADMIN, "nombre": "Superadmin Demo"},
 ]
 
 PASSWORD = "ChambeApp123!"
@@ -63,9 +64,11 @@ def seed_users() -> list[str]:
         user = User(
             email=email,
             rol=spec["rol"],
+            nombre=spec.get("nombre"),
             edad_verificada=True,
             acepto_tyc=True,
             activo=True,
+            status="active",
         )
         user.set_password(PASSWORD)
 
@@ -112,7 +115,10 @@ def seed_sample_service() -> bool:
 if __name__ == "__main__":
     app = create_app()  # DevelopmentConfig -> sqlite:///chambeapp.db
     with app.app_context():
-        print("Creando tablas (db.create_all)...")
+        print("Recreando esquema (db.drop_all + db.create_all)...")
+        # Dev/MVP: recrea el esquema para reflejar nuevos modelos/campos.
+        # ¡Borra datos de dev! Esperado en esta fase.
+        db.drop_all()
         db.create_all()
 
         print("Sembrando usuarios...")

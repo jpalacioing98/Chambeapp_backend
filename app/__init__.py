@@ -13,6 +13,8 @@ from app.routes.payments import blp as payments_blp
 from app.routes.ai import blp as ai_blp
 from app.routes.chat import blp as chat_blp
 from app.routes.chat_socket import register_chat_socketio
+from app.routes.admin import blp as admin_blp
+from app.models.user import User
 
 
 def create_app(config_class: str = "app.config.DevelopmentConfig") -> Flask:
@@ -48,8 +50,19 @@ def create_app(config_class: str = "app.config.DevelopmentConfig") -> Flask:
     api.register_blueprint(payments_blp, url_prefix="/api/v1/payments")
     api.register_blueprint(ai_blp, url_prefix="/api/v1/ai")
     api.register_blueprint(chat_blp, url_prefix="/api/v1/chat")
+    api.register_blueprint(admin_blp, url_prefix="/api/v1/admin")
 
     # Handlers SocketIO (después de init_app)
     register_chat_socketio(socketio)
+
+    # Carga el usuario desde el identity del JWT (current_user / lookup).
+    @jwt.user_lookup_loader
+    def user_lookup_callback(_jwt_header, jwt_data):
+        identity = jwt_data["sub"]
+        try:
+            uid = int(identity)
+        except (ValueError, TypeError):
+            return None
+        return User.query.get(uid)
 
     return app
