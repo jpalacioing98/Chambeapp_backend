@@ -32,9 +32,12 @@ class ProfileSchema(Schema):
     habilidades = fields.Raw()
     experiencia = fields.String(allow_none=True)
     zona = fields.String(allow_none=True)
+    categorias = fields.Raw()
+    portafolio = fields.Raw()
     calificacion_promedio = fields.Float()
     verificado = fields.Boolean()
     badges = fields.Raw()
+    perfil_completo = fields.Boolean()
 
 
 class MeSchema(Schema):

@@ -62,6 +62,9 @@ class Profile(db.Model):
     calificacion_promedio = db.Column(db.Float, default=0.0, nullable=False)
     verificado = db.Column(db.Boolean, default=False, nullable=False)
     badges = db.Column(db.JSON, default=list)
+    portafolio = db.Column(db.JSON, default=list)  # fotos / enlaces
+    categorias = db.Column(db.JSON, default=list)
+    perfil_completo = db.Column(db.Boolean, default=False, nullable=False)
 
     user = db.relationship("User", back_populates="profile")
 

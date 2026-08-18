@@ -5,6 +5,8 @@ from flask_smorest import Api
 
 from app.extensions import db, migrate, jwt, cache, bcrypt
 from app.routes.auth import blp as auth_blp
+from app.routes.users import blp as users_blp
+from app.routes.services import blp as services_blp
 
 
 def create_app(config_class: str = "app.config.DevelopmentConfig") -> Flask:
@@ -22,5 +24,7 @@ def create_app(config_class: str = "app.config.DevelopmentConfig") -> Flask:
     # API + blueprints (Flask-Smorest)
     api = Api(app)
     api.register_blueprint(auth_blp, url_prefix="/api/v1/auth")
+    api.register_blueprint(users_blp, url_prefix="/api/v1/users")
+    api.register_blueprint(services_blp, url_prefix="/api/v1/services")
 
     return app
