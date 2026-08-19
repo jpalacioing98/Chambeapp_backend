@@ -19,6 +19,8 @@ from app.models.contract import Dispute, Contract, EstadoContrato
 from app.models.ticket import Ticket
 from app.models.payment import Payment
 from app.models.config import SystemConfig, FeatureFlag
+from app.models.kyc import DocumentoRequerido, DocumentoUsuario
+from app.data.tyc import TYC_CONTENT, TYC_VERSION
 
 
 # Datos exactos de los 6 usuarios semilla (un rol por usuario).
@@ -221,8 +223,14 @@ def seed_config() -> int:
         ),
         (
             "tyc_current",
-            '{"version": 1, "content": "Términos y Condiciones v1 de ChambeApp.", '
-            f'"published_at": "{now}"}}',
+            SystemConfig.serialize_value(
+                {
+                    "version": TYC_VERSION,
+                    "content": TYC_CONTENT,
+                    "published_at": now,
+                },
+                "json",
+            ),
             "json",
             "Términos y Condiciones vigentes",
         ),
@@ -264,6 +272,48 @@ def seed_config() -> int:
     return created
 
 
+def seed_kyc() -> int:
+    """Siembra el catálogo de documentos KYC requeridos por rol (Politica_KYC.md)."""
+    catalogo = [
+        # ROL pds (obligatorios)
+        ("pds", "doc_identidad", "Documento de Identidad",
+         "Fotografía por ambas caras de CC, CE o PPT.", True, "identidad", 1),
+        ("pds", "prueba_vida", "Prueba de Vida (Biometría)",
+         "Selfie en tiempo real que coincide con el documento de identidad.", True, "identidad", 2),
+        ("pds", "antecedentes_judiciales", "Certificado de Antecedentes Judiciales",
+         "Consulta en bases de la Policía Nacional.", True, "antecedentes", 3),
+        ("pds", "rnmc", "Registro Nacional de Medidas Correctivas (RNMC)",
+         "Verificación de multas por comportamientos contrarios a la convivencia.", True, "antecedentes", 4),
+        ("pds", "cert_bancaria", "Certificación Bancaria",
+         "Cuenta a nombre exclusivo del titular (Nequi, Daviplata, Bancolombia…).", True, "financiero", 5),
+        # ROL pds (opcionales)
+        ("pds", "validacion_profesional", "Validación Profesional",
+         "Tarjeta profesional o certificado SENA (para badges de habilidad).", False, "opcional", 6),
+        ("pds", "salud_seguridad", "Salud y Seguridad (EPS + ARL)",
+         "Afiliación activa al Sistema de Seguridad Social. Obligatorio para planes Premium.", False, "opcional", 7),
+        # ROL solicitante (obligatorios)
+        ("solicitante", "doc_identidad", "Documento de Identidad",
+         "CC, CE o NIT (persona jurídica).", True, "identidad", 1),
+        ("solicitante", "verificacion_contacto", "Verificación de Contacto",
+         "Validación de teléfono celular por OTP en registro.", True, "identidad", 2),
+        ("solicitante", "validacion_pago", "Validación de Método de Pago",
+         "Micro-cargo de autorización vía pasarela (MercadoPago).", True, "financiero", 3),
+    ]
+    created = 0
+    for rol, clave, nombre, descripcion, obligatorio, grupo, orden in catalogo:
+        if DocumentoRequerido.query.filter_by(rol=rol, clave=clave).first():
+            continue
+        db.session.add(
+            DocumentoRequerido(
+                rol=rol, clave=clave, nombre=nombre, descripcion=descripcion,
+                obligatorio=obligatorio, grupo=grupo, orden=orden,
+            )
+        )
+        created += 1
+        print(f"  CREADO doc KYC: {rol}/{clave}")
+    return created
+
+
 if __name__ == "__main__":
     app = create_app()  # DevelopmentConfig -> sqlite:///chambeapp.db
     with app.app_context():
@@ -280,6 +330,8 @@ if __name__ == "__main__":
         seed_sample_contract()
         print("Sembrando configuración global y feature flags...")
         seed_config()
+        print("Sembrando catálogo de documentos KYC por rol...")
+        seed_kyc()
 
         db.session.commit()
 

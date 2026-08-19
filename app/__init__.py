@@ -18,6 +18,8 @@ from app.routes.tickets import blp as tickets_blp
 from app.routes.superadmin import blp as superadmin_blp
 from app.routes.ofertas import blp as ofertas_blp
 from app.routes.oferta_socket import register_ofertas_socketio
+from app.routes.legal import blp as legal_blp
+from app.routes.kyc import blp as kyc_blp
 from app.models.user import User
 
 
@@ -58,6 +60,8 @@ def create_app(config_class: str = "app.config.DevelopmentConfig") -> Flask:
     api.register_blueprint(tickets_blp, url_prefix="/api/v1/tickets")
     api.register_blueprint(superadmin_blp, url_prefix="/api/v1/superadmin")
     api.register_blueprint(ofertas_blp, url_prefix="/api/v1")
+    api.register_blueprint(legal_blp, url_prefix="/api/v1/legal")
+    api.register_blueprint(kyc_blp, url_prefix="/api/v1/kyc")
 
     # Handlers SocketIO (después de init_app)
     register_chat_socketio(socketio)

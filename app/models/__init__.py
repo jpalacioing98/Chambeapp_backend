@@ -14,6 +14,7 @@ from app.models.notification import Notification
 from app.models.chat import Conversation, Message
 from app.models.audit import AuditLog, write_audit
 from app.models.config import SystemConfig, FeatureFlag
+from app.models.kyc import DocumentoRequerido, DocumentoUsuario
 
 __all__ = [
     "RolUsuario",
@@ -37,4 +38,6 @@ __all__ = [
     "write_audit",
     "SystemConfig",
     "FeatureFlag",
+    "DocumentoRequerido",
+    "DocumentoUsuario",
 ]
