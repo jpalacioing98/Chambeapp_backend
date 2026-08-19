@@ -60,7 +60,7 @@ class StatsOverviewSchema(Schema):
     users_total = fields.Integer()
     users_active = fields.Integer()
     services_total = fields.Integer()
-    orders_total = fields.Integer()
+    contracts_total = fields.Integer()
     revenue_total = fields.Integer()
     disputes_open = fields.Integer()
 
@@ -100,15 +100,15 @@ class SolicitudListResponseSchema(Schema):
 
 
 # --------------------------------------------------------------------------
-# Fase 2: moderación de órdenes
+# Fase 2: moderación de contratos
 # --------------------------------------------------------------------------
-class OrderModerateSchema(Schema):
+class ContractModerateSchema(Schema):
     action = fields.String(
         required=True, validate=validate.OneOf(["cancel", "flag"])
     )
 
 
-class OrderListSchema(Schema):
+class ContractListSchema(Schema):
     id = fields.Integer()
     estado = fields.String()
     comprador_id = fields.Integer(attribute="solicitante_id")
@@ -118,8 +118,8 @@ class OrderListSchema(Schema):
     created_at = fields.DateTime(attribute="creado_en")
 
 
-class OrderListResponseSchema(Schema):
-    items = fields.List(fields.Nested(OrderListSchema))
+class ContractListResponseSchema(Schema):
+    items = fields.List(fields.Nested(ContractListSchema))
     total = fields.Integer()
 
 
@@ -128,7 +128,7 @@ class OrderListResponseSchema(Schema):
 # --------------------------------------------------------------------------
 class DisputeListSchema(Schema):
     id = fields.Integer()
-    order_id = fields.Integer()
+    contract_id = fields.Integer()
     reason = fields.String()
     status = fields.String()
     created_at = fields.DateTime()
@@ -141,7 +141,7 @@ class DisputeListResponseSchema(Schema):
 
 class DisputeDetailSchema(Schema):
     id = fields.Integer()
-    order_id = fields.Integer()
+    contract_id = fields.Integer()
     reason = fields.String()
     status = fields.String()
     resolved_by = fields.Integer(allow_none=True)
@@ -149,7 +149,7 @@ class DisputeDetailSchema(Schema):
     resolution = fields.String(allow_none=True)
     escrow_action = fields.String(allow_none=True)
     created_at = fields.DateTime()
-    order = fields.Raw(allow_none=True)
+    contract = fields.Raw(allow_none=True)
     payment = fields.Raw(allow_none=True)
 
 

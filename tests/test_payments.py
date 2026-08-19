@@ -5,7 +5,7 @@ import pytest
 from app import create_app
 from app.extensions import db
 from app.config import TestingConfig
-from app.models.order import Order, EstadoOrden
+from app.models.contract import Contract, EstadoContrato
 from app.models.solicitud import Solicitud, EstadoSolicitud
 from app.models.payment import Payment, EstadoPago
 from app.models.user import User, RolUsuario
@@ -63,19 +63,19 @@ def _crear_servicio(client, headers):
     return resp.get_json()["id"]
 
 
-def _orden_completada(client, emp_h, tr_h, tr_id):
-    """Crea servicio, orden, acepta y completa. Devuelve order_id."""
+def _contrato_completado(client, emp_h, tr_h, tr_id):
+    """Crea servicio, contrato, acepta y completa. Devuelve contract_id."""
     sid = _crear_servicio(client, emp_h)
     oid = client.post(
-        "/api/v1/orders/",
+        "/api/v1/contracts/",
         json={"service_id": sid, "proveedor_id": tr_id},
         headers=emp_h,
     ).get_json()["id"]
     client.patch(
-        f"/api/v1/orders/{oid}/estado", json={"estado": "aceptar"}, headers=tr_h
+        f"/api/v1/contracts/{oid}/estado", json={"estado": "aceptar"}, headers=tr_h
     )
     client.patch(
-        f"/api/v1/orders/{oid}/estado", json={"estado": "completar"}, headers=tr_h
+        f"/api/v1/contracts/{oid}/estado", json={"estado": "completar"}, headers=tr_h
     )
     return oid
 
@@ -84,9 +84,9 @@ def _orden_completada(client, emp_h, tr_h, tr_id):
 def test_crear_pago_ok(client):
     emp_h = _user(client, "emp@example.com", rol="empleador")
     tr_h = _user(client, "tr@example.com", rol="trabajador")
-    oid = _orden_completada(client, emp_h, tr_h, tr_id=2)
+    oid = _contrato_completado(client, emp_h, tr_h, tr_id=2)
     resp = client.post(
-        "/api/v1/payments/", json={"order_id": oid, "monto": 100000}, headers=emp_h
+        "/api/v1/payments/", json={"contract_id": oid, "monto": 100000}, headers=emp_h
     )
     assert resp.status_code == 201
     d = resp.get_json()
@@ -100,13 +100,13 @@ def test_crear_pago_orden_no_completada(client):
     _user(client, "tr@example.com", rol="trabajador")
     sid = _crear_servicio(client, emp_h)
     oid = client.post(
-        "/api/v1/orders/",
+        "/api/v1/contracts/",
         json={"service_id": sid, "proveedor_id": 2},
         headers=emp_h,
     ).get_json()["id"]
     # orden sigue 'pendiente' -> 400
     resp = client.post(
-        "/api/v1/payments/", json={"order_id": oid, "monto": 100000}, headers=emp_h
+        "/api/v1/payments/", json={"contract_id": oid, "monto": 100000}, headers=emp_h
     )
     assert resp.status_code == 400
 
@@ -114,9 +114,9 @@ def test_crear_pago_orden_no_completada(client):
 def test_comision_exenta_bajo_umbral(client):
     emp_h = _user(client, "emp@example.com", rol="empleador")
     tr_h = _user(client, "tr@example.com", rol="trabajador")
-    oid = _orden_completada(client, emp_h, tr_h, tr_id=2)
+    oid = _contrato_completado(client, emp_h, tr_h, tr_id=2)
     resp = client.post(
-        "/api/v1/payments/", json={"order_id": oid, "monto": 40000}, headers=emp_h
+        "/api/v1/payments/", json={"contract_id": oid, "monto": 40000}, headers=emp_h
     )
     assert resp.status_code == 201
     assert resp.get_json()["comision"] == 0  # < 50000 => exenta
@@ -125,9 +125,9 @@ def test_comision_exenta_bajo_umbral(client):
 def test_comision_12_por_encima_umbral(client):
     emp_h = _user(client, "emp@example.com", rol="empleador")
     tr_h = _user(client, "tr@example.com", rol="trabajador")
-    oid = _orden_completada(client, emp_h, tr_h, tr_id=2)
+    oid = _contrato_completado(client, emp_h, tr_h, tr_id=2)
     resp = client.post(
-        "/api/v1/payments/", json={"order_id": oid, "monto": 50000}, headers=emp_h
+        "/api/v1/payments/", json={"contract_id": oid, "monto": 50000}, headers=emp_h
     )
     assert resp.status_code == 201
     assert resp.get_json()["comision"] == 6000  # 12% de 50000
@@ -137,9 +137,9 @@ def test_comision_12_por_encima_umbral(client):
 def test_confirmar_en_escrow(client):
     emp_h = _user(client, "emp@example.com", rol="empleador")
     tr_h = _user(client, "tr@example.com", rol="trabajador")
-    oid = _orden_completada(client, emp_h, tr_h, tr_id=2)
+    oid = _contrato_completado(client, emp_h, tr_h, tr_id=2)
     pid = client.post(
-        "/api/v1/payments/", json={"order_id": oid, "monto": 100000}, headers=emp_h
+        "/api/v1/payments/", json={"contract_id": oid, "monto": 100000}, headers=emp_h
     ).get_json()["id"]
     r = client.post(f"/api/v1/payments/{pid}/confirm", headers=emp_h)
     assert r.status_code == 200
@@ -150,9 +150,9 @@ def test_confirmar_en_escrow(client):
 def test_liberar_escrow(client):
     emp_h = _user(client, "emp@example.com", rol="empleador")
     tr_h = _user(client, "tr@example.com", rol="trabajador")
-    oid = _orden_completada(client, emp_h, tr_h, tr_id=2)
+    oid = _contrato_completado(client, emp_h, tr_h, tr_id=2)
     pid = client.post(
-        "/api/v1/payments/", json={"order_id": oid, "monto": 100000}, headers=emp_h
+        "/api/v1/payments/", json={"contract_id": oid, "monto": 100000}, headers=emp_h
     ).get_json()["id"]
     client.post(f"/api/v1/payments/{pid}/confirm", headers=emp_h)
     r = client.post(f"/api/v1/payments/{pid}/release", headers=emp_h)
@@ -165,9 +165,9 @@ def test_liberar_escrow(client):
 def test_reembolsar_con_motivo(client):
     emp_h = _user(client, "emp@example.com", rol="empleador")
     tr_h = _user(client, "tr@example.com", rol="trabajador")
-    oid = _orden_completada(client, emp_h, tr_h, tr_id=2)
+    oid = _contrato_completado(client, emp_h, tr_h, tr_id=2)
     pid = client.post(
-        "/api/v1/payments/", json={"order_id": oid, "monto": 100000}, headers=emp_h
+        "/api/v1/payments/", json={"contract_id": oid, "monto": 100000}, headers=emp_h
     ).get_json()["id"]
     client.post(f"/api/v1/payments/{pid}/confirm", headers=emp_h)
     r = client.post(
@@ -185,11 +185,11 @@ def test_reembolsar_con_motivo(client):
 def test_retry_fallido(client, app):
     emp_h = _user(client, "emp@example.com", rol="empleador")
     tr_h = _user(client, "tr@example.com", rol="trabajador")
-    oid = _orden_completada(client, emp_h, tr_h, tr_id=2)
+    oid = _contrato_completado(client, emp_h, tr_h, tr_id=2)
     # crear pago y forzar estado 'fallido' via DB directa
     with app.app_context():
         p = Payment(
-            order_id=oid, monto=100000, comision=12000,
+            contract_id=oid, monto=100000, comision=12000,
             estado=EstadoPago.FALLIDO, pasarela="mock",
         )
         db.session.add(p)
@@ -204,9 +204,9 @@ def test_retry_fallido(client, app):
 def test_mine_filtra_por_usuario(client):
     emp_h = _user(client, "emp@example.com", rol="empleador")
     tr_h = _user(client, "tr@example.com", rol="trabajador")
-    oid = _orden_completada(client, emp_h, tr_h, tr_id=2)
+    oid = _contrato_completado(client, emp_h, tr_h, tr_id=2)
     client.post(
-        "/api/v1/payments/", json={"order_id": oid, "monto": 100000}, headers=emp_h
+        "/api/v1/payments/", json={"contract_id": oid, "monto": 100000}, headers=emp_h
     )
     # solicitante (empleador) ve el pago
     r = client.get("/api/v1/payments/mine", headers=emp_h)

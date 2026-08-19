@@ -16,7 +16,7 @@ from flask_jwt_extended import get_jwt_identity
 from app.extensions import db
 from app.auth.decorators import superadmin_required
 from app.models.user import User, RolUsuario
-from app.models.order import Order, EstadoOrden
+from app.models.contract import Contract, EstadoContrato
 from app.models.audit import AuditLog, write_audit
 from app.models.config import SystemConfig, FeatureFlag
 from app.schemas.superadmin import (
@@ -31,7 +31,7 @@ from app.schemas.superadmin import (
     TyCPostSchema,
     TyCPostResponseSchema,
     OverrideUserSchema,
-    OverrideOrderSchema,
+    OverrideContractSchema,
     FlagPatchSchema,
     FlagListResponseSchema,
 )
@@ -290,27 +290,27 @@ class SuperAdminOverrideUser(MethodView):
         return {"id": user.id, "status": user.status}
 
 
-@blp.route("/override/order")
-class SuperAdminOverrideOrder(MethodView):
+@blp.route("/override/contract")
+class SuperAdminOverrideContract(MethodView):
     @superadmin_required
-    @blp.arguments(OverrideOrderSchema)
+    @blp.arguments(OverrideContractSchema)
     @blp.response(200)
     def post(self, data):
-        """Aplica acción forzada sobre una Order (complete | cancel)."""
-        order = db.get_or_404(Order, data["order_id"])
+        """Aplica acción forzada sobre un Contract (complete | cancel)."""
+        contract = db.get_or_404(Contract, data["contract_id"])
         action = data["action"]
-        before = {"estado": order.estado.value}
+        before = {"estado": contract.estado.value}
         if action == "complete":
-            new_estado = EstadoOrden.COMPLETADO
+            new_estado = EstadoContrato.COMPLETADO
         else:  # cancel
-            new_estado = EstadoOrden.CANCELADO
-        order.estado = new_estado
+            new_estado = EstadoContrato.CANCELADO
+        contract.estado = new_estado
         write_audit(
-            _actor_id(), f"superadmin.override.order.{action}", "order", order.id,
+            _actor_id(), f"superadmin.override.contract.{action}", "contract", contract.id,
             before, {"estado": new_estado.value}, _client_ip(),
         )
         db.session.commit()
-        return {"id": order.id, "estado": order.estado.value}
+        return {"id": contract.id, "estado": contract.estado.value}
 
 
 # ==========================================================================

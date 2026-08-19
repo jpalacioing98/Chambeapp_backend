@@ -25,9 +25,9 @@ class Payment(db.Model):
     __tablename__ = "payments"
 
     id = db.Column(db.Integer, primary_key=True)
-    order_id = db.Column(
+    contract_id = db.Column(
         db.Integer,
-        db.ForeignKey("orders.id"),
+        db.ForeignKey("contracts.id"),
         nullable=False,
         unique=True,
         index=True,
@@ -51,7 +51,7 @@ class Payment(db.Model):
     )
     liberado_en = db.Column(db.DateTime, nullable=True)
 
-    order = db.relationship("Order")
+    contract = db.relationship("Contract")
 
     def __repr__(self):
-        return f"<Payment {self.id} order={self.order_id} estado={self.estado.value}>"
+        return f"<Payment {self.id} contract={self.contract_id} estado={self.estado.value}>"

@@ -14,7 +14,7 @@ from app.models.user import User, Profile, LegalAcceptance, RolUsuario, Verifica
 from app.models.audit import AuditLog  # asegura creación de la tabla en create_all
 from app.models.solicitud import Solicitud, EstadoSolicitud
 from app.models.oferta import Oferta, EstadoOferta
-from app.models.order import Dispute
+from app.models.contract import Dispute
 from app.models.ticket import Ticket
 from app.models.payment import Payment
 from app.models.config import SystemConfig, FeatureFlag

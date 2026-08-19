@@ -15,7 +15,7 @@ from app.extensions import db
 from app.auth.decorators import admin_required
 from app.models.user import User, RolUsuario, Verification
 from app.models.solicitud import Solicitud, Rating, EstadoSolicitud
-from app.models.order import Order, EstadoOrden, Dispute
+from app.models.contract import Contract, EstadoContrato, Dispute
 from app.models.payment import Payment, EstadoPago
 from app.models.ticket import Ticket
 from app.models.audit import write_audit
@@ -33,9 +33,9 @@ from app.schemas.admin import (
     StatsOverviewSchema,
     SolicitudModerateSchema,
     SolicitudListResponseSchema,
-    OrderModerateSchema,
-    OrderListSchema,
-    OrderListResponseSchema,
+    ContractModerateSchema,
+    ContractListSchema,
+    ContractListResponseSchema,
     DisputeListResponseSchema,
     DisputeDetailSchema,
     DisputeResolveSchema,
@@ -142,7 +142,7 @@ class AdminStats(MethodView):
         users_total = User.query.count()
         users_active = User.query.filter(User.status == "active").count()
         services_total = Solicitud.query.count()
-        orders_total = Order.query.count()
+        contracts_total = Contract.query.count()
         revenue_total = (
             db.session.query(db.func.sum(Payment.monto))
             .filter(Payment.estado == EstadoPago.LIBERADO)
@@ -154,7 +154,7 @@ class AdminStats(MethodView):
             "users_total": users_total,
             "users_active": users_active,
             "services_total": services_total,
-            "orders_total": orders_total,
+            "contracts_total": contracts_total,
             "revenue_total": int(revenue_total),
             "disputes_open": disputes_open,
         }
@@ -272,49 +272,49 @@ class AdminSolicitudModerate(MethodView):
 
 
 # ==========================================================================
-# FASE 2 — Moderación de órdenes
+# FASE 2 — Moderación de contratos
 # ==========================================================================
-_ORDER_ACTION_ESTADO = {
-    "cancel": EstadoOrden.CANCELADO,
-    "flag": EstadoOrden.MARCADO,
+_CONTRACT_ACTION_ESTADO = {
+    "cancel": EstadoContrato.CANCELADO,
+    "flag": EstadoContrato.MARCADO,
 }
 
 
-@blp.route("/orders")
-class AdminOrderList(MethodView):
+@blp.route("/contracts")
+class AdminContractList(MethodView):
     @admin_required
-    @blp.response(200, OrderListResponseSchema)
+    @blp.response(200, ContractListResponseSchema)
     def get(self):
-        """Lista órdenes con filtro opcional de status — máx 50."""
-        query = Order.query
+        """Lista contratos con filtro opcional de status — máx 50."""
+        query = Contract.query
         status = request.args.get("status")
         if status:
-            query = query.filter(Order.estado == EstadoOrden(status))
+            query = query.filter(Contract.estado == EstadoContrato(status))
         total = query.count()
-        orders = query.order_by(Order.creado_en.desc()).limit(50).all()
-        for o in orders:
-            payment = Payment.query.filter_by(order_id=o.id).first()
+        contracts = query.order_by(Contract.creado_en.desc()).limit(50).all()
+        for o in contracts:
+            payment = Payment.query.filter_by(contract_id=o.id).first()
             o.monto = payment.monto if payment else None
-        return {"items": orders, "total": total}
+        return {"items": contracts, "total": total}
 
 
-@blp.route("/orders/<int:order_id>/moderate")
-class AdminOrderModerate(MethodView):
+@blp.route("/contracts/<int:contract_id>/moderate")
+class AdminContractModerate(MethodView):
     @admin_required
-    @blp.arguments(OrderModerateSchema)
+    @blp.arguments(ContractModerateSchema)
     @blp.response(200)
-    def patch(self, data, order_id):
-        """Modera una orden: cancel | flag."""
-        order = db.get_or_404(Order, order_id)
-        nuevo = _ORDER_ACTION_ESTADO[data["action"]]
-        before = {"estado": order.estado.value}
-        order.estado = nuevo
+    def patch(self, data, contract_id):
+        """Modera un contrato: cancel | flag."""
+        contract = db.get_or_404(Contract, contract_id)
+        nuevo = _CONTRACT_ACTION_ESTADO[data["action"]]
+        before = {"estado": contract.estado.value}
+        contract.estado = nuevo
         write_audit(
-            _actor_id(), f"order.moderate.{data['action']}", "order",
-            order.id, before, {"estado": nuevo.value}, _client_ip(),
+            _actor_id(), f"contract.moderate.{data['action']}", "contract",
+            contract.id, before, {"estado": nuevo.value}, _client_ip(),
         )
         db.session.commit()
-        return {"id": order.id, "estado": order.estado.value}
+        return {"id": contract.id, "estado": contract.estado.value}
 
 
 # ==========================================================================
@@ -340,20 +340,20 @@ class AdminDisputeDetail(MethodView):
     @admin_required
     @blp.response(200)
     def get(self, dispute_id):
-        """Detalle de disputa + datos de orden/pago asociados."""
+        """Detalle de disputa + datos de contrato/pago asociados."""
         dispute = db.get_or_404(Dispute, dispute_id)
-        order = db.session.get(Order, dispute.order_id)
-        payment = Payment.query.filter_by(order_id=dispute.order_id).first()
+        contract = db.session.get(Contract, dispute.contract_id)
+        payment = Payment.query.filter_by(contract_id=dispute.contract_id).first()
         data = DisputeDetailSchema().dump(dispute)
-        data["order"] = (
+        data["contract"] = (
             {
-                "id": order.id,
-                "estado": order.estado.value,
-                "comprador_id": order.solicitante_id,
-                "vendedor_id": order.proveedor_id,
-                "servicio_id": order.service_id,
+                "id": contract.id,
+                "estado": contract.estado.value,
+                "comprador_id": contract.solicitante_id,
+                "vendedor_id": contract.proveedor_id,
+                "servicio_id": contract.service_id,
             }
-            if order
+            if contract
             else None
         )
         data["payment"] = (
@@ -379,8 +379,8 @@ class AdminDisputeResolve(MethodView):
         dispute = db.get_or_404(Dispute, dispute_id)
         if dispute.status == "resuelta":
             abort(400, message="La disputa ya está resuelta.")
-        order = db.session.get(Order, dispute.order_id)
-        payment = Payment.query.filter_by(order_id=dispute.order_id).first()
+        contract = db.session.get(Contract, dispute.contract_id)
+        payment = Payment.query.filter_by(contract_id=dispute.contract_id).first()
 
         before = {
             "status": dispute.status,

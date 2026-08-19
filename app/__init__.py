@@ -7,7 +7,7 @@ from app.extensions import db, migrate, jwt, cache, bcrypt, socketio, cors
 from app.routes.auth import blp as auth_blp
 from app.routes.users import blp as users_blp
 from app.routes.solicitudes import blp as solicitudes_blp
-from app.routes.orders import blp as orders_blp
+from app.routes.contracts import blp as contracts_blp
 from app.routes.notifications import blp as notifications_blp
 from app.routes.payments import blp as payments_blp
 from app.routes.ai import blp as ai_blp
@@ -49,7 +49,7 @@ def create_app(config_class: str = "app.config.DevelopmentConfig") -> Flask:
     api.register_blueprint(auth_blp, url_prefix="/api/v1/auth")
     api.register_blueprint(users_blp, url_prefix="/api/v1/users")
     api.register_blueprint(solicitudes_blp, url_prefix="/api/v1/solicitudes")
-    api.register_blueprint(orders_blp, url_prefix="/api/v1/orders")
+    api.register_blueprint(contracts_blp, url_prefix="/api/v1/contracts")
     api.register_blueprint(notifications_blp, url_prefix="/api/v1/notifications")
     api.register_blueprint(payments_blp, url_prefix="/api/v1/payments")
     api.register_blueprint(ai_blp, url_prefix="/api/v1/ai")

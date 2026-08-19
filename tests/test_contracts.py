@@ -1,11 +1,11 @@
-"""pytest suite — orders (RF-07) + notifications (RF-16 parcial)."""
+"""pytest suite — contracts (RF-07) + notifications (RF-16 parcial)."""
 
 import pytest
 
 from app import create_app
 from app.extensions import db
 from app.config import TestingConfig
-from app.models.order import Order, EstadoOrden
+from app.models.contract import Contract, EstadoContrato
 from app.models.solicitud import Solicitud, EstadoSolicitud
 from app.models.notification import Notification
 
@@ -70,7 +70,7 @@ def test_create_order_ok(client):
     # id del trabajador = 2 (empleador=1)
     sid = _crear_servicio(client, emp_h)
     resp = client.post(
-        "/api/v1/orders/",
+        "/api/v1/contracts/",
         json={"service_id": sid, "proveedor_id": 2},
         headers=emp_h,
     )
@@ -88,7 +88,7 @@ def test_create_order_not_owner(client):
     tr_h = _user(client, "tr@example.com", rol="trabajador")
     sid = _crear_servicio(client, emp_h)
     resp = client.post(
-        "/api/v1/orders/",
+        "/api/v1/contracts/",
         json={"service_id": sid, "proveedor_id": 3},
         headers=other_h,
     )
@@ -106,7 +106,7 @@ def test_create_order_service_not_publicado(client):
         headers=emp_h,
     )
     resp = client.post(
-        "/api/v1/orders/",
+        "/api/v1/contracts/",
         json={"service_id": sid, "proveedor_id": 2},
         headers=emp_h,
     )
@@ -119,12 +119,12 @@ def test_aceptar_ok(client):
     tr_h = _user(client, "tr@example.com", rol="trabajador")
     sid = _crear_servicio(client, emp_h)
     oid = client.post(
-        "/api/v1/orders/",
+        "/api/v1/contracts/",
         json={"service_id": sid, "proveedor_id": 2},
         headers=emp_h,
     ).get_json()["id"]
     resp = client.patch(
-        f"/api/v1/orders/{oid}/estado",
+        f"/api/v1/contracts/{oid}/estado",
         json={"estado": "aceptar"},
         headers=tr_h,
     )
@@ -137,13 +137,13 @@ def test_aceptar_not_proveedor(client):
     _user(client, "tr@example.com", rol="trabajador")
     sid = _crear_servicio(client, emp_h)
     oid = client.post(
-        "/api/v1/orders/",
+        "/api/v1/contracts/",
         json={"service_id": sid, "proveedor_id": 2},
         headers=emp_h,
     ).get_json()["id"]
     # solicitante intenta aceptar
     resp = client.patch(
-        f"/api/v1/orders/{oid}/estado",
+        f"/api/v1/contracts/{oid}/estado",
         json={"estado": "aceptar"},
         headers=emp_h,
     )
@@ -156,17 +156,17 @@ def test_completar_ok_propagates_service(client):
     tr_h = _user(client, "tr@example.com", rol="trabajador")
     sid = _crear_servicio(client, emp_h)
     oid = client.post(
-        "/api/v1/orders/",
+        "/api/v1/contracts/",
         json={"service_id": sid, "proveedor_id": 2},
         headers=emp_h,
     ).get_json()["id"]
     client.patch(
-        f"/api/v1/orders/{oid}/estado",
+        f"/api/v1/contracts/{oid}/estado",
         json={"estado": "aceptar"},
         headers=tr_h,
     )
     resp = client.patch(
-        f"/api/v1/orders/{oid}/estado",
+        f"/api/v1/contracts/{oid}/estado",
         json={"estado": "completar"},
         headers=tr_h,
     )
@@ -183,12 +183,12 @@ def test_cancelar_ok_notifies_contraparte(client):
     tr_h = _user(client, "tr@example.com", rol="trabajador")
     sid = _crear_servicio(client, emp_h)
     oid = client.post(
-        "/api/v1/orders/",
+        "/api/v1/contracts/",
         json={"service_id": sid, "proveedor_id": 2},
         headers=emp_h,
     ).get_json()["id"]
     resp = client.patch(
-        f"/api/v1/orders/{oid}/estado",
+        f"/api/v1/contracts/{oid}/estado",
         json={"estado": "cancelar", "motivo_cancelacion": "ya no necesito"},
         headers=emp_h,
     )
@@ -196,7 +196,7 @@ def test_cancelar_ok_notifies_contraparte(client):
     assert resp.get_json()["estado"] == "cancelado"
     # notificación a contraparte (proveedor id=2): debe incluir la de cancelación
     notifs = client.get("/api/v1/notifications/me", headers=tr_h).get_json()
-    assert any("cancelada" in n["mensaje"] for n in notifs)
+    assert any("cancelad" in n["mensaje"] for n in notifs)
 
 
 def test_cancelar_requires_motivo(client):
@@ -204,12 +204,12 @@ def test_cancelar_requires_motivo(client):
     _user(client, "tr@example.com", rol="trabajador")
     sid = _crear_servicio(client, emp_h)
     oid = client.post(
-        "/api/v1/orders/",
+        "/api/v1/contracts/",
         json={"service_id": sid, "proveedor_id": 2},
         headers=emp_h,
     ).get_json()["id"]
     resp = client.patch(
-        f"/api/v1/orders/{oid}/estado",
+        f"/api/v1/contracts/{oid}/estado",
         json={"estado": "cancelar"},
         headers=emp_h,
     )
@@ -222,12 +222,12 @@ def test_transicion_ilegal_completar_desde_pendiente(client):
     tr_h = _user(client, "tr@example.com", rol="trabajador")
     sid = _crear_servicio(client, emp_h)
     oid = client.post(
-        "/api/v1/orders/",
+        "/api/v1/contracts/",
         json={"service_id": sid, "proveedor_id": 2},
         headers=emp_h,
     ).get_json()["id"]
     resp = client.patch(
-        f"/api/v1/orders/{oid}/estado",
+        f"/api/v1/contracts/{oid}/estado",
         json={"estado": "completar"},
         headers=tr_h,
     )
@@ -240,18 +240,18 @@ def test_mine_filtra_estado(client):
     tr_h = _user(client, "tr@example.com", rol="trabajador")
     sid = _crear_servicio(client, emp_h)
     oid = client.post(
-        "/api/v1/orders/",
+        "/api/v1/contracts/",
         json={"service_id": sid, "proveedor_id": 2},
         headers=emp_h,
     ).get_json()["id"]
     # solicitante ve su orden
-    resp = client.get("/api/v1/orders/mine", headers=emp_h)
+    resp = client.get("/api/v1/contracts/mine", headers=emp_h)
     assert resp.status_code == 200
     assert len(resp.get_json()) == 1
     # filtro por estado
-    resp2 = client.get("/api/v1/orders/mine?estado=pendiente", headers=emp_h)
+    resp2 = client.get("/api/v1/contracts/mine?estado=pendiente", headers=emp_h)
     assert len(resp2.get_json()) == 1
-    resp3 = client.get("/api/v1/orders/mine?estado=completado", headers=emp_h)
+    resp3 = client.get("/api/v1/contracts/mine?estado=completado", headers=emp_h)
     assert len(resp3.get_json()) == 0
 
 
@@ -261,11 +261,11 @@ def test_detail_forbidden_for_non_participant(client):
     outsider_h = _user(client, "out@example.com", rol="empleador")
     sid = _crear_servicio(client, emp_h)
     oid = client.post(
-        "/api/v1/orders/",
+        "/api/v1/contracts/",
         json={"service_id": sid, "proveedor_id": 2},
         headers=emp_h,
     ).get_json()["id"]
-    resp = client.get(f"/api/v1/orders/{oid}", headers=outsider_h)
+    resp = client.get(f"/api/v1/contracts/{oid}", headers=outsider_h)
     assert resp.status_code == 403
 
 
@@ -275,7 +275,7 @@ def test_notification_me_and_read(client):
     tr_h = _user(client, "tr@example.com", rol="trabajador")
     sid = _crear_servicio(client, emp_h)
     client.post(
-        "/api/v1/orders/",
+        "/api/v1/contracts/",
         json={"service_id": sid, "proveedor_id": 2},
         headers=emp_h,
     )

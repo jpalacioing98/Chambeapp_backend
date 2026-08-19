@@ -112,8 +112,8 @@ class OverrideUserSchema(Schema):
     )
 
 
-class OverrideOrderSchema(Schema):
-    order_id = fields.Integer(required=True)
+class OverrideContractSchema(Schema):
+    contract_id = fields.Integer(required=True)
     action = fields.String(
         required=True, validate=validate.OneOf(["complete", "cancel"])
     )

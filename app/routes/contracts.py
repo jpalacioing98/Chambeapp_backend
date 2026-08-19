@@ -1,0 +1,156 @@
+"""Contracts blueprint: gestión contractual y órdenes de trabajo (RF-07)."""
+
+from flask import request
+from flask.views import MethodView
+from flask_smorest import Blueprint, abort
+from flask_jwt_extended import jwt_required, get_jwt_identity
+
+from app.extensions import db
+from app.models.user import User
+from app.models.solicitud import Solicitud, EstadoSolicitud
+from app.models.contract import Contract, EstadoContrato
+from app.schemas.contracts import ContractCreateSchema, ContractEstadoSchema, ContractSchema
+from app.routes.notifications import crear_notificacion
+
+blp = Blueprint("contracts", __name__, description="Contratos de trabajo (RF-07)")
+
+
+@blp.route("/")
+class ContractList(MethodView):
+    @jwt_required()
+    @blp.arguments(ContractCreateSchema)
+    @blp.response(201, ContractSchema)
+    def post(self, data):
+        """RF-07.1: crea contrato. El JWT debe ser el dueño (solicitante) del servicio."""
+        user_id = int(get_jwt_identity())
+
+        solicitud = db.session.get(Solicitud, data["service_id"])
+        if solicitud is None:
+            abort(404, message="La solicitud no existe.")
+
+        if solicitud.estado != EstadoSolicitud.PUBLICADO:
+            abort(400, message="La solicitud no está publicada.")
+
+        if solicitud.solicitante_id != user_id:
+            abort(403, message="Solo el dueño de la solicitud puede crear el contrato.")
+
+        proveedor = db.session.get(User, data["proveedor_id"])
+        if proveedor is None:
+            abort(404, message="El proveedor no existe.")
+
+        contract = Contract(
+            service_id=solicitud.id,
+            proveedor_id=proveedor.id,
+            solicitante_id=user_id,
+            estado=EstadoContrato.PENDIENTE,
+        )
+        db.session.add(contract)
+        db.session.flush()
+
+        crear_notificacion(
+            proveedor.id,
+            "contrato_pendiente",
+            "Tienes un contrato pendiente de un servicio que publicaste.",
+        )
+        db.session.commit()
+        return contract
+
+
+@blp.route("/mine")
+class MyContracts(MethodView):
+    @jwt_required()
+    @blp.response(200, ContractSchema(many=True))
+    def get(self):
+        """RF-07: lista contratos donde el usuario es solicitante o proveedor."""
+        user_id = int(get_jwt_identity())
+        query = Contract.query.filter(
+            (Contract.solicitante_id == user_id) | (Contract.proveedor_id == user_id)
+        )
+        estado = request.args.get("estado")
+        if estado:
+            query = query.filter(Contract.estado == EstadoContrato(estado))
+        return query.order_by(Contract.creado_en.desc()).all()
+
+
+@blp.route("/<int:contract_id>")
+class ContractDetail(MethodView):
+    @jwt_required()
+    @blp.response(200, ContractSchema)
+    def get(self, contract_id):
+        """RF-07: detalle de contrato (solo participantes)."""
+        user_id = int(get_jwt_identity())
+        contract = db.get_or_404(Contract, contract_id)
+        if user_id not in (contract.solicitante_id, contract.proveedor_id):
+            abort(403, message="No participas en este contrato.")
+        return contract
+
+
+@blp.route("/<int:contract_id>/estado")
+class ContractEstado(MethodView):
+    @jwt_required()
+    @blp.arguments(ContractEstadoSchema)
+    @blp.response(200, ContractSchema)
+    def patch(self, data, contract_id):
+        """RF-07.2/3/4: transición de estado del contrato."""
+        user_id = int(get_jwt_identity())
+        contract = db.get_or_404(Contract, contract_id)
+
+        if user_id not in (contract.solicitante_id, contract.proveedor_id):
+            abort(403, message="No participas en este contrato.")
+
+        accion = data["estado"]
+
+        if accion == "aceptar":
+            if contract.estado != EstadoContrato.PENDIENTE:
+                abort(400, message="Solo se acepta un contrato desde 'pendiente'.")
+            if user_id != contract.proveedor_id:
+                abort(403, message="Solo el proveedor puede aceptar el contrato.")
+            contract.estado = EstadoContrato.EN_PROGRESO
+            crear_notificacion(
+                contract.solicitante_id,
+                "contrato_aceptado",
+                "Tu contrato de trabajo fue aceptado por el proveedor.",
+            )
+
+        elif accion == "completar":
+            if contract.estado != EstadoContrato.EN_PROGRESO:
+                abort(400, message="Solo se completa un contrato desde 'en_progreso'.")
+            contract.estado = EstadoContrato.COMPLETADO
+            solicitud = db.session.get(Solicitud, contract.service_id)
+            if solicitud is not None:
+                solicitud.estado = EstadoSolicitud.COMPLETADO
+            crear_notificacion(
+                contract.solicitante_id,
+                "contrato_completado",
+                "Tu contrato de trabajo fue marcado como completado.",
+            )
+            crear_notificacion(
+                contract.proveedor_id,
+                "contrato_completado",
+                "El contrato de trabajo fue marcado como completado.",
+            )
+
+        elif accion == "cancelar":
+            if contract.estado in (EstadoContrato.COMPLETADO, EstadoContrato.CANCELADO):
+                abort(400, message="No se puede cancelar un contrato ya finalizado.")
+            motivo = data.get("motivo_cancelacion")
+            if not motivo or not str(motivo).strip():
+                abort(400, message="Se requiere un motivo de cancelación.")
+            contract.estado = EstadoContrato.CANCELADO
+            contract.motivo_cancelacion = motivo
+            contraparte = (
+                contract.solicitante_id
+                if user_id == contract.proveedor_id
+                else contract.proveedor_id
+            )
+            crear_notificacion(
+                contraparte,
+                "contrato_cancelado",
+                f"El contrato de trabajo fue cancelado. Motivo: {motivo}",
+            )
+
+        else:
+            abort(400, message="Acción de estado inválida.")
+
+        db.session.commit()
+        return contract

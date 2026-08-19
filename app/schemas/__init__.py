@@ -13,10 +13,10 @@ from app.schemas.solicitud import (
 )
 from app.schemas.rating import RatingSchema, RatingCreateSchema
 from app.schemas.users import ProfileUpdateSchema, PublicProfileSchema
-from app.schemas.order import (
-    OrderSchema,
-    OrderCreateSchema,
-    OrderEstadoSchema,
+from app.schemas.contracts import (
+    ContractSchema,
+    ContractCreateSchema,
+    ContractEstadoSchema,
     SolicitudResumenSchema,
 )
 from app.schemas.oferta import (
@@ -46,9 +46,9 @@ __all__ = [
     "RatingCreateSchema",
     "ProfileUpdateSchema",
     "PublicProfileSchema",
-    "OrderSchema",
-    "OrderCreateSchema",
-    "OrderEstadoSchema",
+    "ContractSchema",
+    "ContractCreateSchema",
+    "ContractEstadoSchema",
     "SolicitudResumenSchema",
     "OfertaSchema",
     "OfertaCreateSchema",

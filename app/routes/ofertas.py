@@ -16,7 +16,7 @@ from app.extensions import db, socketio
 from app.models.user import User, RolUsuario
 from app.models.solicitud import Solicitud, EstadoSolicitud
 from app.models.oferta import Oferta, EstadoOferta
-from app.models.order import Order, EstadoOrden
+from app.models.contract import Contract, EstadoContrato
 from app.schemas.oferta import (
     OfertaSchema,
     OfertaCreateSchema,
@@ -175,13 +175,13 @@ class OfertaResponder(MethodView):
                 if oferta.monto is not None
                 else solicitud.presupuesto
             )
-            order = Order(
+            contract = Contract(
                 service_id=solicitud.id,
                 proveedor_id=oferta.pds_id,
                 solicitante_id=solicitud.solicitante_id,
-                estado=EstadoOrden.PENDIENTE,
+                estado=EstadoContrato.PENDIENTE,
             )
-            db.session.add(order)
+            db.session.add(contract)
             oferta.estado = EstadoOferta.ACEPTADA.value
             solicitud.estado = EstadoSolicitud.ASIGNADA
 

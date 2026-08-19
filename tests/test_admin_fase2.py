@@ -7,7 +7,7 @@ from app import create_app
 from app.extensions import db
 from app.models.user import User, RolUsuario
 from app.models.solicitud import Solicitud, EstadoSolicitud, Rating
-from app.models.order import Order, EstadoOrden, Dispute
+from app.models.contract import Contract, EstadoContrato, Dispute
 from app.models.payment import Payment, EstadoPago
 from app.models.ticket import Ticket
 
@@ -65,8 +65,8 @@ def _make_service(owner, titulo="Servicio demo", estado=EstadoSolicitud.PUBLICAD
     return s
 
 
-def _make_order(service, comprador, vendedor, estado=EstadoOrden.COMPLETADO):
-    o = Order(
+def _make_contract(service, comprador, vendedor, estado=EstadoContrato.COMPLETADO):
+    o = Contract(
         service_id=service.id,
         proveedor_id=vendedor.id,
         solicitante_id=comprador.id,
@@ -79,7 +79,7 @@ def _make_order(service, comprador, vendedor, estado=EstadoOrden.COMPLETADO):
 
 def _make_payment(order, estado=EstadoPago.EN_ESCROW):
     p = Payment(
-        order_id=order.id,
+        contract_id=order.id,
         monto=100000,
         comision=12000,
         estado=estado,
@@ -90,7 +90,7 @@ def _make_payment(order, estado=EstadoPago.EN_ESCROW):
 
 
 def _make_dispute(order, status="abierta"):
-    d = Dispute(order_id=order.id, reason="Trabajo no conforme.", status=status)
+    d = Dispute(contract_id=order.id, reason="Trabajo no conforme.", status=status)
     db.session.add(d)
     db.session.commit()
     return d
@@ -131,16 +131,16 @@ def test_admin_moderar_orden_200(client):
     comprador = _make_user("c@x.com", RolUsuario.EMPLEADOR, "C")
     vendedor = _make_user("v@x.com", RolUsuario.TRABAJADOR, "V")
     s = _make_service(comprador)
-    o = _make_order(s, comprador, vendedor)
+    o = _make_contract(s, comprador, vendedor)
     r = client.patch(
-        f"/api/v1/admin/orders/{o.id}/moderate",
+        f"/api/v1/admin/contracts/{o.id}/moderate",
         headers=_headers(admin),
         json={"action": "flag"},
     )
     assert r.status_code == 200
     assert r.get_json()["estado"] == "marcado"
     db.session.refresh(o)
-    assert o.estado == EstadoOrden.MARCADO
+    assert o.estado == EstadoContrato.MARCADO
 
 
 def test_admin_listar_ordenes_200(client):
@@ -148,9 +148,9 @@ def test_admin_listar_ordenes_200(client):
     comprador = _make_user("c@x.com", RolUsuario.EMPLEADOR, "C")
     vendedor = _make_user("v@x.com", RolUsuario.TRABAJADOR, "V")
     s = _make_service(comprador)
-    o = _make_order(s, comprador, vendedor)
+    o = _make_contract(s, comprador, vendedor)
     _make_payment(o)
-    r = client.get("/api/v1/admin/orders", headers=_headers(admin))
+    r = client.get("/api/v1/admin/contracts", headers=_headers(admin))
     assert r.status_code == 200
     data = r.get_json()
     assert data["total"] >= 1
@@ -165,7 +165,7 @@ def test_admin_listar_disputas_200(client):
     comprador = _make_user("c@x.com", RolUsuario.EMPLEADOR, "C")
     vendedor = _make_user("v@x.com", RolUsuario.TRABAJADOR, "V")
     s = _make_service(comprador)
-    o = _make_order(s, comprador, vendedor)
+    o = _make_contract(s, comprador, vendedor)
     _make_dispute(o)
     r = client.get("/api/v1/admin/disputes?status=abierta", headers=_headers(admin))
     assert r.status_code == 200
@@ -177,13 +177,13 @@ def test_admin_detalle_disputa_200(client):
     comprador = _make_user("c@x.com", RolUsuario.EMPLEADOR, "C")
     vendedor = _make_user("v@x.com", RolUsuario.TRABAJADOR, "V")
     s = _make_service(comprador)
-    o = _make_order(s, comprador, vendedor)
+    o = _make_contract(s, comprador, vendedor)
     p = _make_payment(o)
     d = _make_dispute(o)
     r = client.get(f"/api/v1/admin/disputes/{d.id}", headers=_headers(admin))
     assert r.status_code == 200
     data = r.get_json()
-    assert data["order"]["id"] == o.id
+    assert data["contract"]["id"] == o.id
     assert data["payment"]["id"] == p.id
 
 
@@ -192,7 +192,7 @@ def test_admin_resolver_disputa_release_cambia_pago(client):
     comprador = _make_user("c@x.com", RolUsuario.EMPLEADOR, "C")
     vendedor = _make_user("v@x.com", RolUsuario.TRABAJADOR, "V")
     s = _make_service(comprador)
-    o = _make_order(s, comprador, vendedor)
+    o = _make_contract(s, comprador, vendedor)
     p = _make_payment(o, estado=EstadoPago.EN_ESCROW)
     d = _make_dispute(o)
     r = client.post(
@@ -215,7 +215,7 @@ def test_admin_resolver_disputa_refund_reviete_comision(client):
     comprador = _make_user("c@x.com", RolUsuario.EMPLEADOR, "C")
     vendedor = _make_user("v@x.com", RolUsuario.TRABAJADOR, "V")
     s = _make_service(comprador)
-    o = _make_order(s, comprador, vendedor)
+    o = _make_contract(s, comprador, vendedor)
     p = _make_payment(o, estado=EstadoPago.EN_ESCROW)
     d = _make_dispute(o)
     r = client.post(
@@ -308,7 +308,7 @@ def test_no_admin_403_en_endpoints_admin(client, rol):
     u = _make_user("u@x.com", rol, "U")
     endpoints = [
         ("GET", "/api/v1/admin/solicitudes"),
-        ("GET", "/api/v1/admin/orders"),
+        ("GET", "/api/v1/admin/contracts"),
         ("GET", "/api/v1/admin/disputes"),
         ("GET", "/api/v1/admin/tickets"),
         ("GET", "/api/v1/admin/content/reports"),

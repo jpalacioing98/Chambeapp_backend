@@ -6,7 +6,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from app.extensions import db
 from app.models.user import User, RolUsuario
-from app.models.order import Order
+from app.models.contract import Contract
 from app.models.payment import Payment, EstadoPago
 from app.schemas.payment import (
     PaymentCreateSchema,
@@ -30,8 +30,8 @@ def _es_admin(user_id: int) -> bool:
     return user is not None and user.rol in (RolUsuario.ADMIN, RolUsuario.SUPERADMIN)
 
 
-def _participa_en_orden(user_id: int, order: Order) -> bool:
-    return user_id in (order.solicitante_id, order.proveedor_id)
+def _participa_en_contrato(user_id: int, contract: Contract) -> bool:
+    return user_id in (contract.solicitante_id, contract.proveedor_id)
 
 
 @blp.route("/")
@@ -40,18 +40,18 @@ class PaymentList(MethodView):
     @blp.arguments(PaymentCreateSchema)
     @blp.response(201, PaymentSchema)
     def post(self, data):
-        """RF-08.1: crea un pago para una orden completada."""
+        """RF-08.1: crea un pago para un contrato completado."""
         user_id = int(get_jwt_identity())
-        order = db.session.get(Order, data["order_id"])
-        if order is None:
-            abort(404, message="La orden no existe.")
+        contract = db.session.get(Contract, data["contract_id"])
+        if contract is None:
+            abort(404, message="El contrato no existe.")
 
         # Solo el solicitante (quien paga) o un admin pueden crear el pago.
-        if not _es_admin(user_id) and order.solicitante_id != user_id:
-            abort(403, message="No puedes pagar esta orden.")
+        if not _es_admin(user_id) and contract.solicitante_id != user_id:
+            abort(403, message="No puedes pagar este contrato.")
 
         try:
-            payment = crear_pago(order.id, data["monto"])
+            payment = crear_pago(contract.id, data["monto"])
         except ValueError as e:
             abort(400, message=str(e))
 
@@ -69,8 +69,8 @@ class PaymentConfirm(MethodView):
         payment = db.session.get(Payment, payment_id)
         if payment is None:
             abort(404, message="El pago no existe.")
-        order = db.session.get(Order, payment.order_id)
-        if not _es_admin(user_id) and order.solicitante_id != user_id:
+        contract = db.session.get(Contract, payment.contract_id)
+        if not _es_admin(user_id) and contract.solicitante_id != user_id:
             abort(403, message="No autorizado para confirmar este pago.")
 
         try:
@@ -92,9 +92,9 @@ class PaymentRelease(MethodView):
         payment = db.session.get(Payment, payment_id)
         if payment is None:
             abort(404, message="El pago no existe.")
-        order = db.session.get(Order, payment.order_id)
+        contract = db.session.get(Contract, payment.contract_id)
         # Solo el solicitante (quien pagó) o admin liberan.
-        if not _es_admin(user_id) and order.solicitante_id != user_id:
+        if not _es_admin(user_id) and contract.solicitante_id != user_id:
             abort(403, message="No autorizado para liberar este pago.")
 
         try:
@@ -115,8 +115,8 @@ class PaymentRefund(MethodView):
         payment = db.session.get(Payment, payment_id)
         if payment is None:
             abort(404, message="El pago no existe.")
-        order = db.session.get(Order, payment.order_id)
-        if not _es_admin(user_id) and order.solicitante_id != user_id:
+        contract = db.session.get(Contract, payment.contract_id)
+        if not _es_admin(user_id) and contract.solicitante_id != user_id:
             abort(403, message="No autorizado para reembolsar este pago.")
 
         motivo = data.get("motivo_reembolso")
@@ -140,8 +140,8 @@ class PaymentRetry(MethodView):
         payment = db.session.get(Payment, payment_id)
         if payment is None:
             abort(404, message="El pago no existe.")
-        order = db.session.get(Order, payment.order_id)
-        if not _es_admin(user_id) and order.solicitante_id != user_id:
+        contract = db.session.get(Contract, payment.contract_id)
+        if not _es_admin(user_id) and contract.solicitante_id != user_id:
             abort(403, message="No autorizado para reintentar este pago.")
 
         try:
@@ -158,13 +158,13 @@ class PaymentDetail(MethodView):
     @jwt_required()
     @blp.response(200, PaymentSchema)
     def get(self, payment_id):
-        """Detalle de un pago (solo participantes de la orden o admin)."""
+        """Detalle de un pago (solo participantes del contrato o admin)."""
         user_id = int(get_jwt_identity())
         payment = db.session.get(Payment, payment_id)
         if payment is None:
             abort(404, message="El pago no existe.")
-        order = db.session.get(Order, payment.order_id)
-        if not _es_admin(user_id) and not _participa_en_orden(user_id, order):
+        contract = db.session.get(Contract, payment.contract_id)
+        if not _es_admin(user_id) and not _participa_en_contrato(user_id, contract):
             abort(403, message="No participas en este pago.")
         return payment
 
@@ -175,12 +175,12 @@ class MyPayments(MethodView):
     @blp.response(200, PaymentSchema(many=True))
     def get(self):
         """RF-09 parcial: historial de pagos donde el usuario es proveedor
-        o solicitante del order asociado."""
+        o solicitante del contrato asociado."""
         user_id = int(get_jwt_identity())
         return (
-            Payment.query.join(Order, Payment.order_id == Order.id)
+            Payment.query.join(Contract, Payment.contract_id == Contract.id)
             .filter(
-                (Order.solicitante_id == user_id) | (Order.proveedor_id == user_id)
+                (Contract.solicitante_id == user_id) | (Contract.proveedor_id == user_id)
             )
             .order_by(Payment.creado_en.desc())
             .all()

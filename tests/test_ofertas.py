@@ -10,7 +10,7 @@ import pytest
 from app import create_app
 from app.extensions import db
 from app.config import TestingConfig
-from app.models.order import Order
+from app.models.contract import Contract
 
 
 @pytest.fixture
@@ -155,7 +155,7 @@ def test_solicitante_acepta_crea_order_y_rechaza_otras(client):
     assert resp.get_json()["estado"] == "aceptada"
 
     # Order creada
-    orders = client.get("/api/v1/orders/mine", headers=emp_h).get_json()
+    orders = client.get("/api/v1/contracts/mine", headers=emp_h).get_json()
     assert len(orders) == 1
     assert orders[0]["proveedor_id"] == o1["pds_id"]
     assert orders[0]["solicitante_id"] == 1
@@ -203,7 +203,7 @@ def test_contraofertar_y_pds_acepta_contraoferta(client):
     assert r2.status_code == 200
     assert r2.get_json()["estado"] == "aceptada"
 
-    orders = client.get("/api/v1/orders/mine", headers=emp_h).get_json()
+    orders = client.get("/api/v1/contracts/mine", headers=emp_h).get_json()
     assert len(orders) == 1
 
 

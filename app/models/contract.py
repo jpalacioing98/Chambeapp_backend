@@ -1,4 +1,4 @@
-"""Domain models: Order (RF-07 — Gestión Contractual y Órdenes de Trabajo)."""
+"""Domain models: Contract (RF-07 — Gestión Contractual y Órdenes de Trabajo)."""
 
 from datetime import datetime, timezone
 from enum import Enum
@@ -6,14 +6,14 @@ from enum import Enum
 from app.extensions import db
 
 
-class EstadoOrden(str, Enum):
-    """Estados de una Orden de Trabajo (RF-07)."""
+class EstadoContrato(str, Enum):
+    """Estados de un Contrato de Trabajo (RF-07)."""
 
     PENDIENTE = "pendiente"
     EN_PROGRESO = "en_progreso"
     COMPLETADO = "completado"
     CANCELADO = "cancelado"
-    # RBAC Fase 2: moderación admin (flag de orden sospechosa).
+    # RBAC Fase 2: moderación admin (flag de contrato sospechoso).
     MARCADO = "marcado"
 
     @classmethod
@@ -21,8 +21,8 @@ class EstadoOrden(str, Enum):
         return [e.value for e in cls]
 
 
-class Order(db.Model):
-    __tablename__ = "orders"
+class Contract(db.Model):
+    __tablename__ = "contracts"
 
     id = db.Column(db.Integer, primary_key=True)
     service_id = db.Column(
@@ -35,7 +35,7 @@ class Order(db.Model):
         db.Integer, db.ForeignKey("users.id"), nullable=False, index=True
     )
     estado = db.Column(
-        db.Enum(EstadoOrden), nullable=False, default=EstadoOrden.PENDIENTE
+        db.Enum(EstadoContrato), nullable=False, default=EstadoContrato.PENDIENTE
     )
     motivo_cancelacion = db.Column(db.String(500), nullable=True)
     creado_en = db.Column(
@@ -54,13 +54,13 @@ class Order(db.Model):
 
 
 class Dispute(db.Model):
-    """Disputa / escalamiento de orden con resolución de escrow (RBAC Fase 2)."""
+    """Disputa / escalamiento de contrato con resolución de escrow (RBAC Fase 2)."""
 
     __tablename__ = "disputes"
 
     id = db.Column(db.Integer, primary_key=True)
-    order_id = db.Column(
-        db.Integer, db.ForeignKey("orders.id"), nullable=False, index=True
+    contract_id = db.Column(
+        db.Integer, db.ForeignKey("contracts.id"), nullable=False, index=True
     )
     reason = db.Column(db.Text, nullable=False)
     status = db.Column(
@@ -78,4 +78,4 @@ class Dispute(db.Model):
         db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )
 
-    order = db.relationship("Order")
+    contract = db.relationship("Contract")

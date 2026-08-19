@@ -11,7 +11,7 @@ from app import create_app
 from app.extensions import db
 from app.models.user import User, RolUsuario
 from app.models.solicitud import Solicitud, EstadoSolicitud
-from app.models.order import Order, EstadoOrden
+from app.models.contract import Contract, EstadoContrato
 from app.models.config import SystemConfig, FeatureFlag
 
 
@@ -213,18 +213,18 @@ def test_superadmin_override_order_200(client, superadmin):
     )
     db.session.add(svc)
     db.session.commit()
-    order = Order(
+    contract = Contract(
         service_id=svc.id,
         proveedor_id=prov.id,
         solicitante_id=emp.id,
-        estado=EstadoOrden.PENDIENTE,
+        estado=EstadoContrato.PENDIENTE,
     )
-    db.session.add(order)
+    db.session.add(contract)
     db.session.commit()
     r = client.post(
-        "/api/v1/superadmin/override/order",
+        "/api/v1/superadmin/override/contract",
         headers=_headers(superadmin),
-        json={"order_id": order.id, "action": "complete"},
+        json={"contract_id": contract.id, "action": "complete"},
     )
     assert r.status_code == 200
     assert r.get_json()["estado"] == "completado"

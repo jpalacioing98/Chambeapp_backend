@@ -8,7 +8,7 @@ from app.models.user import (
 )
 from app.models.solicitud import Solicitud, Rating, EstadoSolicitud
 from app.models.oferta import Oferta, EstadoOferta
-from app.models.order import Order, EstadoOrden, Dispute
+from app.models.contract import Contract, EstadoContrato, Dispute
 from app.models.ticket import Ticket
 from app.models.notification import Notification
 from app.models.chat import Conversation, Message
@@ -26,8 +26,8 @@ __all__ = [
     "EstadoSolicitud",
     "Oferta",
     "EstadoOferta",
-    "Order",
-    "EstadoOrden",
+    "Contract",
+    "EstadoContrato",
     "Dispute",
     "Ticket",
     "Notification",

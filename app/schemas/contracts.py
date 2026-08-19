@@ -1,19 +1,19 @@
-"""Marshmallow schemas for orders (RF-07)."""
+"""Marshmallow schemas for contracts (RF-07)."""
 
 from marshmallow import Schema, fields, validate
 
-from app.models.order import EstadoOrden
+from app.models.contract import EstadoContrato
 from app.models.solicitud import EstadoSolicitud
 
 
-class OrderCreateSchema(Schema):
-    """Body de creación de orden (RF-07.1)."""
+class ContractCreateSchema(Schema):
+    """Body de creación de contrato (RF-07.1)."""
 
     service_id = fields.Integer(required=True)
     proveedor_id = fields.Integer(required=True)
 
 
-class OrderEstadoSchema(Schema):
+class ContractEstadoSchema(Schema):
     """Acción de transición de estado (RF-07.2/3/4)."""
 
     estado = fields.String(
@@ -24,7 +24,7 @@ class OrderEstadoSchema(Schema):
 
 
 class SolicitudResumenSchema(Schema):
-    """Resumen de la solicitud anidado en la orden."""
+    """Resumen de la solicitud anidado en el contrato."""
 
     id = fields.Integer()
     categoria = fields.String()
@@ -33,12 +33,12 @@ class SolicitudResumenSchema(Schema):
     estado = fields.Enum(EstadoSolicitud, by_value=True)
 
 
-class OrderSchema(Schema):
+class ContractSchema(Schema):
     id = fields.Integer()
     service_id = fields.Integer()
     proveedor_id = fields.Integer()
     solicitante_id = fields.Integer()
-    estado = fields.Enum(EstadoOrden, by_value=True)
+    estado = fields.Enum(EstadoContrato, by_value=True)
     motivo_cancelacion = fields.String(allow_none=True)
     creado_en = fields.DateTime()
     actualizado_en = fields.DateTime()

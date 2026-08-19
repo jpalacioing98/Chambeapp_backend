@@ -13,7 +13,7 @@ from app.config import (
     ESCROW_AUTO_RELEASE_HOURS,
 )
 from app.extensions import db
-from app.models.order import Order, EstadoOrden
+from app.models.contract import Contract, EstadoContrato
 from app.models.payment import Payment, EstadoPago
 
 
@@ -71,19 +71,19 @@ DEFAULT_GATEWAY = MockGateway()
 # --------------------------------------------------------------------------
 # Operaciones de negocio
 # --------------------------------------------------------------------------
-def crear_pago(order_id: int, monto: int, gateway: PaymentGateway = None) -> Payment:
-    """RF-08.1: crea un pago asociado a una orden completada.
+def crear_pago(contract_id: int, monto: int, gateway: PaymentGateway = None) -> Payment:
+    """RF-08.1: crea un pago asociado a un contrato completado.
 
-    - Valida que la orden exista y su estado sea 'completado'.
+    - Valida que el contrato exista y su estado sea 'completado'.
     - Calcula comision: 0 si monto < COMMISSION_EXEMPT_THRESHOLD,
       sino round(monto * COMMISSION_RATE) (T&C §7.1).
     - Crea Payment en estado 'pendiente'.
     """
-    order = db.session.get(Order, order_id)
-    if order is None:
-        raise ValueError("La orden no existe.")
-    if order.estado != EstadoOrden.COMPLETADO:
-        raise ValueError("Solo se puede pagar una orden completada.")
+    contract = db.session.get(Contract, contract_id)
+    if contract is None:
+        raise ValueError("El contrato no existe.")
+    if contract.estado != EstadoContrato.COMPLETADO:
+        raise ValueError("Solo se puede pagar un contrato completado.")
 
     gateway = gateway or DEFAULT_GATEWAY
 
@@ -93,7 +93,7 @@ def crear_pago(order_id: int, monto: int, gateway: PaymentGateway = None) -> Pay
         comision = round(monto * COMMISSION_RATE)
 
     payment = Payment(
-        order_id=order.id,
+        contract_id=contract.id,
         monto=monto,
         comision=comision,
         estado=EstadoPago.PENDIENTE,

@@ -8,7 +8,7 @@ from app.models.payment import EstadoPago
 class PaymentCreateSchema(Schema):
     """Body de creacion de pago (RF-08.1)."""
 
-    order_id = fields.Integer(required=True)
+    contract_id = fields.Integer(required=True)
     monto = fields.Integer(required=True, validate=validate.Range(min=1))
 
 
@@ -24,7 +24,7 @@ class PaymentEstadoSchema(Schema):
 
 class PaymentSchema(Schema):
     id = fields.Integer()
-    order_id = fields.Integer()
+    contract_id = fields.Integer()
     monto = fields.Integer()
     comision = fields.Integer()
     estado = fields.Enum(EstadoPago, by_value=True)
