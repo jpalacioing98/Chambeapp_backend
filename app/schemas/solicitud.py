@@ -20,6 +20,7 @@ class SolicitudCreateSchema(Schema):
         validate=fields.validate.OneOf(UrgenciaSolicitud.values()),
     )
     especificaciones_tecnicas = fields.Raw(required=False, allow_none=True)
+    imagen_360 = fields.String(required=False, allow_none=True)
 
 
 class SolicitudEstadoSchema(Schema):
@@ -40,6 +41,7 @@ class SolicitudSchema(Schema):
     urgencia = fields.String(allow_none=True)
     estado = fields.Enum(EstadoSolicitud, by_value=True)
     especificaciones_tecnicas = fields.Raw(allow_none=True)
+    imagen_360 = fields.String(allow_none=True)
     creado_en = fields.DateTime()
     actualizado_en = fields.DateTime()
     advertencia = fields.String(dump_only=True, allow_none=True)

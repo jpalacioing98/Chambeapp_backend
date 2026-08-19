@@ -57,6 +57,7 @@ class Solicitud(db.Model):
         db.Enum(EstadoSolicitud), nullable=False, default=EstadoSolicitud.PUBLICADO
     )
     especificaciones_tecnicas = db.Column(db.JSON, nullable=True)
+    imagen_360 = db.Column(db.String(500), nullable=True)
     creado_en = db.Column(
         db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )

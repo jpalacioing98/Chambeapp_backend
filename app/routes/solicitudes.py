@@ -57,6 +57,7 @@ class SolicitudList(MethodView):
             fecha_deseada=data.get("fecha_deseada"),
             urgencia=data.get("urgencia"),
             especificaciones_tecnicas=data.get("especificaciones_tecnicas"),
+            imagen_360=data.get("imagen_360"),
             estado=EstadoSolicitud.PUBLICADO,
         )
         solicitud.advertencia = None
