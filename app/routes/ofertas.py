@@ -7,13 +7,15 @@ Endpoints (prefijo /api/v1):
   POST   /ofertas/<oid>/responder     -> aceptar/rechazar/contraofertar
 """
 
+from datetime import datetime, timezone
+
 from flask import request
 from flask.views import MethodView
 from flask_smorest import Blueprint, abort
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 
 from app.extensions import db, socketio
-from app.models.user import User, RolUsuario
+from app.models.user import User, Profile, RolUsuario
 from app.models.solicitud import Solicitud, EstadoSolicitud
 from app.models.oferta import Oferta, EstadoOferta
 from app.models.contract import Contract, EstadoContrato
@@ -56,6 +58,28 @@ class OfertaList(MethodView):
         solicitud = db.get_or_404(Solicitud, sid)
         if solicitud.solicitante_id == user_id:
             abort(403, message="No puedes ofertar en tu propia solicitud.")
+
+        # RF-11: límite de postulaciones mensuales para planes free/basico.
+        profile = Profile.query.get(user_id)
+        plan = profile.plan if profile else "free"
+        if plan in ("free", "basico"):
+            now = datetime.now(timezone.utc)
+            inicio_mes = now.replace(
+                day=1, hour=0, minute=0, second=0, microsecond=0
+            )
+            count = Oferta.query.filter(
+                Oferta.pds_id == user_id,
+                Oferta.created_at >= inicio_mes,
+            ).count()
+            if count >= 5:
+                abort(
+                    403,
+                    message=(
+                        "Has alcanzado el limite de postulaciones de tu plan "
+                        "(5/mes). Suscribete a Profesional para postulaciones "
+                        "ilimitadas."
+                    ),
+                )
 
         oferta = Oferta(
             pds_id=user_id,

@@ -72,6 +72,9 @@ class Profile(db.Model):
     portafolio = db.Column(db.JSON, default=list)  # fotos / enlaces
     categorias = db.Column(db.JSON, default=list)
     perfil_completo = db.Column(db.Boolean, default=False, nullable=False)
+    # RF-11: plan de suscripción y perfil destacado.
+    plan = db.Column(db.String(20), default="free", nullable=False)
+    destacado = db.Column(db.Boolean, default=False, nullable=False)
 
     user = db.relationship("User", back_populates="profile")
 
