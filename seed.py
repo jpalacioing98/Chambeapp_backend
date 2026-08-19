@@ -12,7 +12,8 @@ from app import create_app
 from app.extensions import db
 from app.models.user import User, Profile, LegalAcceptance, RolUsuario, Verification
 from app.models.audit import AuditLog  # asegura creación de la tabla en create_all
-from app.models.service import Service, EstadoServicio
+from app.models.solicitud import Solicitud, EstadoSolicitud
+from app.models.oferta import Oferta, EstadoOferta
 from app.models.order import Dispute
 from app.models.ticket import Ticket
 from app.models.payment import Payment
@@ -93,26 +94,69 @@ def seed_users() -> list[str]:
 
 
 def seed_sample_service() -> bool:
-    """Crea un servicio de ejemplo publicado por el empleador (idempotente)."""
+    """Crea una solicitud de ejemplo publicada por el empleador (idempotente)."""
     empleador = User.query.filter_by(email="empleador@chambeapp.com").first()
     if not empleador:
         return False
-    if Service.query.filter_by(
+    if Solicitud.query.filter_by(
         solicitante_id=empleador.id, categoria="plomería"
     ).first():
-        print("  SKIP servicio ejemplo (ya existe)")
+        print("  SKIP solicitud ejemplo (ya existe)")
         return False
 
-    service = Service(
+    solicitud = Solicitud(
         solicitante_id=empleador.id,
         categoria="plomería",
         descripcion="Reparación de fuga de agua en tubería principal.",
         ubicacion="Valledupar",
         presupuesto=120000,
-        estado=EstadoServicio.PUBLICADO,
+        estado=EstadoSolicitud.PUBLICADO,
     )
-    db.session.add(service)
-    print("  CREADO servicio ejemplo: plomería / Valledupar / $120000")
+    db.session.add(solicitud)
+    print("  CREADA solicitud ejemplo: plomería / Valledupar / $120000")
+    return True
+
+
+def seed_sample_oferta() -> bool:
+    """Crea una solicitud de ejemplo del empleador y una oferta del pds (idempotente)."""
+    empleador = User.query.filter_by(email="empleador@chambeapp.com").first()
+    trabajador = User.query.filter_by(email="trabajador@chambeapp.com").first()
+    if not empleador or not trabajador:
+        return False
+
+    solicitud = Solicitud.query.filter_by(
+        solicitante_id=empleador.id,
+        descripcion="Instalación de mueble de cocina.",
+    ).first()
+    if solicitud is None:
+        solicitud = Solicitud(
+            solicitante_id=empleador.id,
+            titulo="Instalación de mueble de cocina",
+            categoria="carpintería",
+            descripcion="Instalación de mueble de cocina.",
+            ubicacion="Valledupar",
+            presupuesto=150000,
+            estado=EstadoSolicitud.PUBLICADO,
+        )
+        db.session.add(solicitud)
+        db.session.flush()
+        print("  CREADA solicitud ejemplo (empleador): carpintería / $150000")
+
+    if Oferta.query.filter_by(
+        solicitud_id=solicitud.id, pds_id=trabajador.id
+    ).first():
+        print("  SKIP oferta ejemplo (ya existe)")
+        return False
+
+    oferta = Oferta(
+        solicitud_id=solicitud.id,
+        pds_id=trabajador.id,
+        monto=140000,
+        mensaje="Puedo instalarlo mañana sin problema.",
+        estado=EstadoOferta.PENDIENTE.value,
+    )
+    db.session.add(oferta)
+    print("  CREADA oferta ejemplo (pds): $140000 sobre solicitud de ejemplo")
     return True
 
 
@@ -192,6 +236,7 @@ if __name__ == "__main__":
         print("Sembrando usuarios...")
         created = seed_users()
         seed_sample_service()
+        seed_sample_oferta()
         print("Sembrando configuración global y feature flags...")
         seed_config()
 

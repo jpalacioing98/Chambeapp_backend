@@ -6,7 +6,7 @@ from flask_smorest import Api
 from app.extensions import db, migrate, jwt, cache, bcrypt, socketio, cors
 from app.routes.auth import blp as auth_blp
 from app.routes.users import blp as users_blp
-from app.routes.services import blp as services_blp
+from app.routes.solicitudes import blp as solicitudes_blp
 from app.routes.orders import blp as orders_blp
 from app.routes.notifications import blp as notifications_blp
 from app.routes.payments import blp as payments_blp
@@ -16,6 +16,8 @@ from app.routes.chat_socket import register_chat_socketio
 from app.routes.admin import blp as admin_blp
 from app.routes.tickets import blp as tickets_blp
 from app.routes.superadmin import blp as superadmin_blp
+from app.routes.ofertas import blp as ofertas_blp
+from app.routes.oferta_socket import register_ofertas_socketio
 from app.models.user import User
 
 
@@ -46,7 +48,7 @@ def create_app(config_class: str = "app.config.DevelopmentConfig") -> Flask:
     api = Api(app)
     api.register_blueprint(auth_blp, url_prefix="/api/v1/auth")
     api.register_blueprint(users_blp, url_prefix="/api/v1/users")
-    api.register_blueprint(services_blp, url_prefix="/api/v1/services")
+    api.register_blueprint(solicitudes_blp, url_prefix="/api/v1/solicitudes")
     api.register_blueprint(orders_blp, url_prefix="/api/v1/orders")
     api.register_blueprint(notifications_blp, url_prefix="/api/v1/notifications")
     api.register_blueprint(payments_blp, url_prefix="/api/v1/payments")
@@ -55,9 +57,11 @@ def create_app(config_class: str = "app.config.DevelopmentConfig") -> Flask:
     api.register_blueprint(admin_blp, url_prefix="/api/v1/admin")
     api.register_blueprint(tickets_blp, url_prefix="/api/v1/tickets")
     api.register_blueprint(superadmin_blp, url_prefix="/api/v1/superadmin")
+    api.register_blueprint(ofertas_blp, url_prefix="/api/v1")
 
     # Handlers SocketIO (después de init_app)
     register_chat_socketio(socketio)
+    register_ofertas_socketio(socketio)
 
     # Carga el usuario desde el identity del JWT (current_user / lookup).
     @jwt.user_lookup_loader

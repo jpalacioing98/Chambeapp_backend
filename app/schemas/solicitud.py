@@ -1,11 +1,11 @@
-"""Marshmallow schemas for services (RF-04)."""
+"""Marshmallow schemas for solicitudes (RF-04)."""
 
 from marshmallow import Schema, fields
 
-from app.models.service import EstadoServicio
+from app.models.solicitud import EstadoSolicitud
 
 
-class ServiceCreateSchema(Schema):
+class SolicitudCreateSchema(Schema):
     """Body de creación. Validación estricta (400) se hace en la ruta."""
 
     categoria = fields.String(required=False, allow_none=True)
@@ -15,20 +15,20 @@ class ServiceCreateSchema(Schema):
     especificaciones_tecnicas = fields.Raw(required=False, allow_none=True)
 
 
-class ServiceEstadoSchema(Schema):
+class SolicitudEstadoSchema(Schema):
     estado = fields.String(
-        required=True, validate=fields.validate.OneOf(EstadoServicio.values())
+        required=True, validate=fields.validate.OneOf(EstadoSolicitud.values())
     )
 
 
-class ServiceSchema(Schema):
+class SolicitudSchema(Schema):
     id = fields.Integer()
     solicitante_id = fields.Integer()
     categoria = fields.String()
     descripcion = fields.String()
     ubicacion = fields.String()
     presupuesto = fields.Integer(allow_none=True)
-    estado = fields.Enum(EstadoServicio, by_value=True)
+    estado = fields.Enum(EstadoSolicitud, by_value=True)
     especificaciones_tecnicas = fields.Raw(allow_none=True)
     creado_en = fields.DateTime()
     actualizado_en = fields.DateTime()

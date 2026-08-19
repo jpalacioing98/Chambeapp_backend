@@ -7,7 +7,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from app.extensions import db
 from app.models.user import User
-from app.models.service import Service, EstadoServicio
+from app.models.solicitud import Solicitud, EstadoSolicitud
 from app.models.order import Order, EstadoOrden
 from app.schemas.order import OrderCreateSchema, OrderEstadoSchema, OrderSchema
 from app.routes.notifications import crear_notificacion
@@ -24,22 +24,22 @@ class OrderList(MethodView):
         """RF-07.1: crea orden. El JWT debe ser el dueño (solicitante) del servicio."""
         user_id = int(get_jwt_identity())
 
-        service = db.session.get(Service, data["service_id"])
-        if service is None:
-            abort(404, message="El servicio no existe.")
+        solicitud = db.session.get(Solicitud, data["service_id"])
+        if solicitud is None:
+            abort(404, message="La solicitud no existe.")
 
-        if service.estado != EstadoServicio.PUBLICADO:
-            abort(400, message="El servicio no está publicado.")
+        if solicitud.estado != EstadoSolicitud.PUBLICADO:
+            abort(400, message="La solicitud no está publicada.")
 
-        if service.solicitante_id != user_id:
-            abort(403, message="Solo el dueño del servicio puede crear la orden.")
+        if solicitud.solicitante_id != user_id:
+            abort(403, message="Solo el dueño de la solicitud puede crear la orden.")
 
         proveedor = db.session.get(User, data["proveedor_id"])
         if proveedor is None:
             abort(404, message="El proveedor no existe.")
 
         order = Order(
-            service_id=service.id,
+            service_id=solicitud.id,
             proveedor_id=proveedor.id,
             solicitante_id=user_id,
             estado=EstadoOrden.PENDIENTE,
@@ -116,9 +116,9 @@ class OrderEstado(MethodView):
             if order.estado != EstadoOrden.EN_PROGRESO:
                 abort(400, message="Solo se completa una orden desde 'en_progreso'.")
             order.estado = EstadoOrden.COMPLETADO
-            service = db.session.get(Service, order.service_id)
-            if service is not None:
-                service.estado = EstadoServicio.COMPLETADO
+            solicitud = db.session.get(Solicitud, order.service_id)
+            if solicitud is not None:
+                solicitud.estado = EstadoSolicitud.COMPLETADO
             crear_notificacion(
                 order.solicitante_id,
                 "orden_completada",

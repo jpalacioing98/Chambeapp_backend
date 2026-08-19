@@ -26,7 +26,7 @@ class Order(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     service_id = db.Column(
-        db.Integer, db.ForeignKey("services.id"), nullable=False, index=True
+        db.Integer, db.ForeignKey("solicitudes.id"), nullable=False, index=True
     )
     proveedor_id = db.Column(
         db.Integer, db.ForeignKey("users.id"), nullable=False, index=True
@@ -48,7 +48,7 @@ class Order(db.Model):
         nullable=False,
     )
 
-    service = db.relationship("Service")
+    service = db.relationship("Solicitud")
     proveedor = db.relationship("User", foreign_keys=[proveedor_id])
     solicitante = db.relationship("User", foreign_keys=[solicitante_id])
 

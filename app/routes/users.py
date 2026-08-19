@@ -6,7 +6,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from app.extensions import db
 from app.models.user import User, Profile
-from app.models.service import Rating
+from app.models.solicitud import Rating
 from app.schemas.users import ProfileUpdateSchema, PublicProfileSchema
 from app.schemas.auth import ProfileSchema
 

@@ -3,7 +3,7 @@
 from marshmallow import Schema, fields, validate
 
 from app.models.order import EstadoOrden
-from app.models.service import EstadoServicio
+from app.models.solicitud import EstadoSolicitud
 
 
 class OrderCreateSchema(Schema):
@@ -23,14 +23,14 @@ class OrderEstadoSchema(Schema):
     motivo_cancelacion = fields.String(required=False, allow_none=True)
 
 
-class ServiceResumenSchema(Schema):
-    """Resumen del servicio anidado en la orden."""
+class SolicitudResumenSchema(Schema):
+    """Resumen de la solicitud anidado en la orden."""
 
     id = fields.Integer()
     categoria = fields.String()
     descripcion = fields.String()
     ubicacion = fields.String()
-    estado = fields.Enum(EstadoServicio, by_value=True)
+    estado = fields.Enum(EstadoSolicitud, by_value=True)
 
 
 class OrderSchema(Schema):
@@ -42,4 +42,4 @@ class OrderSchema(Schema):
     motivo_cancelacion = fields.String(allow_none=True)
     creado_en = fields.DateTime()
     actualizado_en = fields.DateTime()
-    service = fields.Nested(ServiceResumenSchema, dump_only=True, allow_none=True)
+    service = fields.Nested(SolicitudResumenSchema, dump_only=True, allow_none=True)

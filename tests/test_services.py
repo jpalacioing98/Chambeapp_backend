@@ -54,7 +54,7 @@ def _user(client, email, rol="trabajador"):
 def test_create_service_ok(client):
     h = _user(client, "emp@example.com", rol="empleador")
     resp = client.post(
-        "/api/v1/services/",
+        "/api/v1/solicitudes/",
         json={
             "categoria": "plomeria",
             "descripcion": "arreglar tuberia",
@@ -72,14 +72,14 @@ def test_create_service_ok(client):
 
 def test_create_service_missing_fields(client):
     h = _user(client, "emp2@example.com", rol="empleador")
-    resp = client.post("/api/v1/services/", json={"categoria": "x"}, headers=h)
+    resp = client.post("/api/v1/solicitudes/", json={"categoria": "x"}, headers=h)
     assert resp.status_code == 400
 
 
 def test_create_service_presupuesto_low(client):
     h = _user(client, "emp3@example.com", rol="empleador")
     resp = client.post(
-        "/api/v1/services/",
+        "/api/v1/solicitudes/",
         json={
             "categoria": "x",
             "descripcion": "d",
@@ -94,7 +94,7 @@ def test_create_service_presupuesto_low(client):
 def test_create_service_sin_presupuesto(client):
     h = _user(client, "emp4@example.com", rol="empleador")
     resp = client.post(
-        "/api/v1/services/",
+        "/api/v1/solicitudes/",
         json={"categoria": "x", "descripcion": "d", "ubicacion": "Valledupar"},
         headers=h,
     )
@@ -105,7 +105,7 @@ def test_create_service_sin_presupuesto(client):
 def test_create_service_fuera_valledupar(client):
     h = _user(client, "emp5@example.com", rol="empleador")
     resp = client.post(
-        "/api/v1/services/",
+        "/api/v1/solicitudes/",
         json={"categoria": "x", "descripcion": "d", "ubicacion": "Bogota"},
         headers=h,
     )
@@ -116,23 +116,23 @@ def test_create_service_fuera_valledupar(client):
 def test_list_and_filter_services(client):
     h = _user(client, "emp6@example.com", rol="empleador")
     client.post(
-        "/api/v1/services/",
+        "/api/v1/solicitudes/",
         json={"categoria": "a", "descripcion": "desc uno", "ubicacion": "Valledupar"},
         headers=h,
     )
     client.post(
-        "/api/v1/services/",
+        "/api/v1/solicitudes/",
         json={"categoria": "b", "descripcion": "desc dos", "ubicacion": "Valledupar"},
         headers=h,
     )
-    assert len(client.get("/api/v1/services/").get_json()) == 2
-    assert len(client.get("/api/v1/services/?categoria=a").get_json()) == 1
-    assert len(client.get("/api/v1/services/?q=uno").get_json()) == 1
+    assert len(client.get("/api/v1/solicitudes/").get_json()) == 2
+    assert len(client.get("/api/v1/solicitudes/?categoria=a").get_json()) == 1
+    assert len(client.get("/api/v1/solicitudes/?q=uno").get_json()) == 1
 
 
 def test_detail_404(client):
     _user(client, "emp7@example.com", rol="empleador")
-    assert client.get("/api/v1/services/999").status_code == 404
+    assert client.get("/api/v1/solicitudes/999").status_code == 404
 
 
 # ---------------- RF-02: perfil ----------------
@@ -173,7 +173,7 @@ def test_public_profile_shows_fields(client):
 def test_rating_flow(client):
     emp_h = _user(client, "emp@example.com", rol="empleador")
     create = client.post(
-        "/api/v1/services/",
+        "/api/v1/solicitudes/",
         json={"categoria": "a", "descripcion": "d", "ubicacion": "Valledupar"},
         headers=emp_h,
     )
@@ -183,7 +183,7 @@ def test_rating_flow(client):
 
     # completar (dueño = empleador, id 1)
     patch = client.patch(
-        f"/api/v1/services/{sid}/estado",
+        f"/api/v1/solicitudes/{sid}/estado",
         json={"estado": "completado"},
         headers=emp_h,
     )
@@ -191,7 +191,7 @@ def test_rating_flow(client):
 
     # trabajador califica empleador (id 1)
     r = client.post(
-        f"/api/v1/services/{sid}/ratings",
+        f"/api/v1/solicitudes/{sid}/ratings",
         json={"puntaje": 5, "calificado_id": 1},
         headers=tr_h,
     )
@@ -202,7 +202,7 @@ def test_rating_flow(client):
 
     # duplicado -> 409
     r2 = client.post(
-        f"/api/v1/services/{sid}/ratings",
+        f"/api/v1/solicitudes/{sid}/ratings",
         json={"puntaje": 4, "calificado_id": 1},
         headers=tr_h,
     )
@@ -210,13 +210,13 @@ def test_rating_flow(client):
 
     # rating sin completar -> 409
     create2 = client.post(
-        "/api/v1/services/",
+        "/api/v1/solicitudes/",
         json={"categoria": "b", "descripcion": "d2", "ubicacion": "Valledupar"},
         headers=emp_h,
     )
     sid2 = create2.get_json()["id"]
     r3 = client.post(
-        f"/api/v1/services/{sid2}/ratings",
+        f"/api/v1/solicitudes/{sid2}/ratings",
         json={"puntaje": 3, "calificado_id": 1},
         headers=tr_h,
     )
@@ -226,14 +226,14 @@ def test_rating_flow(client):
 def test_patch_estado_forbidden(client):
     emp_h = _user(client, "emp@example.com", rol="empleador")
     create = client.post(
-        "/api/v1/services/",
+        "/api/v1/solicitudes/",
         json={"categoria": "a", "descripcion": "d", "ubicacion": "Valledupar"},
         headers=emp_h,
     )
     sid = create.get_json()["id"]
     other_h = _user(client, "other@example.com", rol="empleador")
     resp = client.patch(
-        f"/api/v1/services/{sid}/estado",
+        f"/api/v1/solicitudes/{sid}/estado",
         json={"estado": "completado"},
         headers=other_h,
     )
@@ -243,22 +243,22 @@ def test_patch_estado_forbidden(client):
 def test_list_ratings(client):
     emp_h = _user(client, "emp@example.com", rol="empleador")
     create = client.post(
-        "/api/v1/services/",
+        "/api/v1/solicitudes/",
         json={"categoria": "a", "descripcion": "d", "ubicacion": "Valledupar"},
         headers=emp_h,
     )
     sid = create.get_json()["id"]
     client.patch(
-        f"/api/v1/services/{sid}/estado",
+        f"/api/v1/solicitudes/{sid}/estado",
         json={"estado": "completado"},
         headers=emp_h,
     )
     tr_h = _user(client, "tr@example.com", rol="trabajador")
     client.post(
-        f"/api/v1/services/{sid}/ratings",
+        f"/api/v1/solicitudes/{sid}/ratings",
         json={"puntaje": 4, "calificado_id": 1},
         headers=tr_h,
     )
-    resp = client.get(f"/api/v1/services/{sid}/ratings")
+    resp = client.get(f"/api/v1/solicitudes/{sid}/ratings")
     assert resp.status_code == 200
     assert len(resp.get_json()) == 1

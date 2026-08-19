@@ -6,7 +6,7 @@ from app import create_app
 from app.extensions import db
 from app.config import TestingConfig
 from app.models.order import Order, EstadoOrden
-from app.models.service import Service, EstadoServicio
+from app.models.solicitud import Solicitud, EstadoSolicitud
 from app.models.payment import Payment, EstadoPago
 from app.models.user import User, RolUsuario
 
@@ -56,7 +56,7 @@ def _user(client, email, rol="trabajador"):
 
 def _crear_servicio(client, headers):
     resp = client.post(
-        "/api/v1/services/",
+        "/api/v1/solicitudes/",
         json={"categoria": "plomeria", "descripcion": "arreglar", "ubicacion": "Valledupar"},
         headers=headers,
     )

@@ -76,15 +76,15 @@ class VerificationListResponseSchema(Schema):
 
 
 # --------------------------------------------------------------------------
-# Fase 2: moderación de servicios
+# Fase 2: moderación de solicitudes
 # --------------------------------------------------------------------------
-class ServiceModerateSchema(Schema):
+class SolicitudModerateSchema(Schema):
     action = fields.String(
         required=True, validate=validate.OneOf(["approve", "reject", "hide"])
     )
 
 
-class ServiceListSchema(Schema):
+class SolicitudListSchema(Schema):
     id = fields.Integer()
     titulo = fields.String(allow_none=True)
     descripcion = fields.String()
@@ -94,8 +94,8 @@ class ServiceListSchema(Schema):
     created_at = fields.DateTime(attribute="creado_en")
 
 
-class ServiceListResponseSchema(Schema):
-    items = fields.List(fields.Nested(ServiceListSchema))
+class SolicitudListResponseSchema(Schema):
+    items = fields.List(fields.Nested(SolicitudListSchema))
     total = fields.Integer()
 
 

@@ -1,4 +1,4 @@
-"""Domain models: Service, Rating (RF-02, RF-03, RF-04)."""
+"""Domain models: Solicitud, Rating (RF-02, RF-03, RF-04)."""
 
 from datetime import datetime, timezone
 from enum import Enum
@@ -6,8 +6,8 @@ from enum import Enum
 from app.extensions import db
 
 
-class EstadoServicio(str, Enum):
-    """Estados de un servicio publicado en ChambeApp."""
+class EstadoSolicitud(str, Enum):
+    """Estados de una solicitud publicada en ChambeApp."""
 
     BORRADOR = "borrador"
     PUBLICADO = "publicado"
@@ -17,14 +17,16 @@ class EstadoServicio(str, Enum):
     # RBAC Fase 2: moderación admin.
     OCULTO = "oculto"
     RECHAZADO = "rechazado"
+    # Negociación: solicitud asignada a un pds vía oferta aceptada.
+    ASIGNADA = "asignada"
 
     @classmethod
     def values(cls):
         return [e.value for e in cls]
 
 
-class Service(db.Model):
-    __tablename__ = "services"
+class Solicitud(db.Model):
+    __tablename__ = "solicitudes"
 
     id = db.Column(db.Integer, primary_key=True)
     solicitante_id = db.Column(
@@ -36,7 +38,7 @@ class Service(db.Model):
     ubicacion = db.Column(db.String(120), nullable=False, default="Valledupar")
     presupuesto = db.Column(db.Integer, nullable=True)  # None => "a convenir"
     estado = db.Column(
-        db.Enum(EstadoServicio), nullable=False, default=EstadoServicio.PUBLICADO
+        db.Enum(EstadoSolicitud), nullable=False, default=EstadoSolicitud.PUBLICADO
     )
     especificaciones_tecnicas = db.Column(db.JSON, nullable=True)
     creado_en = db.Column(
@@ -53,19 +55,26 @@ class Service(db.Model):
     advertencia = None
 
     ratings = db.relationship(
-        "Rating", back_populates="service", cascade="all, delete-orphan"
+        "app.models.solicitud.Rating",
+        back_populates="solicitud",
+        cascade="all, delete-orphan",
+    )
+    ofertas = db.relationship(
+        "Oferta", back_populates="solicitud", cascade="all, delete-orphan"
     )
 
 
 class Rating(db.Model):
-    __tablename__ = "ratings"
+    # Tabla propia de Solicitud (la del Service vive en app/models/service.py
+    # con __tablename__="ratings"). Separadas para evitar colisión de metadata.
+    __tablename__ = "ratings_solicitud"
     __table_args__ = (
-        db.UniqueConstraint("service_id", "autor_id", name="uq_service_autor"),
+        db.UniqueConstraint("service_id", "autor_id", name="uq_solicitud_autor"),
     )
 
     id = db.Column(db.Integer, primary_key=True)
     service_id = db.Column(
-        db.Integer, db.ForeignKey("services.id"), nullable=False, index=True
+        db.Integer, db.ForeignKey("solicitudes.id"), nullable=False, index=True
     )
     autor_id = db.Column(
         db.Integer, db.ForeignKey("users.id"), nullable=False, index=True
@@ -80,4 +89,4 @@ class Rating(db.Model):
         db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )
 
-    service = db.relationship("Service", back_populates="ratings")
+    solicitud = db.relationship("Solicitud", back_populates="ratings")

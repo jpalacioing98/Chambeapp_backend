@@ -6,11 +6,10 @@ from flask_jwt_extended import create_access_token
 from app import create_app
 from app.extensions import db
 from app.models.user import User, RolUsuario
-from app.models.service import Service, EstadoServicio
+from app.models.solicitud import Solicitud, EstadoSolicitud, Rating
 from app.models.order import Order, EstadoOrden, Dispute
 from app.models.payment import Payment, EstadoPago
 from app.models.ticket import Ticket
-from app.models.service import Rating
 
 
 @pytest.fixture
@@ -51,8 +50,8 @@ def _headers(user):
     return {"Authorization": f"Bearer {token}"}
 
 
-def _make_service(owner, titulo="Servicio demo", estado=EstadoServicio.PUBLICADO):
-    s = Service(
+def _make_service(owner, titulo="Servicio demo", estado=EstadoSolicitud.PUBLICADO):
+    s = Solicitud(
         solicitante_id=owner.id,
         titulo=titulo,
         categoria="plomería",
@@ -104,21 +103,21 @@ def test_admin_moderar_servicio_200(client):
     owner = _make_user("owner@x.com", RolUsuario.EMPLEADOR, "Owner")
     s = _make_service(owner)
     r = client.patch(
-        f"/api/v1/admin/services/{s.id}/moderate",
+        f"/api/v1/admin/solicitudes/{s.id}/moderate",
         headers=_headers(admin),
         json={"action": "hide"},
     )
     assert r.status_code == 200
     assert r.get_json()["estado"] == "oculto"
     db.session.refresh(s)
-    assert s.estado == EstadoServicio.OCULTO
+    assert s.estado == EstadoSolicitud.OCULTO
 
 
 def test_admin_listar_servicios_200(client):
     admin = _make_user("admin@x.com", RolUsuario.ADMIN, "Admin")
     owner = _make_user("owner@x.com", RolUsuario.EMPLEADOR, "Owner")
     _make_service(owner, titulo="Fuga agua")
-    r = client.get("/api/v1/admin/services?q=agua", headers=_headers(admin))
+    r = client.get("/api/v1/admin/solicitudes?q=agua", headers=_headers(admin))
     assert r.status_code == 200
     data = r.get_json()
     assert data["total"] >= 1
@@ -308,7 +307,7 @@ def test_admin_moderar_contenido_200(client):
 def test_no_admin_403_en_endpoints_admin(client, rol):
     u = _make_user("u@x.com", rol, "U")
     endpoints = [
-        ("GET", "/api/v1/admin/services"),
+        ("GET", "/api/v1/admin/solicitudes"),
         ("GET", "/api/v1/admin/orders"),
         ("GET", "/api/v1/admin/disputes"),
         ("GET", "/api/v1/admin/tickets"),

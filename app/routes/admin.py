@@ -14,7 +14,7 @@ from flask_jwt_extended import get_jwt_identity
 from app.extensions import db
 from app.auth.decorators import admin_required
 from app.models.user import User, RolUsuario, Verification
-from app.models.service import Service, Rating, EstadoServicio
+from app.models.solicitud import Solicitud, Rating, EstadoSolicitud
 from app.models.order import Order, EstadoOrden, Dispute
 from app.models.payment import Payment, EstadoPago
 from app.models.ticket import Ticket
@@ -31,8 +31,8 @@ from app.schemas.admin import (
     VerificationListResponseSchema,
     VerificationActionSchema,
     StatsOverviewSchema,
-    ServiceModerateSchema,
-    ServiceListResponseSchema,
+    SolicitudModerateSchema,
+    SolicitudListResponseSchema,
     OrderModerateSchema,
     OrderListSchema,
     OrderListResponseSchema,
@@ -141,7 +141,7 @@ class AdminStats(MethodView):
         """Métricas generales para el dashboard admin."""
         users_total = User.query.count()
         users_active = User.query.filter(User.status == "active").count()
-        services_total = Service.query.count()
+        services_total = Solicitud.query.count()
         orders_total = Order.query.count()
         revenue_total = (
             db.session.query(db.func.sum(Payment.monto))
@@ -222,53 +222,53 @@ class AdminVerificationReject(MethodView):
 
 
 # ==========================================================================
-# FASE 2 — Moderación de servicios
+# FASE 2 — Moderación de solicitudes
 # ==========================================================================
-_SERVICE_ACTION_ESTADO = {
-    "approve": EstadoServicio.PUBLICADO,
-    "reject": EstadoServicio.RECHAZADO,
-    "hide": EstadoServicio.OCULTO,
+_SOLICITUD_ACTION_ESTADO = {
+    "approve": EstadoSolicitud.PUBLICADO,
+    "reject": EstadoSolicitud.RECHAZADO,
+    "hide": EstadoSolicitud.OCULTO,
 }
 
 
-@blp.route("/services")
-class AdminServiceList(MethodView):
+@blp.route("/solicitudes")
+class AdminSolicitudList(MethodView):
     @admin_required
-    @blp.response(200, ServiceListResponseSchema)
+    @blp.response(200, SolicitudListResponseSchema)
     def get(self):
-        """Lista servicios con filtros (q, status) — máx 50."""
-        query = Service.query
+        """Lista solicitudes con filtros (q, status) — máx 50."""
+        query = Solicitud.query
         q = request.args.get("q")
         if q:
             like = f"%{q}%"
             query = query.filter(
-                (Service.titulo.ilike(like)) | (Service.descripcion.ilike(like))
+                (Solicitud.titulo.ilike(like)) | (Solicitud.descripcion.ilike(like))
             )
         status = request.args.get("status")
         if status:
-            query = query.filter(Service.estado == EstadoServicio(status))
+            query = query.filter(Solicitud.estado == EstadoSolicitud(status))
         total = query.count()
-        services = query.order_by(Service.creado_en.desc()).limit(50).all()
-        return {"items": services, "total": total}
+        solicitudes = query.order_by(Solicitud.creado_en.desc()).limit(50).all()
+        return {"items": solicitudes, "total": total}
 
 
-@blp.route("/services/<int:service_id>/moderate")
-class AdminServiceModerate(MethodView):
+@blp.route("/solicitudes/<int:solicitud_id>/moderate")
+class AdminSolicitudModerate(MethodView):
     @admin_required
-    @blp.arguments(ServiceModerateSchema)
+    @blp.arguments(SolicitudModerateSchema)
     @blp.response(200)
-    def patch(self, data, service_id):
-        """Modera un servicio: approve | reject | hide."""
-        service = db.get_or_404(Service, service_id)
-        nuevo = _SERVICE_ACTION_ESTADO[data["action"]]
-        before = {"estado": service.estado.value}
-        service.estado = nuevo
+    def patch(self, data, solicitud_id):
+        """Modera una solicitud: approve | reject | hide."""
+        solicitud = db.get_or_404(Solicitud, solicitud_id)
+        nuevo = _SOLICITUD_ACTION_ESTADO[data["action"]]
+        before = {"estado": solicitud.estado.value}
+        solicitud.estado = nuevo
         write_audit(
-            _actor_id(), f"service.moderate.{data['action']}", "service",
-            service.id, before, {"estado": nuevo.value}, _client_ip(),
+            _actor_id(), f"solicitud.moderate.{data['action']}", "solicitud",
+            solicitud.id, before, {"estado": nuevo.value}, _client_ip(),
         )
         db.session.commit()
-        return {"id": service.id, "estado": service.estado.value}
+        return {"id": solicitud.id, "estado": solicitud.estado.value}
 
 
 # ==========================================================================

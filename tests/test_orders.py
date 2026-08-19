@@ -6,7 +6,7 @@ from app import create_app
 from app.extensions import db
 from app.config import TestingConfig
 from app.models.order import Order, EstadoOrden
-from app.models.service import Service, EstadoServicio
+from app.models.solicitud import Solicitud, EstadoSolicitud
 from app.models.notification import Notification
 
 
@@ -55,7 +55,7 @@ def _user(client, email, rol="trabajador"):
 
 def _crear_servicio(client, headers):
     resp = client.post(
-        "/api/v1/services/",
+        "/api/v1/solicitudes/",
         json={"categoria": "plomeria", "descripcion": "arreglar", "ubicacion": "Valledupar"},
         headers=headers,
     )
@@ -101,7 +101,7 @@ def test_create_order_service_not_publicado(client):
     sid = _crear_servicio(client, emp_h)
     # sacar de publicado
     client.patch(
-        f"/api/v1/services/{sid}/estado",
+        f"/api/v1/solicitudes/{sid}/estado",
         json={"estado": "completado"},
         headers=emp_h,
     )
@@ -173,7 +173,7 @@ def test_completar_ok_propagates_service(client):
     assert resp.status_code == 200
     assert resp.get_json()["estado"] == "completado"
     # Service.estado queda 'completado' (habilita ratings RF-03)
-    svc = client.get(f"/api/v1/services/{sid}").get_json()
+    svc = client.get(f"/api/v1/solicitudes/{sid}").get_json()
     assert svc["estado"] == "completado"
 
 

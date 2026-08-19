@@ -6,10 +6,10 @@ from app.schemas.auth import (
     MeSchema,
     ProfileSchema,
 )
-from app.schemas.service import (
-    ServiceSchema,
-    ServiceCreateSchema,
-    ServiceEstadoSchema,
+from app.schemas.solicitud import (
+    SolicitudSchema,
+    SolicitudCreateSchema,
+    SolicitudEstadoSchema,
 )
 from app.schemas.rating import RatingSchema, RatingCreateSchema
 from app.schemas.users import ProfileUpdateSchema, PublicProfileSchema
@@ -17,7 +17,13 @@ from app.schemas.order import (
     OrderSchema,
     OrderCreateSchema,
     OrderEstadoSchema,
-    ServiceResumenSchema,
+    SolicitudResumenSchema,
+)
+from app.schemas.oferta import (
+    OfertaSchema,
+    OfertaCreateSchema,
+    OfertaResponderSchema,
+    MisOfertasSchema,
 )
 from app.schemas.notification import NotificationSchema
 from app.schemas.chat import (
@@ -33,9 +39,9 @@ __all__ = [
     "RefreshSchema",
     "MeSchema",
     "ProfileSchema",
-    "ServiceSchema",
-    "ServiceCreateSchema",
-    "ServiceEstadoSchema",
+    "SolicitudSchema",
+    "SolicitudCreateSchema",
+    "SolicitudEstadoSchema",
     "RatingSchema",
     "RatingCreateSchema",
     "ProfileUpdateSchema",
@@ -43,7 +49,11 @@ __all__ = [
     "OrderSchema",
     "OrderCreateSchema",
     "OrderEstadoSchema",
-    "ServiceResumenSchema",
+    "SolicitudResumenSchema",
+    "OfertaSchema",
+    "OfertaCreateSchema",
+    "OfertaResponderSchema",
+    "MisOfertasSchema",
     "NotificationSchema",
     "ConversationSchema",
     "ConversationCreateSchema",

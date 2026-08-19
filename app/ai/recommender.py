@@ -9,15 +9,15 @@ from abc import ABC, abstractmethod
 
 from app.extensions import db
 from app.models.user import User, Profile, RolUsuario
-from app.models.service import Service, EstadoServicio
+from app.models.solicitud import Solicitud, EstadoSolicitud
 
 
 class Recommender(ABC):
     """Contrato pluggeable del motor de recomendación (RF-05)."""
 
     @abstractmethod
-    def rank_providers_for_service(self, service: Service, top_n: int = 10) -> list[dict]:
-        """Rankea proveedores ('trabajador') para un servicio dado."""
+    def rank_providers_for_service(self, service: Solicitud, top_n: int = 10) -> list[dict]:
+        """Rankea proveedores ('trabajador') para una solicitud dada."""
         raise NotImplementedError
 
     @abstractmethod
@@ -47,7 +47,7 @@ class HeuristicRecommender(Recommender):
             4,
         )
 
-    def rank_providers_for_service(self, service: Service, top_n: int = 10) -> list[dict]:
+    def rank_providers_for_service(self, service: Solicitud, top_n: int = 10) -> list[dict]:
         providers = (
             db.session.query(User)
             .join(Profile, Profile.user_id == User.id)
@@ -81,7 +81,7 @@ class HeuristicRecommender(Recommender):
         return results[:top_n]
 
     def rank_services_for_provider(self, profile: Profile, top_n: int = 10) -> list[dict]:
-        services = Service.query.filter_by(estado=EstadoServicio.PUBLICADO).all()
+        services = Solicitud.query.filter_by(estado=EstadoSolicitud.PUBLICADO).all()
         rep = (profile.calificacion_promedio or 0.0) / 5.0
         ver = bool(profile.verificado)
         results = []
@@ -118,7 +118,7 @@ class VectorRecommender(Recommender):
     Implementa la misma interfaz ``Recommender`` para ser pluggeable.
     """
 
-    def rank_providers_for_service(self, service: Service, top_n: int = 10) -> list[dict]:
+    def rank_providers_for_service(self, service: Solicitud, top_n: int = 10) -> list[dict]:
         raise NotImplementedError(
             "VectorRecommender requiere sentence-transformers + pgvector (Iter futura)."
         )

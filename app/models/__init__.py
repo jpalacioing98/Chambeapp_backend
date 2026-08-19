@@ -6,7 +6,8 @@ from app.models.user import (
     LegalAcceptance,
     Verification,
 )
-from app.models.service import Service, Rating, EstadoServicio
+from app.models.solicitud import Solicitud, Rating, EstadoSolicitud
+from app.models.oferta import Oferta, EstadoOferta
 from app.models.order import Order, EstadoOrden, Dispute
 from app.models.ticket import Ticket
 from app.models.notification import Notification
@@ -20,9 +21,11 @@ __all__ = [
     "Profile",
     "LegalAcceptance",
     "Verification",
-    "Service",
+    "Solicitud",
     "Rating",
-    "EstadoServicio",
+    "EstadoSolicitud",
+    "Oferta",
+    "EstadoOferta",
     "Order",
     "EstadoOrden",
     "Dispute",

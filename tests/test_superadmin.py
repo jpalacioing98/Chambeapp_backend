@@ -10,7 +10,7 @@ from flask_jwt_extended import create_access_token
 from app import create_app
 from app.extensions import db
 from app.models.user import User, RolUsuario
-from app.models.service import Service, EstadoServicio
+from app.models.solicitud import Solicitud, EstadoSolicitud
 from app.models.order import Order, EstadoOrden
 from app.models.config import SystemConfig, FeatureFlag
 
@@ -204,12 +204,12 @@ def test_superadmin_override_user_200(client, superadmin):
 def test_superadmin_override_order_200(client, superadmin):
     emp = _make_user("emp@x.com", RolUsuario.EMPLEADOR, "EMP")
     prov = _make_user("prov@x.com", RolUsuario.TRABAJADOR, "PROV")
-    svc = Service(
+    svc = Solicitud(
         solicitante_id=emp.id,
         categoria="plomería",
         descripcion="demo",
         ubicacion="Valledupar",
-        estado=EstadoServicio.PUBLICADO,
+        estado=EstadoSolicitud.PUBLICADO,
     )
     db.session.add(svc)
     db.session.commit()

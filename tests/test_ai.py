@@ -69,7 +69,7 @@ def _make_provider(client, email, categorias, habilidades, calificacion, verific
 def _make_service(client, email, categoria):
     h = _headers(client, email)
     resp = client.post(
-        "/api/v1/services/",
+        "/api/v1/solicitudes/",
         json={"categoria": categoria, "descripcion": "d", "ubicacion": "Valledupar"},
         headers=h,
     )
@@ -120,7 +120,7 @@ def test_services_for_provider(client, app):
     _make_service(client, "emp@x.com", "carpinteria")  # no match
 
     h = _headers(client, "prov@x.com")
-    resp = client.get("/api/v1/ai/services-for-provider", headers=h)
+    resp = client.get("/api/v1/ai/solicitudes-for-provider", headers=h)
     assert resp.status_code == 200
     data = resp.get_json()  # ARRAY PLANO (sin envoltura)
     assert isinstance(data, list)
@@ -140,5 +140,5 @@ def test_services_for_provider(client, app):
 
 
 def test_services_for_provider_requires_jwt(client, app):
-    resp = client.get("/api/v1/ai/services-for-provider")
+    resp = client.get("/api/v1/ai/solicitudes-for-provider")
     assert resp.status_code == 401
