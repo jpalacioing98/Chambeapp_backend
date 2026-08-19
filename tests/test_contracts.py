@@ -56,7 +56,7 @@ def _user(client, email, rol="trabajador"):
 def _crear_servicio(client, headers):
     resp = client.post(
         "/api/v1/solicitudes/",
-        json={"categoria": "plomeria", "descripcion": "arreglar", "ubicacion": "Valledupar"},
+        json={"titulo": "Reparar grifo", "categoria": "plomeria", "descripcion": "arreglar", "ubicacion": "Valledupar"},
         headers=headers,
     )
     return resp.get_json()["id"]

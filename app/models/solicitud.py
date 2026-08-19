@@ -6,6 +6,18 @@ from enum import Enum
 from app.extensions import db
 
 
+class UrgenciaSolicitud(str, Enum):
+    """Nivel de urgencia de una solicitud de trabajo informal ocasional."""
+
+    BAJA = "baja"
+    MEDIA = "media"
+    ALTA = "alta"
+
+    @classmethod
+    def values(cls):
+        return [e.value for e in cls]
+
+
 class EstadoSolicitud(str, Enum):
     """Estados de una solicitud publicada en ChambeApp."""
 
@@ -32,11 +44,15 @@ class Solicitud(db.Model):
     solicitante_id = db.Column(
         db.Integer, db.ForeignKey("users.id"), nullable=False, index=True
     )
-    titulo = db.Column(db.String(200), nullable=True)
+    titulo = db.Column(db.String(200), nullable=False)
     categoria = db.Column(db.String(120), nullable=False)
     descripcion = db.Column(db.Text, nullable=False)
     ubicacion = db.Column(db.String(120), nullable=False, default="Valledupar")
     presupuesto = db.Column(db.Integer, nullable=True)  # None => "a convenir"
+    fecha_deseada = db.Column(db.Date, nullable=True)
+    urgencia = db.Column(
+        db.Enum(UrgenciaSolicitud), nullable=True, default=UrgenciaSolicitud.MEDIA
+    )
     estado = db.Column(
         db.Enum(EstadoSolicitud), nullable=False, default=EstadoSolicitud.PUBLICADO
     )

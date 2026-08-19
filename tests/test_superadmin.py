@@ -206,6 +206,7 @@ def test_superadmin_override_order_200(client, superadmin):
     prov = _make_user("prov@x.com", RolUsuario.TRABAJADOR, "PROV")
     svc = Solicitud(
         solicitante_id=emp.id,
+        titulo="Reparar grifo",
         categoria="plomería",
         descripcion="demo",
         ubicacion="Valledupar",

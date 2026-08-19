@@ -7,7 +7,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from app.extensions import db
 from app.models.user import User, Profile
-from app.models.solicitud import Solicitud, Rating, EstadoSolicitud
+from app.models.solicitud import Solicitud, Rating, EstadoSolicitud, UrgenciaSolicitud
 from app.schemas.solicitud import (
     SolicitudCreateSchema,
     SolicitudEstadoSchema,
@@ -38,7 +38,7 @@ class SolicitudList(MethodView):
         """RF-04: crea una solicitud (solicitante = usuario JWT)."""
         user_id = int(get_jwt_identity())
 
-        for campo in ("categoria", "descripcion", "ubicacion"):
+        for campo in ("titulo", "categoria", "descripcion", "ubicacion"):
             valor = data.get(campo)
             if not valor or not str(valor).strip():
                 abort(400, message=f"El campo '{campo}' es requerido.")
@@ -49,10 +49,13 @@ class SolicitudList(MethodView):
 
         solicitud = Solicitud(
             solicitante_id=user_id,
+            titulo=data["titulo"],
             categoria=data["categoria"],
             descripcion=data["descripcion"],
             ubicacion=data["ubicacion"],
             presupuesto=presupuesto,  # None => "a convenir"
+            fecha_deseada=data.get("fecha_deseada"),
+            urgencia=data.get("urgencia"),
             especificaciones_tecnicas=data.get("especificaciones_tecnicas"),
             estado=EstadoSolicitud.PUBLICADO,
         )

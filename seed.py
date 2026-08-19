@@ -12,7 +12,8 @@ from app import create_app
 from app.extensions import db
 from app.models.user import User, Profile, LegalAcceptance, RolUsuario, Verification
 from app.models.audit import AuditLog  # asegura creación de la tabla en create_all
-from app.models.solicitud import Solicitud, EstadoSolicitud
+from app.models.solicitud import Solicitud, EstadoSolicitud, UrgenciaSolicitud
+from datetime import date, timedelta
 from app.models.oferta import Oferta, EstadoOferta
 from app.models.contract import Dispute
 from app.models.ticket import Ticket
@@ -106,10 +107,13 @@ def seed_sample_service() -> bool:
 
     solicitud = Solicitud(
         solicitante_id=empleador.id,
+        titulo="Fuga de agua en baño principal",
         categoria="plomería",
         descripcion="Reparación de fuga de agua en tubería principal.",
         ubicacion="Valledupar",
         presupuesto=120000,
+        fecha_deseada=date.today() + timedelta(days=2),
+        urgencia=UrgenciaSolicitud.MEDIA,
         estado=EstadoSolicitud.PUBLICADO,
     )
     db.session.add(solicitud)

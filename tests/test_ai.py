@@ -70,7 +70,7 @@ def _make_service(client, email, categoria):
     h = _headers(client, email)
     resp = client.post(
         "/api/v1/solicitudes/",
-        json={"categoria": categoria, "descripcion": "d", "ubicacion": "Valledupar"},
+        json={"titulo": "Reparar grifo", "categoria": categoria, "descripcion": "d", "ubicacion": "Valledupar"},
         headers=h,
     )
     return resp.get_json()["id"]

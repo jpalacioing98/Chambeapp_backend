@@ -56,6 +56,7 @@ def test_create_service_ok(client):
     resp = client.post(
         "/api/v1/solicitudes/",
         json={
+            "titulo": "Reparar grifo",
             "categoria": "plomeria",
             "descripcion": "arreglar tuberia",
             "ubicacion": "Valledupar",
@@ -72,7 +73,7 @@ def test_create_service_ok(client):
 
 def test_create_service_missing_fields(client):
     h = _user(client, "emp2@example.com", rol="empleador")
-    resp = client.post("/api/v1/solicitudes/", json={"categoria": "x"}, headers=h)
+    resp = client.post("/api/v1/solicitudes/", json={"categoria": "x", "titulo": "X"}, headers=h)
     assert resp.status_code == 400
 
 
@@ -81,6 +82,7 @@ def test_create_service_presupuesto_low(client):
     resp = client.post(
         "/api/v1/solicitudes/",
         json={
+            "titulo": "Reparar grifo",
             "categoria": "x",
             "descripcion": "d",
             "ubicacion": "Valledupar",
@@ -95,7 +97,7 @@ def test_create_service_sin_presupuesto(client):
     h = _user(client, "emp4@example.com", rol="empleador")
     resp = client.post(
         "/api/v1/solicitudes/",
-        json={"categoria": "x", "descripcion": "d", "ubicacion": "Valledupar"},
+        json={"titulo": "Reparar grifo", "categoria": "x", "descripcion": "d", "ubicacion": "Valledupar"},
         headers=h,
     )
     assert resp.status_code == 201
@@ -106,7 +108,7 @@ def test_create_service_fuera_valledupar(client):
     h = _user(client, "emp5@example.com", rol="empleador")
     resp = client.post(
         "/api/v1/solicitudes/",
-        json={"categoria": "x", "descripcion": "d", "ubicacion": "Bogota"},
+        json={"titulo": "Reparar grifo", "categoria": "x", "descripcion": "d", "ubicacion": "Bogota"},
         headers=h,
     )
     assert resp.status_code == 201
@@ -117,12 +119,12 @@ def test_list_and_filter_services(client):
     h = _user(client, "emp6@example.com", rol="empleador")
     client.post(
         "/api/v1/solicitudes/",
-        json={"categoria": "a", "descripcion": "desc uno", "ubicacion": "Valledupar"},
+        json={"titulo": "Reparar grifo", "categoria": "a", "descripcion": "desc uno", "ubicacion": "Valledupar"},
         headers=h,
     )
     client.post(
         "/api/v1/solicitudes/",
-        json={"categoria": "b", "descripcion": "desc dos", "ubicacion": "Valledupar"},
+        json={"titulo": "Reparar grifo", "categoria": "b", "descripcion": "desc dos", "ubicacion": "Valledupar"},
         headers=h,
     )
     assert len(client.get("/api/v1/solicitudes/").get_json()) == 2
@@ -174,7 +176,7 @@ def test_rating_flow(client):
     emp_h = _user(client, "emp@example.com", rol="empleador")
     create = client.post(
         "/api/v1/solicitudes/",
-        json={"categoria": "a", "descripcion": "d", "ubicacion": "Valledupar"},
+        json={"titulo": "Reparar grifo", "categoria": "a", "descripcion": "d", "ubicacion": "Valledupar"},
         headers=emp_h,
     )
     sid = create.get_json()["id"]
@@ -211,7 +213,7 @@ def test_rating_flow(client):
     # rating sin completar -> 409
     create2 = client.post(
         "/api/v1/solicitudes/",
-        json={"categoria": "b", "descripcion": "d2", "ubicacion": "Valledupar"},
+        json={"titulo": "Reparar grifo", "categoria": "b", "descripcion": "d2", "ubicacion": "Valledupar"},
         headers=emp_h,
     )
     sid2 = create2.get_json()["id"]
@@ -227,7 +229,7 @@ def test_patch_estado_forbidden(client):
     emp_h = _user(client, "emp@example.com", rol="empleador")
     create = client.post(
         "/api/v1/solicitudes/",
-        json={"categoria": "a", "descripcion": "d", "ubicacion": "Valledupar"},
+        json={"titulo": "Reparar grifo", "categoria": "a", "descripcion": "d", "ubicacion": "Valledupar"},
         headers=emp_h,
     )
     sid = create.get_json()["id"]
@@ -244,7 +246,7 @@ def test_list_ratings(client):
     emp_h = _user(client, "emp@example.com", rol="empleador")
     create = client.post(
         "/api/v1/solicitudes/",
-        json={"categoria": "a", "descripcion": "d", "ubicacion": "Valledupar"},
+        json={"titulo": "Reparar grifo", "categoria": "a", "descripcion": "d", "ubicacion": "Valledupar"},
         headers=emp_h,
     )
     sid = create.get_json()["id"]

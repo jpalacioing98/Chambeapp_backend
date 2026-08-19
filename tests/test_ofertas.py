@@ -60,6 +60,7 @@ def _crear_solicitud(client, headers):
     resp = client.post(
         "/api/v1/solicitudes/",
         json={
+            "titulo": "Armar mueble",
             "categoria": "carpinteria",
             "descripcion": "armar mueble",
             "ubicacion": "Valledupar",
