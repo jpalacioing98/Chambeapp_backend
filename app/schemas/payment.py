@@ -34,3 +34,24 @@ class PaymentSchema(Schema):
     creado_en = fields.DateTime()
     actualizado_en = fields.DateTime()
     liberado_en = fields.DateTime(allow_none=True)
+
+
+class IncomeCertificateHistorySchema(Schema):
+    """Entrada mensual del historial de ingresos (RF-13)."""
+
+    mes = fields.String()  # "YYYY-MM"
+    ingreso = fields.Integer()  # neto (monto - comision)
+    servicios = fields.Integer()  # contratos completados en el mes
+
+
+class IncomeCertificateSchema(Schema):
+    """RF-13: certificado de trazabilidad de ingresos del proveedor."""
+
+    nombre = fields.String()
+    verificado = fields.Boolean()
+    calificacion_promedio = fields.Float()
+    periodo = fields.Raw()  # {"desde": "YYYY-MM-DD", "hasta": "YYYY-MM-DD"}
+    total_ingresos = fields.Integer()
+    promedio_mensual = fields.Integer()
+    servicios_completados = fields.Integer()
+    historial = fields.List(fields.Nested(IncomeCertificateHistorySchema))

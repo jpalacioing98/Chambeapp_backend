@@ -6,12 +6,13 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from app.extensions import db
 from app.models.user import User, RolUsuario
-from app.models.contract import Contract
+from app.models.contract import Contract, EstadoContrato
 from app.models.payment import Payment, EstadoPago
 from app.schemas.payment import (
     PaymentCreateSchema,
     PaymentEstadoSchema,
     PaymentSchema,
+    IncomeCertificateSchema,
 )
 from app.services.payments import (
     crear_pago,
@@ -198,3 +199,104 @@ class PaymentAdminAutoRelease(MethodView):
             abort(403, message="Requiere rol admin.")
         liberados = auto_liberar_vencidos()
         return {"liberados": liberados}
+
+
+def _meses_ventana(hoy):
+    """Devuelve lista de (anio, mes) de los ultimos 12 meses, ascendente."""
+    anio, mes = hoy.year, hoy.month
+    ventana = []
+    for i in range(11, -1, -1):
+        m = mes - i
+        a = anio
+        while m <= 0:
+            m += 12
+            a -= 1
+        ventana.append((a, m))
+    return ventana
+
+
+def _inicio_mes(anio, mes):
+    from datetime import datetime
+
+    return datetime(anio, mes, 1, 0, 0, 0)
+
+
+def _mes_siguiente(anio, mes):
+    mes += 1
+    if mes > 12:
+        mes = 1
+        anio += 1
+    return anio, mes
+
+
+@blp.route("/certificado-ingresos")
+class IncomeCertificate(MethodView):
+    @jwt_required()
+    @blp.response(200, IncomeCertificateSchema)
+    def get(self):
+        """RF-13: certificado de ingresos del proveedor (ultimos 12 meses)."""
+        from datetime import datetime, timezone
+
+        user = db.session.get(User, int(get_jwt_identity()))
+
+        contratos_completados = Contract.query.filter_by(
+            proveedor_id=user.id, estado=EstadoContrato.COMPLETADO
+        ).all()
+
+        pagos = (
+            Payment.query.join(Contract, Payment.contract_id == Contract.id)
+            .filter(
+                Contract.proveedor_id == user.id,
+                Payment.estado == EstadoPago.LIBERADO,
+            )
+            .all()
+        )
+
+        total_ingresos = sum((p.monto - p.comision) for p in pagos)
+
+        # Historial: ultimos 12 meses (mes actual hacia atras), ascendente.
+        hoy = datetime.utcnow()
+        ventana = _meses_ventana(hoy)
+        historial = []
+        for (a, m) in ventana:
+            inicio = _inicio_mes(a, m)
+            fa, fm = _mes_siguiente(a, m)
+            fin = _inicio_mes(fa, fm)
+
+            ingreso = 0
+            for p in pagos:
+                ref = p.liberado_en or p.creado_en
+                if ref is not None and inicio <= ref < fin:
+                    ingreso += (p.monto - p.comision)
+
+            servicios = 0
+            for c in contratos_completados:
+                ref = c.fin_en or c.creado_en
+                if ref is not None and inicio <= ref < fin:
+                    servicios += 1
+
+            historial.append(
+                {"mes": f"{a:04d}-{m:02d}", "ingreso": ingreso, "servicios": servicios}
+            )
+
+        promedio_mensual = round(total_ingresos / 12)
+        calificacion_promedio = float(user.profile.calificacion_promedio or 0.0)
+        verificado = bool(user.profile.verificado)
+        nombre = user.nombre or user.email
+
+        a0, m0 = ventana[0]
+        periodo = {
+            "desde": _inicio_mes(a0, m0).date().isoformat(),
+            "hasta": hoy.date().isoformat(),
+        }
+
+        return {
+            "nombre": nombre,
+            "verificado": verificado,
+            "calificacion_promedio": calificacion_promedio,
+            "periodo": periodo,
+            "total_ingresos": total_ingresos,
+            "promedio_mensual": promedio_mensual,
+            "servicios_completados": len(contratos_completados),
+            "historial": historial,
+        }
