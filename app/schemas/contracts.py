@@ -40,6 +40,8 @@ class ContractSchema(Schema):
     solicitante_id = fields.Integer()
     estado = fields.Enum(EstadoContrato, by_value=True)
     motivo_cancelacion = fields.String(allow_none=True)
+    inicio_en = fields.DateTime(allow_none=True)
+    fin_en = fields.DateTime(allow_none=True)
     creado_en = fields.DateTime()
     actualizado_en = fields.DateTime()
     service = fields.Nested(SolicitudResumenSchema, dump_only=True, allow_none=True)

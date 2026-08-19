@@ -38,6 +38,9 @@ class Contract(db.Model):
         db.Enum(EstadoContrato), nullable=False, default=EstadoContrato.PENDIENTE
     )
     motivo_cancelacion = db.Column(db.String(500), nullable=True)
+    # Ciclo de vida "capeta": check-in (inicio) / check-out (fin) del pds.
+    inicio_en = db.Column(db.DateTime, nullable=True)
+    fin_en = db.Column(db.DateTime, nullable=True)
     creado_en = db.Column(
         db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )

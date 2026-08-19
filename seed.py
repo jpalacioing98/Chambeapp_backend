@@ -13,9 +13,9 @@ from app.extensions import db
 from app.models.user import User, Profile, LegalAcceptance, RolUsuario, Verification
 from app.models.audit import AuditLog  # asegura creación de la tabla en create_all
 from app.models.solicitud import Solicitud, EstadoSolicitud, UrgenciaSolicitud
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime, timezone
 from app.models.oferta import Oferta, EstadoOferta
-from app.models.contract import Dispute
+from app.models.contract import Dispute, Contract, EstadoContrato
 from app.models.ticket import Ticket
 from app.models.payment import Payment
 from app.models.config import SystemConfig, FeatureFlag
@@ -164,6 +164,42 @@ def seed_sample_oferta() -> bool:
     return True
 
 
+def seed_sample_contract() -> bool:
+    """Crea un contrato de ejemplo en 'en_progreso' (capeta iniciada) con inicio_en.
+
+    Idempotente: si ya existe un contrato para la solicitud plomería del empleador
+    con el trabajador como pds, lo omite.
+    """
+    empleador = User.query.filter_by(email="empleador@chambeapp.com").first()
+    trabajador = User.query.filter_by(email="trabajador@chambeapp.com").first()
+    if not empleador or not trabajador:
+        return False
+
+    solicitud = Solicitud.query.filter_by(
+        solicitante_id=empleador.id, categoria="plomería"
+    ).first()
+    if solicitud is None:
+        print("  SKIP contract ejemplo (falta solicitud plomería)")
+        return False
+
+    if Contract.query.filter_by(
+        service_id=solicitud.id, proveedor_id=trabajador.id
+    ).first():
+        print("  SKIP contract ejemplo (ya existe)")
+        return False
+
+    contract = Contract(
+        service_id=solicitud.id,
+        proveedor_id=trabajador.id,
+        solicitante_id=empleador.id,
+        estado=EstadoContrato.EN_PROGRESO,
+        inicio_en=datetime.now(timezone.utc),
+    )
+    db.session.add(contract)
+    print("  CREADO contract ejemplo (capeta): en_progreso con inicio_en seteado")
+    return True
+
+
 def seed_config() -> int:
     """Crea SystemConfig y FeatureFlag por defecto si no existen. Devuelve nº creados."""
     created = 0
@@ -241,6 +277,7 @@ if __name__ == "__main__":
         created = seed_users()
         seed_sample_service()
         seed_sample_oferta()
+        seed_sample_contract()
         print("Sembrando configuración global y feature flags...")
         seed_config()
 

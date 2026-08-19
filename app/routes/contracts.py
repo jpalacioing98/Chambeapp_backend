@@ -5,7 +5,9 @@ from flask.views import MethodView
 from flask_smorest import Blueprint, abort
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
-from app.extensions import db
+from datetime import datetime, timezone
+
+from app.extensions import db, socketio
 from app.models.user import User
 from app.models.solicitud import Solicitud, EstadoSolicitud
 from app.models.contract import Contract, EstadoContrato
@@ -103,9 +105,11 @@ class ContractEstado(MethodView):
         if accion == "aceptar":
             if contract.estado != EstadoContrato.PENDIENTE:
                 abort(400, message="Solo se acepta un contrato desde 'pendiente'.")
+            # check-in: solo el pds (proveedor) ejecuta el trabajo.
             if user_id != contract.proveedor_id:
                 abort(403, message="Solo el proveedor puede aceptar el contrato.")
             contract.estado = EstadoContrato.EN_PROGRESO
+            contract.inicio_en = datetime.now(timezone.utc)
             crear_notificacion(
                 contract.solicitante_id,
                 "contrato_aceptado",
@@ -115,7 +119,11 @@ class ContractEstado(MethodView):
         elif accion == "completar":
             if contract.estado != EstadoContrato.EN_PROGRESO:
                 abort(400, message="Solo se completa un contrato desde 'en_progreso'.")
+            # check-out: solo el pds (proveedor) finaliza el trabajo.
+            if user_id != contract.proveedor_id:
+                abort(403, message="Solo el proveedor puede completar el contrato.")
             contract.estado = EstadoContrato.COMPLETADO
+            contract.fin_en = datetime.now(timezone.utc)
             solicitud = db.session.get(Solicitud, contract.service_id)
             if solicitud is not None:
                 solicitud.estado = EstadoSolicitud.COMPLETADO
@@ -133,6 +141,7 @@ class ContractEstado(MethodView):
         elif accion == "cancelar":
             if contract.estado in (EstadoContrato.COMPLETADO, EstadoContrato.CANCELADO):
                 abort(400, message="No se puede cancelar un contrato ya finalizado.")
+            # cancelar: solicitante o pds (ya validado arriba que participa).
             motivo = data.get("motivo_cancelacion")
             if not motivo or not str(motivo).strip():
                 abort(400, message="Se requiere un motivo de cancelación.")
@@ -153,4 +162,15 @@ class ContractEstado(MethodView):
             abort(400, message="Acción de estado inválida.")
 
         db.session.commit()
+
+        # Notificación en tiempo real (socket) a ambos participantes.
+        payload = {
+            "contract_id": contract.id,
+            "estado": contract.estado.value,
+            "inicio_en": contract.inicio_en.isoformat() if contract.inicio_en else None,
+            "fin_en": contract.fin_en.isoformat() if contract.fin_en else None,
+        }
+        socketio.emit("contracto:actualizado", payload, room=f"user:{contract.solicitante_id}")
+        socketio.emit("contracto:actualizado", payload, room=f"user:{contract.proveedor_id}")
+
         return contract

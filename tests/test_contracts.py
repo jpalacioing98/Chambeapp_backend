@@ -150,6 +150,98 @@ def test_aceptar_not_proveedor(client):
     assert resp.status_code == 403
 
 
+# ---------------- capeta: check-in / check-out ----------------
+def test_aceptar_sets_inicio_en(client):
+    """RF-07.2 (capeta): pds acepta -> en_progreso y inicio_en no nulo."""
+    emp_h = _user(client, "emp@example.com", rol="empleador")
+    tr_h = _user(client, "tr@example.com", rol="trabajador")
+    sid = _crear_servicio(client, emp_h)
+    oid = client.post(
+        "/api/v1/contracts/",
+        json={"service_id": sid, "proveedor_id": 2},
+        headers=emp_h,
+    ).get_json()["id"]
+    resp = client.patch(
+        f"/api/v1/contracts/{oid}/estado",
+        json={"estado": "aceptar"},
+        headers=tr_h,
+    )
+    assert resp.status_code == 200
+    d = resp.get_json()
+    assert d["estado"] == "en_progreso"
+    assert d["inicio_en"] is not None
+    assert d["fin_en"] is None
+
+
+def test_completar_sets_fin_en(client):
+    """RF-07.3 (capeta): pds completa -> completado y fin_en no nulo."""
+    emp_h = _user(client, "emp@example.com", rol="empleador")
+    tr_h = _user(client, "tr@example.com", rol="trabajador")
+    sid = _crear_servicio(client, emp_h)
+    oid = client.post(
+        "/api/v1/contracts/",
+        json={"service_id": sid, "proveedor_id": 2},
+        headers=emp_h,
+    ).get_json()["id"]
+    client.patch(
+        f"/api/v1/contracts/{oid}/estado",
+        json={"estado": "aceptar"},
+        headers=tr_h,
+    )
+    resp = client.patch(
+        f"/api/v1/contracts/{oid}/estado",
+        json={"estado": "completar"},
+        headers=tr_h,
+    )
+    assert resp.status_code == 200
+    d = resp.get_json()
+    assert d["estado"] == "completado"
+    assert d["inicio_en"] is not None
+    assert d["fin_en"] is not None
+
+
+def test_cancelar_saves_motivo(client):
+    """RF-07.4: cancelar con motivo -> cancelado y motivo_cancelacion guardado."""
+    emp_h = _user(client, "emp@example.com", rol="empleador")
+    tr_h = _user(client, "tr@example.com", rol="trabajador")
+    sid = _crear_servicio(client, emp_h)
+    oid = client.post(
+        "/api/v1/contracts/",
+        json={"service_id": sid, "proveedor_id": 2},
+        headers=emp_h,
+    ).get_json()["id"]
+    resp = client.patch(
+        f"/api/v1/contracts/{oid}/estado",
+        json={"estado": "cancelar", "motivo_cancelacion": "ya no necesito"},
+        headers=emp_h,
+    )
+    assert resp.status_code == 200
+    d = resp.get_json()
+    assert d["estado"] == "cancelado"
+    assert d["motivo_cancelacion"] == "ya no necesito"
+
+
+def test_aceptar_wrong_role_403(client):
+    """Rol equivocado: solicitante hace 'aceptar' -> 403 (solo pds)."""
+    emp_h = _user(client, "emp@example.com", rol="empleador")
+    _user(client, "tr@example.com", rol="trabajador")
+    sid = _crear_servicio(client, emp_h)
+    oid = client.post(
+        "/api/v1/contracts/",
+        json={"service_id": sid, "proveedor_id": 2},
+        headers=emp_h,
+    ).get_json()["id"]
+    resp = client.patch(
+        f"/api/v1/contracts/{oid}/estado",
+        json={"estado": "aceptar"},
+        headers=emp_h,
+    )
+    assert resp.status_code == 403
+    # y el contrato sigue pendiente (no se mutó)
+    det = client.get(f"/api/v1/contracts/{oid}", headers=emp_h).get_json()
+    assert det["estado"] == "pendiente"
+
+
 # ---------------- RF-07.3: completar ----------------
 def test_completar_ok_propagates_service(client):
     emp_h = _user(client, "emp@example.com", rol="empleador")
