@@ -29,7 +29,11 @@ class DocumentoRequerido(db.Model):
 
 
 class DocumentoUsuario(db.Model):
-    """Estado documental KYC de un usuario concreto (trazabilidad)."""
+    """Estado documental KYC de un usuario concreto (trazabilidad).
+
+    Estado (máquina de estados): no_enviado | enviado | aprobado | rechazado.
+    El MVP almacena el archivo en base64 (sin S3).
+    """
 
     __tablename__ = "documentos_usuario"
 
@@ -37,16 +41,25 @@ class DocumentoUsuario(db.Model):
     user_id = db.Column(
         db.Integer, db.ForeignKey("users.id"), nullable=False, index=True
     )
+    documento_requerido_id = db.Column(
+        db.Integer, db.ForeignKey("documentos_requeridos.id"), nullable=True, index=True
+    )
     documento_clave = db.Column(db.String(60), nullable=False)
     rol = db.Column(db.String(30), nullable=True)
     estado = db.Column(
         db.String(20), default="no_enviado", nullable=False
     )  # no_enviado|enviado|aprobado|rechazado
     url = db.Column(db.String(512), nullable=True)
+    # MVP: archivo KYC en base64 (sin S3).
+    archivo_base64 = db.Column(db.Text, nullable=True)
+    nombre_archivo = db.Column(db.String(255), nullable=True)
+    tipo_mime = db.Column(db.String(100), nullable=True)
     fecha_envio = db.Column(db.DateTime, nullable=True)
-    fecha_revision = db.Column(db.DateTime, nullable=True)
-    revisado_por = db.Column(db.Integer, nullable=True)
-    motivo = db.Column(db.Text, nullable=True)
+    revisado_en = db.Column(db.DateTime, nullable=True)
+    revisor_id = db.Column(
+        db.Integer, db.ForeignKey("users.id"), nullable=True
+    )  # verificador/admin que revisó
+    nota = db.Column(db.Text, nullable=True)
 
     __table_args__ = (
         db.UniqueConstraint(
