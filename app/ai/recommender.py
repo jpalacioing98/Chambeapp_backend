@@ -51,7 +51,7 @@ class HeuristicRecommender(Recommender):
         providers = (
             db.session.query(User)
             .join(Profile, Profile.user_id == User.id)
-            .filter(User.rol == RolUsuario.TRABAJADOR)
+            .filter(User.rol == RolUsuario.PDS)
             .filter(Profile.perfil_completo.is_(True))
             .all()
         )

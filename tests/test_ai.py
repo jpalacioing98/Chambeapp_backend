@@ -23,7 +23,7 @@ def client(app):
     return app.test_client()
 
 
-def _register(client, email, rol="trabajador", password="secret123"):
+def _register(client, email, rol="pds", password="secret123"):
     return client.post(
         "/api/v1/auth/register",
         json={
@@ -47,7 +47,7 @@ def _headers(client, email, password="secret123"):
 
 
 def _make_provider(client, email, categorias, habilidades, calificacion, verificado):
-    _register(client, email=email, rol="trabajador")
+    _register(client, email=email, rol="pds")
     h = _headers(client, email)
     client.put(
         "/api/v1/users/me/profile",
@@ -81,7 +81,7 @@ def test_recommendations_ordered_and_explained(client, app):
     _make_provider(client, "p1@x.com", ["plomeria"], ["tuberia"], 5.0, True)
     _make_provider(client, "p2@x.com", ["jardineria"], [], 3.0, False)
     _make_provider(client, "p3@x.com", ["plomeria", "electricidad"], [], 4.0, True)
-    _register(client, email="emp@x.com", rol="empleador")
+    _register(client, email="emp@x.com", rol="solicitante")
     sid = _make_service(client, "emp@x.com", "plomeria")
 
     resp = client.get(f"/api/v1/ai/recommendations?service_id={sid}")
@@ -115,7 +115,7 @@ def test_recommendations_missing_param(client, app):
 # ---------------- RF-05.3: servicios para proveedor ----------------
 def test_services_for_provider(client, app):
     _make_provider(client, "prov@x.com", ["plomeria"], [], 4.5, True)
-    _register(client, email="emp@x.com", rol="empleador")
+    _register(client, email="emp@x.com", rol="solicitante")
     _make_service(client, "emp@x.com", "plomeria")  # match
     _make_service(client, "emp@x.com", "carpinteria")  # no match
 

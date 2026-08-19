@@ -100,7 +100,7 @@ def _make_dispute(order, status="abierta"):
 
 def test_admin_moderar_servicio_200(client):
     admin = _make_user("admin@x.com", RolUsuario.ADMIN, "Admin")
-    owner = _make_user("owner@x.com", RolUsuario.EMPLEADOR, "Owner")
+    owner = _make_user("owner@x.com", RolUsuario.SOLICITANTE, "Owner")
     s = _make_service(owner)
     r = client.patch(
         f"/api/v1/admin/solicitudes/{s.id}/moderate",
@@ -115,7 +115,7 @@ def test_admin_moderar_servicio_200(client):
 
 def test_admin_listar_servicios_200(client):
     admin = _make_user("admin@x.com", RolUsuario.ADMIN, "Admin")
-    owner = _make_user("owner@x.com", RolUsuario.EMPLEADOR, "Owner")
+    owner = _make_user("owner@x.com", RolUsuario.SOLICITANTE, "Owner")
     _make_service(owner, titulo="Fuga agua")
     r = client.get("/api/v1/admin/solicitudes?q=agua", headers=_headers(admin))
     assert r.status_code == 200
@@ -128,8 +128,8 @@ def test_admin_listar_servicios_200(client):
 
 def test_admin_moderar_orden_200(client):
     admin = _make_user("admin@x.com", RolUsuario.ADMIN, "Admin")
-    comprador = _make_user("c@x.com", RolUsuario.EMPLEADOR, "C")
-    vendedor = _make_user("v@x.com", RolUsuario.TRABAJADOR, "V")
+    comprador = _make_user("c@x.com", RolUsuario.SOLICITANTE, "C")
+    vendedor = _make_user("v@x.com", RolUsuario.PDS, "V")
     s = _make_service(comprador)
     o = _make_contract(s, comprador, vendedor)
     r = client.patch(
@@ -145,8 +145,8 @@ def test_admin_moderar_orden_200(client):
 
 def test_admin_listar_ordenes_200(client):
     admin = _make_user("admin@x.com", RolUsuario.ADMIN, "Admin")
-    comprador = _make_user("c@x.com", RolUsuario.EMPLEADOR, "C")
-    vendedor = _make_user("v@x.com", RolUsuario.TRABAJADOR, "V")
+    comprador = _make_user("c@x.com", RolUsuario.SOLICITANTE, "C")
+    vendedor = _make_user("v@x.com", RolUsuario.PDS, "V")
     s = _make_service(comprador)
     o = _make_contract(s, comprador, vendedor)
     _make_payment(o)
@@ -162,8 +162,8 @@ def test_admin_listar_ordenes_200(client):
 
 def test_admin_listar_disputas_200(client):
     admin = _make_user("admin@x.com", RolUsuario.ADMIN, "Admin")
-    comprador = _make_user("c@x.com", RolUsuario.EMPLEADOR, "C")
-    vendedor = _make_user("v@x.com", RolUsuario.TRABAJADOR, "V")
+    comprador = _make_user("c@x.com", RolUsuario.SOLICITANTE, "C")
+    vendedor = _make_user("v@x.com", RolUsuario.PDS, "V")
     s = _make_service(comprador)
     o = _make_contract(s, comprador, vendedor)
     _make_dispute(o)
@@ -174,8 +174,8 @@ def test_admin_listar_disputas_200(client):
 
 def test_admin_detalle_disputa_200(client):
     admin = _make_user("admin@x.com", RolUsuario.ADMIN, "Admin")
-    comprador = _make_user("c@x.com", RolUsuario.EMPLEADOR, "C")
-    vendedor = _make_user("v@x.com", RolUsuario.TRABAJADOR, "V")
+    comprador = _make_user("c@x.com", RolUsuario.SOLICITANTE, "C")
+    vendedor = _make_user("v@x.com", RolUsuario.PDS, "V")
     s = _make_service(comprador)
     o = _make_contract(s, comprador, vendedor)
     p = _make_payment(o)
@@ -189,8 +189,8 @@ def test_admin_detalle_disputa_200(client):
 
 def test_admin_resolver_disputa_release_cambia_pago(client):
     admin = _make_user("admin@x.com", RolUsuario.ADMIN, "Admin")
-    comprador = _make_user("c@x.com", RolUsuario.EMPLEADOR, "C")
-    vendedor = _make_user("v@x.com", RolUsuario.TRABAJADOR, "V")
+    comprador = _make_user("c@x.com", RolUsuario.SOLICITANTE, "C")
+    vendedor = _make_user("v@x.com", RolUsuario.PDS, "V")
     s = _make_service(comprador)
     o = _make_contract(s, comprador, vendedor)
     p = _make_payment(o, estado=EstadoPago.EN_ESCROW)
@@ -212,8 +212,8 @@ def test_admin_resolver_disputa_release_cambia_pago(client):
 
 def test_admin_resolver_disputa_refund_reviete_comision(client):
     admin = _make_user("admin@x.com", RolUsuario.ADMIN, "Admin")
-    comprador = _make_user("c@x.com", RolUsuario.EMPLEADOR, "C")
-    vendedor = _make_user("v@x.com", RolUsuario.TRABAJADOR, "V")
+    comprador = _make_user("c@x.com", RolUsuario.SOLICITANTE, "C")
+    vendedor = _make_user("v@x.com", RolUsuario.PDS, "V")
     s = _make_service(comprador)
     o = _make_contract(s, comprador, vendedor)
     p = _make_payment(o, estado=EstadoPago.EN_ESCROW)
@@ -232,7 +232,7 @@ def test_admin_resolver_disputa_refund_reviete_comision(client):
 # ---------------- tickets ----------------
 
 def test_usuario_crea_ticket_201(client):
-    user = _make_user("u@x.com", RolUsuario.TRABAJADOR, "U")
+    user = _make_user("u@x.com", RolUsuario.PDS, "U")
     r = client.post(
         "/api/v1/tickets/",
         headers=_headers(user),
@@ -247,7 +247,7 @@ def test_usuario_crea_ticket_201(client):
 
 def test_admin_lista_y_gestiona_ticket_200(client):
     admin = _make_user("admin@x.com", RolUsuario.ADMIN, "Admin")
-    user = _make_user("u@x.com", RolUsuario.TRABAJADOR, "U")
+    user = _make_user("u@x.com", RolUsuario.PDS, "U")
     t = Ticket(user_id=user.id, subject="Problema", body="Detalle")
     db.session.add(t)
     db.session.commit()
@@ -272,9 +272,9 @@ def test_admin_lista_y_gestiona_ticket_200(client):
 
 def test_admin_moderar_contenido_200(client):
     admin = _make_user("admin@x.com", RolUsuario.ADMIN, "Admin")
-    autor = _make_user("a@x.com", RolUsuario.TRABAJADOR, "A")
-    calificado = _make_user("b@x.com", RolUsuario.TRABAJADOR, "B")
-    owner = _make_user("o@x.com", RolUsuario.EMPLEADOR, "O")
+    autor = _make_user("a@x.com", RolUsuario.PDS, "A")
+    calificado = _make_user("b@x.com", RolUsuario.PDS, "B")
+    owner = _make_user("o@x.com", RolUsuario.SOLICITANTE, "O")
     s = _make_service(owner)
     rating = Rating(
         service_id=s.id, autor_id=autor.id, calificado_id=calificado.id,
@@ -302,7 +302,7 @@ def test_admin_moderar_contenido_200(client):
 
 @pytest.mark.parametrize(
     "rol",
-    [RolUsuario.TRABAJADOR, RolUsuario.EMPLEADOR],
+    [RolUsuario.PDS, RolUsuario.SOLICITANTE],
 )
 def test_no_admin_403_en_endpoints_admin(client, rol):
     u = _make_user("u@x.com", rol, "U")

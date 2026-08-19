@@ -1,8 +1,7 @@
 """pytest suite — ofertas (negociación pds/solicitante).
 
-Convenciones del repo: pds = rol 'trabajador', solicitante = rol 'empleador'
-(dueño vía Solicitud.solicitante_id). El rename conceptual pds/solicitante
-aún no está reflejado en el enum RolUsuario.
+Convenciones del repo: pds = rol 'pds', solicitante = rol 'solicitante'
+(dueño vía Solicitud.solicitante_id). El enum RolUsuario usa PDS/SOLICITANTE.
 """
 
 import pytest
@@ -28,7 +27,7 @@ def client(app):
     return app.test_client()
 
 
-def _register(client, email, rol="trabajador", password="secret123"):
+def _register(client, email, rol="pds", password="secret123"):
     return client.post(
         "/api/v1/auth/register",
         json={
@@ -51,7 +50,7 @@ def _headers(client, email, password="secret123"):
     return {"Authorization": f"Bearer {_login(client, email, password)['access_token']}"}
 
 
-def _user(client, email, rol="trabajador"):
+def _user(client, email, rol="pds"):
     _register(client, email=email, rol=rol)
     return _headers(client, email)
 
@@ -72,8 +71,8 @@ def _crear_solicitud(client, headers):
 
 # ---------------- pds crea oferta en solicitud ajena ----------------
 def test_pds_crea_oferta_ajena_201(client):
-    emp_h = _user(client, "emp@example.com", rol="empleador")
-    pds_h = _user(client, "pds@example.com", rol="trabajador")
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
+    pds_h = _user(client, "pds@example.com", rol="pds")
     sid = _crear_solicitud(client, emp_h)
     resp = client.post(
         f"/api/v1/solicitudes/{sid}/ofertas",
@@ -87,22 +86,22 @@ def test_pds_crea_oferta_ajena_201(client):
     assert d["solicitud_id"] == sid
 
 
-# ---------------- pds NO oferta en su propia solicitud ----------------
-def test_pds_no_oferta_propia_403(client):
-    pds_h = _user(client, "pds@example.com", rol="trabajador")
-    sid = _crear_solicitud(client, pds_h)  # pds es dueño
+# ---------------- dueño (solicitante) NO oferta en su propia solicitud ----------------
+def test_dueno_no_oferta_propia_403(client):
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
+    sid = _crear_solicitud(client, emp_h)  # solicitante es dueño
     resp = client.post(
         f"/api/v1/solicitudes/{sid}/ofertas",
         json={"monto": 100000},
-        headers=pds_h,
+        headers=emp_h,
     )
     assert resp.status_code == 403
 
 
 # ---------------- solicitante lista ofertas de su solicitud ----------------
 def test_solicitante_lista_ofertas_200(client):
-    emp_h = _user(client, "emp@example.com", rol="empleador")
-    pds_h = _user(client, "pds@example.com", rol="trabajador")
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
+    pds_h = _user(client, "pds@example.com", rol="pds")
     sid = _crear_solicitud(client, emp_h)
     client.post(
         f"/api/v1/solicitudes/{sid}/ofertas",
@@ -116,9 +115,9 @@ def test_solicitante_lista_ofertas_200(client):
 
 # ---------------- no participante lista ofertas -> 403 ----------------
 def test_no_participante_lista_403(client):
-    emp_h = _user(client, "emp@example.com", rol="empleador")
-    pds_h = _user(client, "pds@example.com", rol="trabajador")
-    outsider_h = _user(client, "out@example.com", rol="empleador")
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
+    pds_h = _user(client, "pds@example.com", rol="pds")
+    outsider_h = _user(client, "out@example.com", rol="solicitante")
     sid = _crear_solicitud(client, emp_h)
     client.post(
         f"/api/v1/solicitudes/{sid}/ofertas",
@@ -131,9 +130,9 @@ def test_no_participante_lista_403(client):
 
 # ---------------- solicitante acepta oferta ----------------
 def test_solicitante_acepta_crea_order_y_rechaza_otras(client):
-    emp_h = _user(client, "emp@example.com", rol="empleador")
-    pds1_h = _user(client, "pds1@example.com", rol="trabajador")
-    pds2_h = _user(client, "pds2@example.com", rol="trabajador")
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
+    pds1_h = _user(client, "pds1@example.com", rol="pds")
+    pds2_h = _user(client, "pds2@example.com", rol="pds")
     sid = _crear_solicitud(client, emp_h)
 
     o1 = client.post(
@@ -176,8 +175,8 @@ def test_solicitante_acepta_crea_order_y_rechaza_otras(client):
 
 # ---------------- contraofertar + pds acepta contraoferta ----------------
 def test_contraofertar_y_pds_acepta_contraoferta(client):
-    emp_h = _user(client, "emp@example.com", rol="empleador")
-    pds_h = _user(client, "pds@example.com", rol="trabajador")
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
+    pds_h = _user(client, "pds@example.com", rol="pds")
     sid = _crear_solicitud(client, emp_h)
     oid = client.post(
         f"/api/v1/solicitudes/{sid}/ofertas",
@@ -210,8 +209,8 @@ def test_contraofertar_y_pds_acepta_contraoferta(client):
 
 # ---------------- pds no puede aceptar (solo solicitante) ----------------
 def test_pds_no_acepta_403(client):
-    emp_h = _user(client, "emp@example.com", rol="empleador")
-    pds_h = _user(client, "pds@example.com", rol="trabajador")
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
+    pds_h = _user(client, "pds@example.com", rol="pds")
     sid = _crear_solicitud(client, emp_h)
     oid = client.post(
         f"/api/v1/solicitudes/{sid}/ofertas",

@@ -67,7 +67,7 @@ def test_admin_stats_200(client):
 
 @pytest.mark.parametrize(
     "rol",
-    [RolUsuario.TRABAJADOR, RolUsuario.EMPLEADOR, RolUsuario.VERIFICADOR, RolUsuario.SOPORTE],
+    [RolUsuario.PDS, RolUsuario.SOLICITANTE, RolUsuario.VERIFICADOR, RolUsuario.SOPORTE],
 )
 def test_no_admin_403_en_users(client, rol):
     u = _make_user("u@x.com", rol, "U")
@@ -85,7 +85,7 @@ def test_superadmin_accede_200(client):
 
 def test_aprobar_verificacion_cambia_status(client):
     admin = _make_user("admin@x.com", RolUsuario.ADMIN, "Admin")
-    user = _make_user("v@x.com", RolUsuario.TRABAJADOR, "V")
+    user = _make_user("v@x.com", RolUsuario.PDS, "V")
     v = Verification(user_id=user.id, document_type="cédula",
                      document_number="123", status="pending")
     db.session.add(v)
@@ -103,7 +103,7 @@ def test_aprobar_verificacion_cambia_status(client):
 
 def test_rechazar_verificacion_con_razon(client):
     admin = _make_user("admin@x.com", RolUsuario.ADMIN, "Admin")
-    user = _make_user("v@x.com", RolUsuario.TRABAJADOR, "V")
+    user = _make_user("v@x.com", RolUsuario.PDS, "V")
     v = Verification(user_id=user.id, status="pending")
     db.session.add(v)
     db.session.commit()
@@ -123,7 +123,7 @@ def test_rechazar_verificacion_con_razon(client):
 
 def test_patch_role_superadmin_403(client):
     admin = _make_user("admin@x.com", RolUsuario.ADMIN, "Admin")
-    target = _make_user("t@x.com", RolUsuario.TRABAJADOR, "T")
+    target = _make_user("t@x.com", RolUsuario.PDS, "T")
     r = client.patch(
         f"/api/v1/admin/users/{target.id}/role",
         headers=_headers(admin),
@@ -134,22 +134,22 @@ def test_patch_role_superadmin_403(client):
 
 def test_patch_role_valido_200(client):
     admin = _make_user("admin@x.com", RolUsuario.ADMIN, "Admin")
-    target = _make_user("t@x.com", RolUsuario.TRABAJADOR, "T")
+    target = _make_user("t@x.com", RolUsuario.PDS, "T")
     r = client.patch(
         f"/api/v1/admin/users/{target.id}/role",
         headers=_headers(admin),
-        json={"role": "empleador"},
+        json={"role": "solicitante"},
     )
     assert r.status_code == 200
-    assert r.get_json()["rol"] == "empleador"
+    assert r.get_json()["rol"] == "solicitante"
     db.session.refresh(target)
-    assert target.rol == RolUsuario.EMPLEADOR
+    assert target.rol == RolUsuario.SOLICITANTE
     assert target.role_version == 2  # se incrementó
 
 
 def test_patch_status_suspend_200(client):
     admin = _make_user("admin@x.com", RolUsuario.ADMIN, "Admin")
-    target = _make_user("t@x.com", RolUsuario.TRABAJADOR, "T")
+    target = _make_user("t@x.com", RolUsuario.PDS, "T")
     r = client.patch(
         f"/api/v1/admin/users/{target.id}/status",
         headers=_headers(admin),

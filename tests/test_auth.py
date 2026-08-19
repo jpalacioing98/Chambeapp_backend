@@ -26,7 +26,7 @@ def _register(client, **overrides):
     payload = {
         "email": "test@example.com",
         "password": "secret123",
-        "rol": "trabajador",
+        "rol": "pds",
         "acepto_tyc": True,
         "ip": "127.0.0.1",
     }
@@ -40,7 +40,7 @@ def test_register_success(client):
     data = resp.get_json()
     assert data["email"] == "test@example.com"
     assert "id" in data
-    assert data["rol"] == "trabajador"
+    assert data["rol"] == "pds"
     assert data["acepto_tyc"] is True
     assert data["profile"] is not None
 

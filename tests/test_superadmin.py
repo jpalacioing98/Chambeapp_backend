@@ -191,7 +191,7 @@ def test_superadmin_get_tyc_200(client, superadmin):
 
 
 def test_superadmin_override_user_200(client, superadmin):
-    target = _make_user("ov@x.com", RolUsuario.TRABAJADOR, "OV", status="suspended")
+    target = _make_user("ov@x.com", RolUsuario.PDS, "OV", status="suspended")
     r = client.post(
         "/api/v1/superadmin/override/user",
         headers=_headers(superadmin),
@@ -202,8 +202,8 @@ def test_superadmin_override_user_200(client, superadmin):
 
 
 def test_superadmin_override_order_200(client, superadmin):
-    emp = _make_user("emp@x.com", RolUsuario.EMPLEADOR, "EMP")
-    prov = _make_user("prov@x.com", RolUsuario.TRABAJADOR, "PROV")
+    emp = _make_user("emp@x.com", RolUsuario.SOLICITANTE, "EMP")
+    prov = _make_user("prov@x.com", RolUsuario.PDS, "PROV")
     svc = Solicitud(
         solicitante_id=emp.id,
         titulo="Reparar grifo",

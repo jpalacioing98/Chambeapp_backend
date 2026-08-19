@@ -23,8 +23,8 @@ from app.models.config import SystemConfig, FeatureFlag
 
 # Datos exactos de los 6 usuarios semilla (un rol por usuario).
 SEED_USERS = [
-    {"email": "trabajador@chambeapp.com", "rol": RolUsuario.TRABAJADOR, "nombre": "Trabajador Demo"},
-    {"email": "empleador@chambeapp.com", "rol": RolUsuario.EMPLEADOR, "nombre": "Empleador Demo"},
+    {"email": "pds@chambeapp.com", "rol": RolUsuario.PDS, "nombre": "Trabajador Demo"},
+    {"email": "solicitante@chambeapp.com", "rol": RolUsuario.SOLICITANTE, "nombre": "Empleador Demo"},
     {"email": "verificador@chambeapp.com", "rol": RolUsuario.VERIFICADOR, "nombre": "Verificador Demo"},
     {"email": "soporte@chambeapp.com", "rol": RolUsuario.SOPORTE, "nombre": "Soporte Demo"},
     {"email": "admin@chambeapp.com", "rol": RolUsuario.ADMIN, "nombre": "Admin Demo"},
@@ -38,7 +38,7 @@ TYC_IP = "127.0.0.1"
 
 def _build_profile(rol: RolUsuario) -> Profile:
     """Construye un Profile con perfil_completo=True según el rol."""
-    if rol == RolUsuario.TRABAJADOR:
+    if rol == RolUsuario.PDS:
         return Profile(
             habilidades=["plomería", "jardinería", "electricidad"],
             categorias=["plomería", "jardinería"],
@@ -96,7 +96,7 @@ def seed_users() -> list[str]:
 
 def seed_sample_service() -> bool:
     """Crea una solicitud de ejemplo publicada por el empleador (idempotente)."""
-    empleador = User.query.filter_by(email="empleador@chambeapp.com").first()
+    empleador = User.query.filter_by(email="solicitante@chambeapp.com").first()
     if not empleador:
         return False
     if Solicitud.query.filter_by(
@@ -123,8 +123,8 @@ def seed_sample_service() -> bool:
 
 def seed_sample_oferta() -> bool:
     """Crea una solicitud de ejemplo del empleador y una oferta del pds (idempotente)."""
-    empleador = User.query.filter_by(email="empleador@chambeapp.com").first()
-    trabajador = User.query.filter_by(email="trabajador@chambeapp.com").first()
+    empleador = User.query.filter_by(email="solicitante@chambeapp.com").first()
+    trabajador = User.query.filter_by(email="pds@chambeapp.com").first()
     if not empleador or not trabajador:
         return False
 
@@ -170,8 +170,8 @@ def seed_sample_contract() -> bool:
     Idempotente: si ya existe un contrato para la solicitud plomería del empleador
     con el trabajador como pds, lo omite.
     """
-    empleador = User.query.filter_by(email="empleador@chambeapp.com").first()
-    trabajador = User.query.filter_by(email="trabajador@chambeapp.com").first()
+    empleador = User.query.filter_by(email="solicitante@chambeapp.com").first()
+    trabajador = User.query.filter_by(email="pds@chambeapp.com").first()
     if not empleador or not trabajador:
         return False
 

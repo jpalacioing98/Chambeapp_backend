@@ -26,7 +26,7 @@ def client(app):
     return app.test_client()
 
 
-def _register(client, email, rol="trabajador", password="secret123"):
+def _register(client, email, rol="pds", password="secret123"):
     return client.post(
         "/api/v1/auth/register",
         json={
@@ -49,7 +49,7 @@ def _headers(client, email, password="secret123"):
     return {"Authorization": f"Bearer {_login(client, email, password)['access_token']}"}
 
 
-def _user(client, email, rol="trabajador"):
+def _user(client, email, rol="pds"):
     _register(client, email=email, rol=rol)
     return _headers(client, email)
 
@@ -82,8 +82,8 @@ def _contrato_completado(client, emp_h, tr_h, tr_id):
 
 # ---------------- RF-08.1: crear pago ----------------
 def test_crear_pago_ok(client):
-    emp_h = _user(client, "emp@example.com", rol="empleador")
-    tr_h = _user(client, "tr@example.com", rol="trabajador")
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
+    tr_h = _user(client, "tr@example.com", rol="pds")
     oid = _contrato_completado(client, emp_h, tr_h, tr_id=2)
     resp = client.post(
         "/api/v1/payments/", json={"contract_id": oid, "monto": 100000}, headers=emp_h
@@ -96,8 +96,8 @@ def test_crear_pago_ok(client):
 
 
 def test_crear_pago_orden_no_completada(client):
-    emp_h = _user(client, "emp@example.com", rol="empleador")
-    _user(client, "tr@example.com", rol="trabajador")
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
+    _user(client, "tr@example.com", rol="pds")
     sid = _crear_servicio(client, emp_h)
     oid = client.post(
         "/api/v1/contracts/",
@@ -112,8 +112,8 @@ def test_crear_pago_orden_no_completada(client):
 
 
 def test_comision_exenta_bajo_umbral(client):
-    emp_h = _user(client, "emp@example.com", rol="empleador")
-    tr_h = _user(client, "tr@example.com", rol="trabajador")
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
+    tr_h = _user(client, "tr@example.com", rol="pds")
     oid = _contrato_completado(client, emp_h, tr_h, tr_id=2)
     resp = client.post(
         "/api/v1/payments/", json={"contract_id": oid, "monto": 40000}, headers=emp_h
@@ -123,8 +123,8 @@ def test_comision_exenta_bajo_umbral(client):
 
 
 def test_comision_12_por_encima_umbral(client):
-    emp_h = _user(client, "emp@example.com", rol="empleador")
-    tr_h = _user(client, "tr@example.com", rol="trabajador")
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
+    tr_h = _user(client, "tr@example.com", rol="pds")
     oid = _contrato_completado(client, emp_h, tr_h, tr_id=2)
     resp = client.post(
         "/api/v1/payments/", json={"contract_id": oid, "monto": 50000}, headers=emp_h
@@ -135,8 +135,8 @@ def test_comision_12_por_encima_umbral(client):
 
 # ---------------- RF-08.3 / 08.6 / 08.7: ciclo ----------------
 def test_confirmar_en_escrow(client):
-    emp_h = _user(client, "emp@example.com", rol="empleador")
-    tr_h = _user(client, "tr@example.com", rol="trabajador")
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
+    tr_h = _user(client, "tr@example.com", rol="pds")
     oid = _contrato_completado(client, emp_h, tr_h, tr_id=2)
     pid = client.post(
         "/api/v1/payments/", json={"contract_id": oid, "monto": 100000}, headers=emp_h
@@ -148,8 +148,8 @@ def test_confirmar_en_escrow(client):
 
 
 def test_liberar_escrow(client):
-    emp_h = _user(client, "emp@example.com", rol="empleador")
-    tr_h = _user(client, "tr@example.com", rol="trabajador")
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
+    tr_h = _user(client, "tr@example.com", rol="pds")
     oid = _contrato_completado(client, emp_h, tr_h, tr_id=2)
     pid = client.post(
         "/api/v1/payments/", json={"contract_id": oid, "monto": 100000}, headers=emp_h
@@ -163,8 +163,8 @@ def test_liberar_escrow(client):
 
 
 def test_reembolsar_con_motivo(client):
-    emp_h = _user(client, "emp@example.com", rol="empleador")
-    tr_h = _user(client, "tr@example.com", rol="trabajador")
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
+    tr_h = _user(client, "tr@example.com", rol="pds")
     oid = _contrato_completado(client, emp_h, tr_h, tr_id=2)
     pid = client.post(
         "/api/v1/payments/", json={"contract_id": oid, "monto": 100000}, headers=emp_h
@@ -183,8 +183,8 @@ def test_reembolsar_con_motivo(client):
 
 # ---------------- RF-08.5: retry sobre fallido ----------------
 def test_retry_fallido(client, app):
-    emp_h = _user(client, "emp@example.com", rol="empleador")
-    tr_h = _user(client, "tr@example.com", rol="trabajador")
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
+    tr_h = _user(client, "tr@example.com", rol="pds")
     oid = _contrato_completado(client, emp_h, tr_h, tr_id=2)
     # crear pago y forzar estado 'fallido' via DB directa
     with app.app_context():
@@ -202,8 +202,8 @@ def test_retry_fallido(client, app):
 
 # ---------------- RF-09 parcial: GET /mine ----------------
 def test_mine_filtra_por_usuario(client):
-    emp_h = _user(client, "emp@example.com", rol="empleador")
-    tr_h = _user(client, "tr@example.com", rol="trabajador")
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
+    tr_h = _user(client, "tr@example.com", rol="pds")
     oid = _contrato_completado(client, emp_h, tr_h, tr_id=2)
     client.post(
         "/api/v1/payments/", json={"contract_id": oid, "monto": 100000}, headers=emp_h
@@ -216,14 +216,14 @@ def test_mine_filtra_por_usuario(client):
     r2 = client.get("/api/v1/payments/mine", headers=tr_h)
     assert len(r2.get_json()) == 1
     # outsider no ve nada
-    out_h = _user(client, "out@example.com", rol="empleador")
+    out_h = _user(client, "out@example.com", rol="solicitante")
     r3 = client.get("/api/v1/payments/mine", headers=out_h)
     assert len(r3.get_json()) == 0
 
 
 # ---------------- admin auto-release ----------------
 def test_admin_auto_release_protegido(client):
-    emp_h = _user(client, "emp@example.com", rol="empleador")
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
     _user(client, "admin@example.com", rol="admin")
     admin_h = _headers(client, "admin@example.com")
     # no admin -> 403

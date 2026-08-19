@@ -25,7 +25,7 @@ def client(app):
     return app.test_client()
 
 
-def _register(client, email, rol="trabajador", password="secret123"):
+def _register(client, email, rol="pds", password="secret123"):
     return client.post(
         "/api/v1/auth/register",
         json={
@@ -48,7 +48,7 @@ def _headers(client, email, password="secret123"):
     return {"Authorization": f"Bearer {_login(client, email, password)['access_token']}"}
 
 
-def _user(client, email, rol="trabajador"):
+def _user(client, email, rol="pds"):
     _register(client, email=email, rol=rol)
     return _headers(client, email)
 
@@ -64,8 +64,8 @@ def _crear_servicio(client, headers):
 
 # ---------------- RF-07.1: crear orden ----------------
 def test_create_order_ok(client):
-    emp_h = _user(client, "emp@example.com", rol="empleador")
-    tr_h = _user(client, "tr@example.com", rol="trabajador")
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
+    tr_h = _user(client, "tr@example.com", rol="pds")
     tr_id = _login(client, "tr@example.com")["access_token"]
     # id del trabajador = 2 (empleador=1)
     sid = _crear_servicio(client, emp_h)
@@ -83,9 +83,9 @@ def test_create_order_ok(client):
 
 
 def test_create_order_not_owner(client):
-    emp_h = _user(client, "emp@example.com", rol="empleador")
-    other_h = _user(client, "other@example.com", rol="empleador")
-    tr_h = _user(client, "tr@example.com", rol="trabajador")
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
+    other_h = _user(client, "other@example.com", rol="solicitante")
+    tr_h = _user(client, "tr@example.com", rol="pds")
     sid = _crear_servicio(client, emp_h)
     resp = client.post(
         "/api/v1/contracts/",
@@ -96,8 +96,8 @@ def test_create_order_not_owner(client):
 
 
 def test_create_order_service_not_publicado(client):
-    emp_h = _user(client, "emp@example.com", rol="empleador")
-    _user(client, "tr@example.com", rol="trabajador")
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
+    _user(client, "tr@example.com", rol="pds")
     sid = _crear_servicio(client, emp_h)
     # sacar de publicado
     client.patch(
@@ -115,8 +115,8 @@ def test_create_order_service_not_publicado(client):
 
 # ---------------- RF-07.2: aceptar ----------------
 def test_aceptar_ok(client):
-    emp_h = _user(client, "emp@example.com", rol="empleador")
-    tr_h = _user(client, "tr@example.com", rol="trabajador")
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
+    tr_h = _user(client, "tr@example.com", rol="pds")
     sid = _crear_servicio(client, emp_h)
     oid = client.post(
         "/api/v1/contracts/",
@@ -133,8 +133,8 @@ def test_aceptar_ok(client):
 
 
 def test_aceptar_not_proveedor(client):
-    emp_h = _user(client, "emp@example.com", rol="empleador")
-    _user(client, "tr@example.com", rol="trabajador")
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
+    _user(client, "tr@example.com", rol="pds")
     sid = _crear_servicio(client, emp_h)
     oid = client.post(
         "/api/v1/contracts/",
@@ -153,8 +153,8 @@ def test_aceptar_not_proveedor(client):
 # ---------------- capeta: check-in / check-out ----------------
 def test_aceptar_sets_inicio_en(client):
     """RF-07.2 (capeta): pds acepta -> en_progreso y inicio_en no nulo."""
-    emp_h = _user(client, "emp@example.com", rol="empleador")
-    tr_h = _user(client, "tr@example.com", rol="trabajador")
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
+    tr_h = _user(client, "tr@example.com", rol="pds")
     sid = _crear_servicio(client, emp_h)
     oid = client.post(
         "/api/v1/contracts/",
@@ -175,8 +175,8 @@ def test_aceptar_sets_inicio_en(client):
 
 def test_completar_sets_fin_en(client):
     """RF-07.3 (capeta): pds completa -> completado y fin_en no nulo."""
-    emp_h = _user(client, "emp@example.com", rol="empleador")
-    tr_h = _user(client, "tr@example.com", rol="trabajador")
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
+    tr_h = _user(client, "tr@example.com", rol="pds")
     sid = _crear_servicio(client, emp_h)
     oid = client.post(
         "/api/v1/contracts/",
@@ -202,8 +202,8 @@ def test_completar_sets_fin_en(client):
 
 def test_cancelar_saves_motivo(client):
     """RF-07.4: cancelar con motivo -> cancelado y motivo_cancelacion guardado."""
-    emp_h = _user(client, "emp@example.com", rol="empleador")
-    tr_h = _user(client, "tr@example.com", rol="trabajador")
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
+    tr_h = _user(client, "tr@example.com", rol="pds")
     sid = _crear_servicio(client, emp_h)
     oid = client.post(
         "/api/v1/contracts/",
@@ -223,8 +223,8 @@ def test_cancelar_saves_motivo(client):
 
 def test_aceptar_wrong_role_403(client):
     """Rol equivocado: solicitante hace 'aceptar' -> 403 (solo pds)."""
-    emp_h = _user(client, "emp@example.com", rol="empleador")
-    _user(client, "tr@example.com", rol="trabajador")
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
+    _user(client, "tr@example.com", rol="pds")
     sid = _crear_servicio(client, emp_h)
     oid = client.post(
         "/api/v1/contracts/",
@@ -244,8 +244,8 @@ def test_aceptar_wrong_role_403(client):
 
 # ---------------- RF-07.3: completar ----------------
 def test_completar_ok_propagates_service(client):
-    emp_h = _user(client, "emp@example.com", rol="empleador")
-    tr_h = _user(client, "tr@example.com", rol="trabajador")
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
+    tr_h = _user(client, "tr@example.com", rol="pds")
     sid = _crear_servicio(client, emp_h)
     oid = client.post(
         "/api/v1/contracts/",
@@ -271,8 +271,8 @@ def test_completar_ok_propagates_service(client):
 
 # ---------------- RF-07.4: cancelar ----------------
 def test_cancelar_ok_notifies_contraparte(client):
-    emp_h = _user(client, "emp@example.com", rol="empleador")
-    tr_h = _user(client, "tr@example.com", rol="trabajador")
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
+    tr_h = _user(client, "tr@example.com", rol="pds")
     sid = _crear_servicio(client, emp_h)
     oid = client.post(
         "/api/v1/contracts/",
@@ -292,8 +292,8 @@ def test_cancelar_ok_notifies_contraparte(client):
 
 
 def test_cancelar_requires_motivo(client):
-    emp_h = _user(client, "emp@example.com", rol="empleador")
-    _user(client, "tr@example.com", rol="trabajador")
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
+    _user(client, "tr@example.com", rol="pds")
     sid = _crear_servicio(client, emp_h)
     oid = client.post(
         "/api/v1/contracts/",
@@ -310,8 +310,8 @@ def test_cancelar_requires_motivo(client):
 
 # ---------------- transición ilegal ----------------
 def test_transicion_ilegal_completar_desde_pendiente(client):
-    emp_h = _user(client, "emp@example.com", rol="empleador")
-    tr_h = _user(client, "tr@example.com", rol="trabajador")
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
+    tr_h = _user(client, "tr@example.com", rol="pds")
     sid = _crear_servicio(client, emp_h)
     oid = client.post(
         "/api/v1/contracts/",
@@ -328,8 +328,8 @@ def test_transicion_ilegal_completar_desde_pendiente(client):
 
 # ---------------- GET /mine filtra ----------------
 def test_mine_filtra_estado(client):
-    emp_h = _user(client, "emp@example.com", rol="empleador")
-    tr_h = _user(client, "tr@example.com", rol="trabajador")
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
+    tr_h = _user(client, "tr@example.com", rol="pds")
     sid = _crear_servicio(client, emp_h)
     oid = client.post(
         "/api/v1/contracts/",
@@ -348,9 +348,9 @@ def test_mine_filtra_estado(client):
 
 
 def test_detail_forbidden_for_non_participant(client):
-    emp_h = _user(client, "emp@example.com", rol="empleador")
-    _user(client, "tr@example.com", rol="trabajador")
-    outsider_h = _user(client, "out@example.com", rol="empleador")
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
+    _user(client, "tr@example.com", rol="pds")
+    outsider_h = _user(client, "out@example.com", rol="solicitante")
     sid = _crear_servicio(client, emp_h)
     oid = client.post(
         "/api/v1/contracts/",
@@ -363,8 +363,8 @@ def test_detail_forbidden_for_non_participant(client):
 
 # ---------------- RF-16: notifications ----------------
 def test_notification_me_and_read(client):
-    emp_h = _user(client, "emp@example.com", rol="empleador")
-    tr_h = _user(client, "tr@example.com", rol="trabajador")
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
+    tr_h = _user(client, "tr@example.com", rol="pds")
     sid = _crear_servicio(client, emp_h)
     client.post(
         "/api/v1/contracts/",
@@ -385,6 +385,6 @@ def test_notification_me_and_read(client):
     assert r.get_json()["leida"] is True
 
     # otro usuario no puede marcarla
-    other_h = _user(client, "out@example.com", rol="empleador")
+    other_h = _user(client, "out@example.com", rol="solicitante")
     r2 = client.patch(f"/api/v1/notifications/{nid}/read", headers=other_h)
     assert r2.status_code == 403

@@ -3,7 +3,7 @@
 from flask import request
 from flask.views import MethodView
 from flask_smorest import Blueprint, abort
-from flask_jwt_extended import jwt_required, get_jwt_identity
+from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 
 from app.extensions import db
 from app.models.user import User, Profile
@@ -37,6 +37,9 @@ class SolicitudList(MethodView):
     def post(self, data):
         """RF-04: crea una solicitud (solicitante = usuario JWT)."""
         user_id = int(get_jwt_identity())
+        role = get_jwt().get("role")
+        if role != "solicitante":
+            abort(403, message="Solo el solicitante puede publicar solicitudes.")
 
         for campo in ("titulo", "categoria", "descripcion", "ubicacion"):
             valor = data.get(campo)

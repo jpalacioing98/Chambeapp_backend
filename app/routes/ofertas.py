@@ -27,9 +27,8 @@ from app.routes.notifications import crear_notificacion
 
 blp = Blueprint("ofertas", __name__, description="Ofertas pds/solicitante")
 
-# Rol que actúa como pds (trabajador). El rename conceptual pds<->trabajador
-# aún no está reflejado en el enum RolUsuario, así que se usa el valor real.
-ROL_PDS = RolUsuario.TRABAJADOR.value  # "trabajador"
+# Rol que actúa como pds (valor "pds" en el enum RolUsuario).
+ROL_PDS = RolUsuario.PDS.value  # "pds"
 
 
 def _emit_oferta(event: str, oferta: Oferta, target_user_id: int) -> None:

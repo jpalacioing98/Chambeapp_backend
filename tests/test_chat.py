@@ -26,7 +26,7 @@ def _register(client, email, **overrides):
     payload = {
         "email": email,
         "password": "secret123",
-        "rol": "trabajador",
+        "rol": "pds",
         "acepto_tyc": True,
         "ip": "127.0.0.1",
     }

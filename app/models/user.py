@@ -9,8 +9,8 @@ from app.extensions import db
 class RolUsuario(str, Enum):
     """6 roles de ChambeApp."""
 
-    TRABAJADOR = "trabajador"
-    EMPLEADOR = "empleador"
+    PDS = "pds"
+    SOLICITANTE = "solicitante"
     VERIFICADOR = "verificador"
     SOPORTE = "soporte"
     ADMIN = "admin"
@@ -28,7 +28,7 @@ class User(db.Model):
     email = db.Column(db.String(255), unique=True, nullable=False, index=True)
     password_hash = db.Column(db.String(255), nullable=False)
     rol = db.Column(db.Enum(RolUsuario), nullable=False,
-                    default=RolUsuario.TRABAJADOR)
+                    default=RolUsuario.PDS)
     # RBAC Fase 1: estado de cuenta y versionado de rol para revocación de token.
     status = db.Column(db.String(20), default="active", nullable=False,
                        index=True)  # active | suspended | banned

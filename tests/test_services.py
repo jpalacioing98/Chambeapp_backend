@@ -22,7 +22,7 @@ def client(app):
     return app.test_client()
 
 
-def _register(client, email="w@example.com", rol="trabajador", password="secret123"):
+def _register(client, email="w@example.com", rol="pds", password="secret123"):
     return client.post(
         "/api/v1/auth/register",
         json={
@@ -45,14 +45,14 @@ def _headers(client, email, password="secret123"):
     return {"Authorization": f"Bearer {_login(client, email, password)['access_token']}"}
 
 
-def _user(client, email, rol="trabajador"):
+def _user(client, email, rol="pds"):
     _register(client, email=email, rol=rol)
     return _headers(client, email)
 
 
 # ---------------- RF-04: crear servicio ----------------
 def test_create_service_ok(client):
-    h = _user(client, "emp@example.com", rol="empleador")
+    h = _user(client, "emp@example.com", rol="solicitante")
     resp = client.post(
         "/api/v1/solicitudes/",
         json={
@@ -72,13 +72,13 @@ def test_create_service_ok(client):
 
 
 def test_create_service_missing_fields(client):
-    h = _user(client, "emp2@example.com", rol="empleador")
+    h = _user(client, "emp2@example.com", rol="solicitante")
     resp = client.post("/api/v1/solicitudes/", json={"categoria": "x", "titulo": "X"}, headers=h)
     assert resp.status_code == 400
 
 
 def test_create_service_presupuesto_low(client):
-    h = _user(client, "emp3@example.com", rol="empleador")
+    h = _user(client, "emp3@example.com", rol="solicitante")
     resp = client.post(
         "/api/v1/solicitudes/",
         json={
@@ -94,7 +94,7 @@ def test_create_service_presupuesto_low(client):
 
 
 def test_create_service_sin_presupuesto(client):
-    h = _user(client, "emp4@example.com", rol="empleador")
+    h = _user(client, "emp4@example.com", rol="solicitante")
     resp = client.post(
         "/api/v1/solicitudes/",
         json={"titulo": "Reparar grifo", "categoria": "x", "descripcion": "d", "ubicacion": "Valledupar"},
@@ -105,7 +105,7 @@ def test_create_service_sin_presupuesto(client):
 
 
 def test_create_service_fuera_valledupar(client):
-    h = _user(client, "emp5@example.com", rol="empleador")
+    h = _user(client, "emp5@example.com", rol="solicitante")
     resp = client.post(
         "/api/v1/solicitudes/",
         json={"titulo": "Reparar grifo", "categoria": "x", "descripcion": "d", "ubicacion": "Bogota"},
@@ -116,7 +116,7 @@ def test_create_service_fuera_valledupar(client):
 
 
 def test_list_and_filter_services(client):
-    h = _user(client, "emp6@example.com", rol="empleador")
+    h = _user(client, "emp6@example.com", rol="solicitante")
     client.post(
         "/api/v1/solicitudes/",
         json={"titulo": "Reparar grifo", "categoria": "a", "descripcion": "desc uno", "ubicacion": "Valledupar"},
@@ -133,13 +133,13 @@ def test_list_and_filter_services(client):
 
 
 def test_detail_404(client):
-    _user(client, "emp7@example.com", rol="empleador")
+    _user(client, "emp7@example.com", rol="solicitante")
     assert client.get("/api/v1/solicitudes/999").status_code == 404
 
 
 # ---------------- RF-02: perfil ----------------
 def test_update_profile_marks_complete(client):
-    h = _user(client, "t1@example.com", rol="trabajador")
+    h = _user(client, "t1@example.com", rol="pds")
     resp = client.put(
         "/api/v1/users/me/profile",
         json={
@@ -157,7 +157,7 @@ def test_update_profile_marks_complete(client):
 
 
 def test_public_profile_shows_fields(client):
-    h = _user(client, "t2@example.com", rol="trabajador")
+    h = _user(client, "t2@example.com", rol="pds")
     client.put(
         "/api/v1/users/me/profile",
         json={"habilidades": ["x"], "categorias": ["y"]},
@@ -173,7 +173,7 @@ def test_public_profile_shows_fields(client):
 
 # ---------------- RF-03: ratings ----------------
 def test_rating_flow(client):
-    emp_h = _user(client, "emp@example.com", rol="empleador")
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
     create = client.post(
         "/api/v1/solicitudes/",
         json={"titulo": "Reparar grifo", "categoria": "a", "descripcion": "d", "ubicacion": "Valledupar"},
@@ -181,7 +181,7 @@ def test_rating_flow(client):
     )
     sid = create.get_json()["id"]
 
-    tr_h = _user(client, "tr@example.com", rol="trabajador")
+    tr_h = _user(client, "tr@example.com", rol="pds")
 
     # completar (dueño = empleador, id 1)
     patch = client.patch(
@@ -226,14 +226,14 @@ def test_rating_flow(client):
 
 
 def test_patch_estado_forbidden(client):
-    emp_h = _user(client, "emp@example.com", rol="empleador")
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
     create = client.post(
         "/api/v1/solicitudes/",
         json={"titulo": "Reparar grifo", "categoria": "a", "descripcion": "d", "ubicacion": "Valledupar"},
         headers=emp_h,
     )
     sid = create.get_json()["id"]
-    other_h = _user(client, "other@example.com", rol="empleador")
+    other_h = _user(client, "other@example.com", rol="solicitante")
     resp = client.patch(
         f"/api/v1/solicitudes/{sid}/estado",
         json={"estado": "completado"},
@@ -243,7 +243,7 @@ def test_patch_estado_forbidden(client):
 
 
 def test_list_ratings(client):
-    emp_h = _user(client, "emp@example.com", rol="empleador")
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
     create = client.post(
         "/api/v1/solicitudes/",
         json={"titulo": "Reparar grifo", "categoria": "a", "descripcion": "d", "ubicacion": "Valledupar"},
@@ -255,7 +255,7 @@ def test_list_ratings(client):
         json={"estado": "completado"},
         headers=emp_h,
     )
-    tr_h = _user(client, "tr@example.com", rol="trabajador")
+    tr_h = _user(client, "tr@example.com", rol="pds")
     client.post(
         f"/api/v1/solicitudes/{sid}/ratings",
         json={"puntaje": 4, "calificado_id": 1},
