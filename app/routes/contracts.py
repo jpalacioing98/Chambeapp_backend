@@ -12,7 +12,10 @@ from app.models.user import User
 from app.models.solicitud import Solicitud, EstadoSolicitud
 from app.models.contract import Contract, EstadoContrato
 from app.schemas.contracts import ContractCreateSchema, ContractEstadoSchema, ContractSchema
-from app.routes.notifications import crear_notificacion
+from app.routes.notifications import (
+    crear_notificacion,
+    disparar_notificaciones_formalizacion,
+)
 
 blp = Blueprint("contracts", __name__, description="Contratos de trabajo (RF-07)")
 
@@ -162,6 +165,10 @@ class ContractEstado(MethodView):
             abort(400, message="Acción de estado inválida.")
 
         db.session.commit()
+
+        # RF-10: al completarse el contrato, notifica a ambas partes sobre
+        # opciones de formalización laboral (idempotente, no rompe el flujo).
+        disparar_notificaciones_formalizacion(contract)
 
         # Notificación en tiempo real (socket) a ambos participantes.
         payload = {
