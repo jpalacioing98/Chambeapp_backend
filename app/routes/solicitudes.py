@@ -8,6 +8,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 from app.extensions import db
 from app.models.user import User, Profile
 from app.models.solicitud import Solicitud, Rating, EstadoSolicitud, UrgenciaSolicitud
+from app.models.contract import Contract
 from app.schemas.solicitud import (
     SolicitudCreateSchema,
     SolicitudEstadoSchema,
@@ -61,6 +62,9 @@ class SolicitudList(MethodView):
             urgencia=data.get("urgencia"),
             especificaciones_tecnicas=data.get("especificaciones_tecnicas"),
             imagen_360=data.get("imagen_360"),
+            latitud=data.get("latitud"),
+            longitud=data.get("longitud"),
+            direccion=data.get("direccion"),
             estado=EstadoSolicitud.PUBLICADO,
         )
         solicitud.advertencia = None
@@ -74,9 +78,13 @@ class SolicitudList(MethodView):
         db.session.commit()
         return solicitud
 
-    @blp.response(200, SolicitudSchema(many=True))
+    @blp.response(200)
     def get(self):
-        """RF-04: lista solicitudes con filtros opcionales."""
+        """RF-04: lista solicitudes con filtros opcionales.
+
+        Nunca se exponen las coordenadas exactas (latitud/longitud/direccion)
+        en listados: se hace dump manual y se eliminan esos campos.
+        """
         query = Solicitud.query
         categoria = request.args.get("categoria")
         ubicacion = request.args.get("ubicacion")
@@ -87,15 +95,44 @@ class SolicitudList(MethodView):
             query = query.filter(Solicitud.ubicacion == ubicacion)
         if q:
             query = query.filter(Solicitud.descripcion.ilike(f"%{q}%"))
-        return query.order_by(Solicitud.creado_en.desc()).all()
+        items = SolicitudSchema(many=True).dump(
+            query.order_by(Solicitud.creado_en.desc()).all()
+        )
+        for item in items:
+            item.pop("latitud", None)
+            item.pop("longitud", None)
+            item.pop("direccion", None)
+        return items
 
 
 @blp.route("/<int:solicitud_id>")
 class SolicitudDetail(MethodView):
-    @blp.response(200, SolicitudSchema)
+    @jwt_required(optional=True)
+    @blp.response(200)
     def get(self, solicitud_id):
-        """RF-04: detalle de solicitud + ratings."""
-        return db.get_or_404(Solicitud, solicitud_id)
+        """RF-04: detalle de solicitud + ratings.
+
+        Gating de coordenadas: solo el dueño solicitante o el pds premiado
+        (existe Contract con service_id==solicitud_id y proveedor_id==uid)
+        reciben latitud/longitud/direccion. El resto las ve en None.
+        """
+        solicitud = db.get_or_404(Solicitud, solicitud_id)
+        data = SolicitudSchema().dump(solicitud)
+        uid = get_jwt_identity()
+        autorizado = False
+        if uid is not None:
+            uid = int(uid)
+            if solicitud.solicitante_id == uid:
+                autorizado = True
+            elif Contract.query.filter_by(
+                service_id=solicitud_id, proveedor_id=uid
+            ).first():
+                autorizado = True
+        if not autorizado:
+            data["latitud"] = None
+            data["longitud"] = None
+            data["direccion"] = None
+        return data
 
 
 @blp.route("/<int:solicitud_id>/estado")

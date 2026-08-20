@@ -48,6 +48,11 @@ class Solicitud(db.Model):
     categoria = db.Column(db.String(120), nullable=False)
     descripcion = db.Column(db.Text, nullable=False)
     ubicacion = db.Column(db.String(120), nullable=False, default="Valledupar")
+    # RF-04 (geo): coordenadas y dirección exacta. Solo se exponen al dueño
+    # solicitante o al pds premiado (vía Contract). Nunca en listados.
+    latitud = db.Column(db.Float, nullable=True)
+    longitud = db.Column(db.Float, nullable=True)
+    direccion = db.Column(db.String(255), nullable=True)
     presupuesto = db.Column(db.Integer, nullable=True)  # None => "a convenir"
     fecha_deseada = db.Column(db.Date, nullable=True)
     urgencia = db.Column(
