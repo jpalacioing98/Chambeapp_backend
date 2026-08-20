@@ -1,6 +1,7 @@
 """Payments blueprint: pasarela de pagos y escrow (RF-08, RF-09 parcial)."""
 
 from flask.views import MethodView
+from flask import current_app
 from flask_smorest import Blueprint, abort
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
@@ -13,6 +14,7 @@ from app.schemas.payment import (
     PaymentEstadoSchema,
     PaymentSchema,
     IncomeCertificateSchema,
+    NequiInfoSchema,
 )
 from app.services.payments import (
     crear_pago,
@@ -51,13 +53,28 @@ class PaymentList(MethodView):
         if not _es_admin(user_id) and contract.solicitante_id != user_id:
             abort(403, message="No puedes pagar este contrato.")
 
+        # RF-08 (Nequi): por defecto la pasarela es 'nequi'.
+        pasarela = data.get("pasarela") or "nequi"
+
         try:
-            payment = crear_pago(contract.id, data["monto"])
+            payment = crear_pago(contract.id, data["monto"], pasarela=pasarela)
         except ValueError as e:
             abort(400, message=str(e))
 
         db.session.commit()
         return payment
+
+
+@blp.route("/nequi")
+class NequiInfo(MethodView):
+    @blp.response(200, NequiInfoSchema)
+    def get(self):
+        """RF-08 (Nequi): expone el numero y titular de la plataforma para
+        que el usuario realice la transferencia manual (sin pasarela externa)."""
+        return {
+            "numero": current_app.config["NEQUI_NUMBER"],
+            "titular": current_app.config["NEQUI_TITULAR"],
+        }
 
 
 @blp.route("/<int:payment_id>/confirm")

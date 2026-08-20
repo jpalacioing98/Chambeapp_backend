@@ -6,6 +6,7 @@ y un stub comentado de MercadoPagoGateway para iteracion futura.
 """
 
 from datetime import datetime, timedelta, timezone
+import uuid
 
 from app.config import (
     COMMISSION_EXEMPT_THRESHOLD,
@@ -71,13 +72,20 @@ DEFAULT_GATEWAY = MockGateway()
 # --------------------------------------------------------------------------
 # Operaciones de negocio
 # --------------------------------------------------------------------------
-def crear_pago(contract_id: int, monto: int, gateway: PaymentGateway = None) -> Payment:
+def crear_pago(
+    contract_id: int,
+    monto: int,
+    pasarela: str = "nequi",
+    gateway: PaymentGateway = None,
+) -> Payment:
     """RF-08.1: crea un pago asociado a un contrato completado.
 
     - Valida que el contrato exista y su estado sea 'completado'.
     - Calcula comision: 0 si monto < COMMISSION_EXEMPT_THRESHOLD,
       sino round(monto * COMMISSION_RATE) (T&C §7.1).
     - Crea Payment en estado 'pendiente'.
+    - Por defecto la pasarela es 'nequi' (transferencia manual). Para
+      pagos 'nequi' se genera una referencia tipo NEQ-XXXX.
     """
     contract = db.session.get(Contract, contract_id)
     if contract is None:
@@ -92,12 +100,16 @@ def crear_pago(contract_id: int, monto: int, gateway: PaymentGateway = None) -> 
     else:
         comision = round(monto * COMMISSION_RATE)
 
+    # Referencia de pasarela: Nequi usa NEQ-XXXX; el gateway mock la fija en confirm.
+    referencia = f"NEQ-{uuid.uuid4().hex[:8].upper()}" if pasarela == "nequi" else None
+
     payment = Payment(
         contract_id=contract.id,
         monto=monto,
         comision=comision,
         estado=EstadoPago.PENDIENTE,
-        pasarela=getattr(gateway, "name", "mock"),
+        pasarela=pasarela,
+        referencia_pasarela=referencia,
     )
     db.session.add(payment)
     db.session.flush()

@@ -32,6 +32,11 @@ class Config:
     OPENAPI_VERSION = "3.0.3"
     PROPAGATE_EXCEPTIONS = True
 
+    # ---------------- RF-08: Pasarela Nequi ----------------
+    # Numero Nequi de la plataforma para transferencia manual (sin pasarela externa).
+    NEQUI_NUMBER = os.environ.get("NEQUI_NUMBER", "3000000000")
+    NEQUI_TITULAR = os.environ.get("NEQUI_TITULAR", "ChambeApp")
+
 
 class DevelopmentConfig(Config):
     DEBUG = True

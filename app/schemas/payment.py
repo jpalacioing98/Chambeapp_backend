@@ -10,6 +10,11 @@ class PaymentCreateSchema(Schema):
 
     contract_id = fields.Integer(required=True)
     monto = fields.Integer(required=True, validate=validate.Range(min=1))
+    pasarela = fields.String(
+        required=False,
+        load_default="nequi",
+        validate=validate.OneOf(["nequi", "mock"]),
+    )
 
 
 class PaymentEstadoSchema(Schema):
@@ -34,6 +39,13 @@ class PaymentSchema(Schema):
     creado_en = fields.DateTime()
     actualizado_en = fields.DateTime()
     liberado_en = fields.DateTime(allow_none=True)
+
+
+class NequiInfoSchema(Schema):
+    """RF-08 (Nequi): numero y titular expuestos para transferencia manual."""
+
+    numero = fields.String()
+    titular = fields.String()
 
 
 class IncomeCertificateHistorySchema(Schema):
