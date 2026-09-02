@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 
+from flask import request
 from flask.views import MethodView
 from flask_smorest import Blueprint, abort
 from flask_jwt_extended import jwt_required, get_jwt_identity
@@ -44,6 +45,7 @@ from app.services.wallet import (
     verificar_todos_aprobados,
     PAQUETES_MONEDAS,
 )
+from app.services.pagination import paginate_query
 
 blp = Blueprint("wallet", __name__, description="Billetera virtual y monedas (RF-25/27)")
 
@@ -82,6 +84,15 @@ class WalletDeposit(MethodView):
         except ValueError as e:
             abort(400, message=str(e))
         db.session.commit()
+
+        # P2-5: Badge awarding after first deposit (monedero_activo)
+        try:
+            from app.services.badges import check_and_award_all
+            check_and_award_all(user_id)
+            db.session.commit()
+        except Exception:
+            pass
+
         return tx
 
 
@@ -106,9 +117,22 @@ class WalletHistory(MethodView):
     @jwt_required()
     @blp.response(200, TransactionSchema(many=True))
     def get(self):
-        """RF-25.6: historial de transacciones de la billetera."""
+        """RF-25.6: historial de transacciones de la billetera.
+        
+        Supports optional page/per_page query params for pagination (P2-4).
+        If no params, returns all items (backward compatible).
+        """
         user_id = int(get_jwt_identity())
-        return get_historial(user_id)
+        wallet = get_wallet(user_id)
+        query = Transaction.query.filter_by(wallet_id=wallet.id)
+
+        page = request.args.get("page")
+        per_page = request.args.get("per_page")
+        result = paginate_query(query, page=page, per_page=per_page)
+
+        if isinstance(result, list):
+            return result
+        return result
 
 
 # --------------------------------------------------------------------------

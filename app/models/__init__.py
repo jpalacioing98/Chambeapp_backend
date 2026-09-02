@@ -18,6 +18,7 @@ from app.models.kyc import DocumentoRequerido, DocumentoUsuario
 from app.models.subscription import Suscripcion
 from app.models.wallet import Wallet, Transaction, TipoTransaccion, TipoMoneda, Coin
 from app.models.modalidad import Modalidad, Milestone, TipoModalidad, EstadoHito
+from app.models.badges import BadgeType
 
 __all__ = [
     "RolUsuario",
@@ -54,4 +55,5 @@ __all__ = [
     "Milestone",
     "TipoModalidad",
     "EstadoHito",
+    "BadgeType",
 ]

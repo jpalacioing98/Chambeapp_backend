@@ -126,13 +126,27 @@ class MisOfertas(MethodView):
     @jwt_required()
     @blp.response(200, MisOfertasSchema(many=True))
     def get(self):
-        """Ofertas del pds actual con resumen de la solicitud."""
+        """Ofertas del pds actual con resumen de la solicitud.
+
+        Supports optional page/per_page query params for pagination (P2-4).
+        If no params, returns all items (backward compatible).
+        """
         user_id = int(get_jwt_identity())
-        ofertas = (
+        query = (
             Oferta.query.filter_by(pds_id=user_id)
             .order_by(Oferta.created_at.desc())
-            .all()
         )
+
+        from app.services.pagination import paginate_query
+        page = request.args.get("page")
+        per_page = request.args.get("per_page")
+        result = paginate_query(query, page=page, per_page=per_page)
+
+        if isinstance(result, list):
+            ofertas = result
+        else:
+            ofertas = result["items"]
+
         resultado = []
         for o in ofertas:
             s = o.solicitud
@@ -161,7 +175,11 @@ class MisOfertas(MethodView):
                     ),
                 }
             )
-        return resultado
+
+        if isinstance(result, list):
+            return resultado
+        result["items"] = resultado
+        return result
 
 
 @blp.route("/ofertas/<int:oid>/responder")

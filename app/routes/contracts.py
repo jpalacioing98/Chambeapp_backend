@@ -66,7 +66,11 @@ class MyContracts(MethodView):
     @jwt_required()
     @blp.response(200, ContractSchema(many=True))
     def get(self):
-        """RF-07: lista contratos donde el usuario es solicitante o proveedor."""
+        """RF-07: lista contratos donde el usuario es solicitante o proveedor.
+        
+        Supports optional page/per_page query params for pagination (P2-4).
+        If no params, returns all items (backward compatible).
+        """
         user_id = int(get_jwt_identity())
         query = Contract.query.filter(
             (Contract.solicitante_id == user_id) | (Contract.proveedor_id == user_id)
@@ -74,7 +78,16 @@ class MyContracts(MethodView):
         estado = request.args.get("estado")
         if estado:
             query = query.filter(Contract.estado == EstadoContrato(estado))
-        return query.order_by(Contract.creado_en.desc()).all()
+        query = query.order_by(Contract.creado_en.desc())
+
+        from app.services.pagination import paginate_query
+        page = request.args.get("page")
+        per_page = request.args.get("per_page")
+        result = paginate_query(query, page=page, per_page=per_page)
+
+        if isinstance(result, list):
+            return result
+        return result
 
 
 @blp.route("/<int:contract_id>")
@@ -202,6 +215,13 @@ class ContractEstado(MethodView):
                 "contrato_confirmado",
                 "Has confirmado la finalización del contrato.",
             )
+
+            # P2-5: Badge awarding after contract completion
+            try:
+                from app.services.badges import check_and_award_all
+                check_and_award_all(contract.proveedor_id)
+            except Exception:
+                pass
 
         elif accion == "cancelar":
             if contract.estado in (EstadoContrato.COMPLETADO, EstadoContrato.CANCELADO):

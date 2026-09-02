@@ -84,6 +84,9 @@ class SolicitudList(MethodView):
 
         Nunca se exponen las coordenadas exactas (latitud/longitud/direccion)
         en listados: se hace dump manual y se eliminan esos campos.
+
+        Supports optional page/per_page query params for pagination (P2-4).
+        If no params, returns all items (backward compatible).
         """
         query = Solicitud.query
         categoria = request.args.get("categoria")
@@ -95,14 +98,27 @@ class SolicitudList(MethodView):
             query = query.filter(Solicitud.ubicacion == ubicacion)
         if q:
             query = query.filter(Solicitud.descripcion.ilike(f"%{q}%"))
-        items = SolicitudSchema(many=True).dump(
-            query.order_by(Solicitud.creado_en.desc()).all()
-        )
+        query = query.order_by(Solicitud.creado_en.desc())
+
+        from app.services.pagination import paginate_query
+        page = request.args.get("page")
+        per_page = request.args.get("per_page")
+        result = paginate_query(query, page=page, per_page=per_page)
+
+        if isinstance(result, list):
+            items = SolicitudSchema(many=True).dump(result)
+        else:
+            items = SolicitudSchema(many=True).dump(result["items"])
+
         for item in items:
             item.pop("latitud", None)
             item.pop("longitud", None)
             item.pop("direccion", None)
-        return items
+
+        if isinstance(result, list):
+            return items
+        result["items"] = items
+        return result
 
 
 @blp.route("/<int:solicitud_id>")

@@ -1,5 +1,6 @@
 """Notifications blueprint: centro de notificaciones persistente (RF-10)."""
 
+from flask import request
 from flask.views import MethodView
 from flask_smorest import Blueprint, abort
 from flask_jwt_extended import jwt_required, get_jwt_identity
@@ -7,6 +8,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from app.extensions import db
 from app.models.notification import Notification
 from app.schemas.notification import NotificationSchema
+from app.services.pagination import paginate_query
 
 
 blp = Blueprint("notifications", __name__, description="Centro de notificaciones (RF-10)")
@@ -62,13 +64,24 @@ class NotificationList(MethodView):
     @jwt_required()
     @blp.response(200, NotificationSchema(many=True))
     def get(self):
-        """RF-10: lista notificaciones del usuario actual (recientes primero)."""
+        """RF-10: lista notificaciones del usuario actual (recientes primero).
+        
+        Supports optional page/per_page query params for pagination (P2-4).
+        If no params, returns all items (backward compatible).
+        """
         user_id = int(get_jwt_identity())
-        return (
+        query = (
             Notification.query.filter_by(user_id=user_id)
             .order_by(Notification.creado_en.desc())
-            .all()
         )
+
+        page = request.args.get("page")
+        per_page = request.args.get("per_page")
+        result = paginate_query(query, page=page, per_page=per_page)
+
+        if isinstance(result, list):
+            return result
+        return result
 
 
 @blp.route("/no-leidas")
@@ -115,13 +128,24 @@ class MyNotifications(MethodView):
     @jwt_required()
     @blp.response(200, NotificationSchema(many=True))
     def get(self):
-        """Lista notificaciones del usuario (no leídas primero)."""
+        """Lista notificaciones del usuario (no leídas primero).
+        
+        Supports optional page/per_page query params for pagination (P2-4).
+        If no params, returns all items (backward compatible).
+        """
         user_id = int(get_jwt_identity())
-        return (
+        query = (
             Notification.query.filter_by(user_id=user_id)
             .order_by(Notification.leida.asc(), Notification.creado_en.desc())
-            .all()
         )
+
+        page = request.args.get("page")
+        per_page = request.args.get("per_page")
+        result = paginate_query(query, page=page, per_page=per_page)
+
+        if isinstance(result, list):
+            return result
+        return result
 
 
 @blp.route("/<int:notif_id>/read")

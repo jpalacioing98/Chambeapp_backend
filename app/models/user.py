@@ -77,6 +77,8 @@ class Profile(db.Model):
     # RF-11: plan de suscripción y perfil destacado.
     plan = db.Column(db.String(20), default="free", nullable=False)
     destacado = db.Column(db.Boolean, default=False, nullable=False)
+    onboarding_completed = db.Column(db.Boolean, default=False, nullable=False)
+    onboarding_step = db.Column(db.Integer, default=0, nullable=False)
 
     user = db.relationship("User", back_populates="profile")
 

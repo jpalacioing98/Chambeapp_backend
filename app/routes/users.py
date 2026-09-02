@@ -41,7 +41,27 @@ class MyProfile(MethodView):
             profile.perfil_completo = True
 
         db.session.commit()
+
+        # P2-5: Badge awarding after profile update
+        try:
+            from app.services.badges import check_and_award_all
+            check_and_award_all(user.id)
+            db.session.commit()
+        except Exception:
+            pass
+
         return profile
+
+
+@blp.route("/badges")
+class UserBadges(MethodView):
+    @jwt_required()
+    @blp.response(200)
+    def get(self):
+        """P2-5: returns all badge types with awarded status for current user."""
+        from app.services.badges import get_user_badges
+        user_id = int(get_jwt_identity())
+        return get_user_badges(user_id)
 
 
 @blp.route("/<int:user_id>/profile")

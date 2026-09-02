@@ -1,5 +1,6 @@
 """Payments blueprint: pasarela de pagos directos (RF-08, RF-09 parcial)."""
 
+from flask import request, Response
 from flask.views import MethodView
 from flask import current_app
 from flask_smorest import Blueprint, abort
@@ -24,6 +25,8 @@ from app.services.payments import (
     reintentar_pago,
     auto_liberar_vencidos,
 )
+from app.services.pagination import paginate_query
+from app.schemas.payment import PaymentSchema
 
 blp = Blueprint("payments", __name__, description="Pasarela de pagos (RF-08)")
 
@@ -193,16 +196,27 @@ class MyPayments(MethodView):
     @blp.response(200, PaymentSchema(many=True))
     def get(self):
         """RF-09 parcial: historial de pagos donde el usuario es proveedor
-        o solicitante del contrato asociado."""
+        o solicitante del contrato asociado.
+
+        Supports optional page/per_page query params for pagination (P2-4).
+        If no params, returns all items (backward compatible).
+        """
         user_id = int(get_jwt_identity())
-        return (
+        query = (
             Payment.query.join(Contract, Payment.contract_id == Contract.id)
             .filter(
                 (Contract.solicitante_id == user_id) | (Contract.proveedor_id == user_id)
             )
             .order_by(Payment.creado_en.desc())
-            .all()
         )
+
+        page = request.args.get("page")
+        per_page = request.args.get("per_page")
+        result = paginate_query(query, page=page, per_page=per_page)
+
+        if isinstance(result, list):
+            return result
+        return result
 
 
 @blp.route("/admin/auto-release")
@@ -317,3 +331,127 @@ class IncomeCertificate(MethodView):
             "servicios_completados": len(contratos_completados),
             "historial": historial,
         }
+
+
+@blp.route("/certificado-ingresos/pdf")
+class IncomeCertificatePDF(MethodView):
+    @jwt_required()
+    def get(self):
+        """P2-3: genera PDF del certificado de ingresos."""
+        from app.services.exports import generar_pdf_certificado
+
+        # Reuse the same data collection as the JSON endpoint
+        user = db.session.get(User, int(get_jwt_identity()))
+        contratos_completados = Contract.query.filter_by(
+            proveedor_id=user.id, estado=EstadoContrato.COMPLETADO
+        ).all()
+
+        pagos = (
+            Payment.query.join(Contract, Payment.contract_id == Contract.id)
+            .filter(
+                Contract.proveedor_id == user.id,
+                Payment.estado == EstadoPago.COMPLETADO,
+            )
+            .all()
+        )
+
+        total_ingresos = sum((p.monto - p.comision_pds) for p in pagos)
+
+        from datetime import datetime
+        hoy = datetime.utcnow()
+        ventana = _meses_ventana(hoy)
+        historial = []
+        for (a, m) in ventana:
+            inicio = _inicio_mes(a, m)
+            fa, fm = _mes_siguiente(a, m)
+            fin = _inicio_mes(fa, fm)
+
+            ingreso = 0
+            for p in pagos:
+                ref = p.liberado_en or p.creado_en
+                if ref is not None and inicio <= ref < fin:
+                    ingreso += (p.monto - p.comision_pds)
+
+            servicios = 0
+            for c in contratos_completados:
+                ref = c.fin_en or c.creado_en
+                if ref is not None and inicio <= ref < fin:
+                    servicios += 1
+
+            historial.append(
+                {"mes": f"{a:04d}-{m:02d}", "ingreso": ingreso, "servicios": servicios}
+            )
+
+        a0, m0 = ventana[0]
+        periodo = {
+            "desde": _inicio_mes(a0, m0).date().isoformat(),
+            "hasta": hoy.date().isoformat(),
+        }
+
+        data = {
+            "nombre": user.nombre or user.email,
+            "verificado": bool(user.profile.verificado),
+            "calificacion_promedio": float(user.profile.calificacion_promedio or 0.0),
+            "periodo": periodo,
+            "total_ingresos": total_ingresos,
+            "promedio_mensual": round(total_ingresos / 12),
+            "servicios_completados": len(contratos_completados),
+            "historial": historial,
+        }
+
+        pdf_bytes = generar_pdf_certificado(data)
+        return Response(
+            pdf_bytes,
+            mimetype="application/pdf",
+            headers={"Content-Disposition": "attachment; filename=certificado_ingresos.pdf"},
+        )
+
+
+@blp.route("/certificado-ingresos/csv")
+class IncomeCertificateCSV(MethodView):
+    @jwt_required()
+    def get(self):
+        """P2-3: genera CSV del historial de pagos del certificado de ingresos."""
+        from app.services.exports import generar_csv_historial
+
+        user = db.session.get(User, int(get_jwt_identity()))
+        pagos = (
+            Payment.query.join(Contract, Payment.contract_id == Contract.id)
+            .filter(
+                Contract.proveedor_id == user.id,
+                Payment.estado == EstadoPago.COMPLETADO,
+            )
+            .all()
+        )
+
+        csv_bytes = generar_csv_historial(pagos)
+        return Response(
+            csv_bytes,
+            mimetype="text/csv",
+            headers={"Content-Disposition": "attachment; filename=historial_pagos.csv"},
+        )
+
+
+@blp.route("/history/csv")
+class PaymentHistoryCSV(MethodView):
+    @jwt_required()
+    def get(self):
+        """P2-3: genera CSV del historial completo de pagos del usuario."""
+        from app.services.exports import generar_csv_historial
+
+        user_id = int(get_jwt_identity())
+        pagos = (
+            Payment.query.join(Contract, Payment.contract_id == Contract.id)
+            .filter(
+                (Contract.solicitante_id == user_id) | (Contract.proveedor_id == user_id)
+            )
+            .order_by(Payment.creado_en.desc())
+            .all()
+        )
+
+        csv_bytes = generar_csv_historial(pagos)
+        return Response(
+            csv_bytes,
+            mimetype="text/csv",
+            headers={"Content-Disposition": "attachment; filename=historial_pagos.csv"},
+        )
