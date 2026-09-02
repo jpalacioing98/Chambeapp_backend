@@ -1,4 +1,4 @@
-"""pytest — RBAC Fase 2: moderación admin, disputas/escrow, tickets, contenido."""
+"""pytest — RBAC Fase 2: moderación admin, disputas/pagos directos, tickets, contenido."""
 
 import pytest
 from flask_jwt_extended import create_access_token
@@ -77,11 +77,12 @@ def _make_contract(service, comprador, vendedor, estado=EstadoContrato.COMPLETAD
     return o
 
 
-def _make_payment(order, estado=EstadoPago.EN_ESCROW):
+def _make_payment(order, estado=EstadoPago.COMPLETADO):
     p = Payment(
         contract_id=order.id,
         monto=100000,
-        comision=12000,
+        comision_pds=12000,
+        comision_solicitante=8000,
         estado=estado,
     )
     db.session.add(p)
@@ -158,7 +159,7 @@ def test_admin_listar_ordenes_200(client):
     assert item["monto"] == 100000
 
 
-# ---------------- disputas / escrow ----------------
+# ---------------- disputas / pagos directos ----------------
 
 def test_admin_listar_disputas_200(client):
     admin = _make_user("admin@x.com", RolUsuario.ADMIN, "Admin")
@@ -193,18 +194,18 @@ def test_admin_resolver_disputa_release_cambia_pago(client):
     vendedor = _make_user("v@x.com", RolUsuario.PDS, "V")
     s = _make_service(comprador)
     o = _make_contract(s, comprador, vendedor)
-    p = _make_payment(o, estado=EstadoPago.EN_ESCROW)
+    p = _make_payment(o, estado=EstadoPago.PENDIENTE)
     d = _make_dispute(o)
     r = client.post(
         f"/api/v1/admin/disputes/{d.id}/resolve",
         headers=_headers(admin),
-        json={"resolution": "A favor del proveedor", "escrow_action": "release"},
+        json={"resolution": "A favor del proveedor", "payment_action": "release"},
     )
     assert r.status_code == 200
     assert r.get_json()["status"] == "resuelta"
-    assert r.get_json()["escrow_action"] == "release"
+    assert r.get_json()["payment_action"] == "release"
     db.session.refresh(p)
-    assert p.estado == EstadoPago.LIBERADO
+    assert p.estado == EstadoPago.COMPLETADO
     db.session.refresh(d)
     assert d.status == "resuelta"
     assert d.resolved_by == admin.id
@@ -216,17 +217,18 @@ def test_admin_resolver_disputa_refund_reviete_comision(client):
     vendedor = _make_user("v@x.com", RolUsuario.PDS, "V")
     s = _make_service(comprador)
     o = _make_contract(s, comprador, vendedor)
-    p = _make_payment(o, estado=EstadoPago.EN_ESCROW)
+    p = _make_payment(o, estado=EstadoPago.COMPLETADO)
     d = _make_dispute(o)
     r = client.post(
         f"/api/v1/admin/disputes/{d.id}/resolve",
         headers=_headers(admin),
-        json={"resolution": "Reembolso al comprador", "escrow_action": "refund"},
+        json={"resolution": "Reembolso al comprador", "payment_action": "refund"},
     )
     assert r.status_code == 200
     db.session.refresh(p)
     assert p.estado == EstadoPago.REEMBOLSADO
-    assert p.comision == 0  # comisión revertida
+    assert p.comision_pds == 0  # comisión revertida
+    assert p.comision_solicitante == 0  # comisión revertida
 
 
 # ---------------- tickets ----------------

@@ -1,7 +1,7 @@
 """Modelos de configuración global y feature flags (RBAC Fase 3 — SUPERADMIN).
 
 SystemConfig: clave/valor tipado (int|float|string|bool|json) para parámetros
-de plataforma (comisiones, escrow, T&C, pesos de IA, planes, etc.).
+de plataforma (comisiones, pagos, T&C, pesos de IA, planes, etc.).
 
 FeatureFlag: toggles de funcionalidades (módulo 3D, certificados, mantenimiento…).
 """

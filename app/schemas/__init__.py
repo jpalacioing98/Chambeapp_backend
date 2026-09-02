@@ -32,6 +32,20 @@ from app.schemas.chat import (
     MessageSchema,
     MessageCreateSchema,
 )
+from app.schemas.wallet import (
+    WalletSchema,
+    WalletDepositSchema,
+    WalletWithdrawSchema,
+    TransactionSchema,
+    CoinSchema,
+    CoinBuySchema,
+    CoinUseSchema,
+    ModalidadSchema,
+    ModalidadCreateSchema,
+    MilestoneSchema,
+    MilestoneCreateSchema,
+    MilestoneActionSchema,
+)
 
 __all__ = [
     "RegisterSchema",
@@ -59,4 +73,17 @@ __all__ = [
     "ConversationCreateSchema",
     "MessageSchema",
     "MessageCreateSchema",
+    # Nuevos schemas RF-25/26/27/29
+    "WalletSchema",
+    "WalletDepositSchema",
+    "WalletWithdrawSchema",
+    "TransactionSchema",
+    "CoinSchema",
+    "CoinBuySchema",
+    "CoinUseSchema",
+    "ModalidadSchema",
+    "ModalidadCreateSchema",
+    "MilestoneSchema",
+    "MilestoneCreateSchema",
+    "MilestoneActionSchema",
 ]

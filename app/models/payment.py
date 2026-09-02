@@ -7,12 +7,11 @@ from app.extensions import db
 
 
 class EstadoPago(str, Enum):
-    """Estados de un pago / ciclo de escrow (RF-08)."""
+    """Estados de un pago (RF-08)."""
 
     PENDIENTE = "pendiente"
     CONFIRMADO = "confirmado"
-    EN_ESCROW = "en_escrow"
-    LIBERADO = "liberado"
+    COMPLETADO = "completado"
     REEMBOLSADO = "reembolsado"
     FALLIDO = "fallido"
 
@@ -33,7 +32,8 @@ class Payment(db.Model):
         index=True,
     )
     monto = db.Column(db.Integer, nullable=False)  # COP
-    comision = db.Column(db.Integer, nullable=False, default=0)  # COP
+    comision_pds = db.Column(db.Integer, nullable=False, default=0)  # COP - Comisión proveedor (12%)
+    comision_solicitante = db.Column(db.Integer, nullable=False, default=0)  # COP - Comisión solicitante (8%)
     estado = db.Column(
         db.Enum(EstadoPago), nullable=False, default=EstadoPago.PENDIENTE
     )

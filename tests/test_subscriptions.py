@@ -74,15 +74,14 @@ def _crear_solicitud(client, headers, titulo="Armar mueble"):
 
 
 # ---------------- catálogo de planes ----------------
-def test_get_planes_retorna_3(client):
+def test_get_planes_retorna_2(client):
     resp = client.get("/api/v1/subscriptions/planes")
     assert resp.status_code == 200
     planes = resp.get_json()
-    assert len(planes) == 3
+    assert len(planes) == 2
     planes_dict = {p["plan"]: p for p in planes}
     assert planes_dict["basico"]["precio"] == 15000
     assert planes_dict["profesional"]["precio"] == 35000
-    assert planes_dict["empresa"]["precio"] == 75000
     assert "Postulaciones ilimitadas" in planes_dict["profesional"]["beneficios"]
 
 

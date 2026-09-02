@@ -198,6 +198,20 @@ class OfertaResponder(MethodView):
                 if oferta.monto is not None
                 else solicitud.presupuesto
             )
+
+            # --- RF-26/27: Validar monedas en Modalidad B (sin comisión) ---
+            try:
+                from app.services.wallet import get_modalidad, usar_monedas
+
+                modalidad = get_modalidad(solicitud.id)
+                if modalidad.tipo.value == "B_sin_comision":
+                    # Descontar 50 monedas al PDS por usar modalidad B
+                    usar_monedas(oferta.pds_id, 50, f"MODALIDAD-B-SOLICITUD-{solicitud.id}")
+            except ValueError as e:
+                abort(400, message=str(e))
+            except Exception:
+                pass  # Si no existe modalidad, continuar
+
             contract = Contract(
                 service_id=solicitud.id,
                 proveedor_id=oferta.pds_id,

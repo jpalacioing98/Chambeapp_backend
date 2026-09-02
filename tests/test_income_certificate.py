@@ -77,8 +77,9 @@ def _pago_liberado(contract_id, monto, comision, liberado_en=None):
     p = Payment(
         contract_id=contract_id,
         monto=monto,
-        comision=comision,
-        estado=EstadoPago.LIBERADO,
+        comision_pds=comision,
+        comision_solicitante=0,
+        estado=EstadoPago.COMPLETADO,
         pasarela="mock",
         liberado_en=liberado_en or datetime.now(timezone.utc),
     )
@@ -91,7 +92,7 @@ def test_certificado_ingresos_ok(client, app):
     pds = _make_user("pds@example.com", rol=RolUsuario.PDS, nombre="Juan PDS")
     emp = _make_user("emp@example.com", rol=RolUsuario.SOLICITANTE)
     c = _contrato_completado(pds.id, emp.id)
-    _pago_liberado(c.id, monto=200000, comision=24000)
+    _pago_liberado(c.id, monto=200000, comision=24000)  # comision_pds
 
     resp = client.get(
         "/api/v1/payments/certificado-ingresos", headers=_headers(pds)
@@ -99,7 +100,7 @@ def test_certificado_ingresos_ok(client, app):
     assert resp.status_code == 200
     d = resp.get_json()
     assert d["nombre"] == "Juan PDS"
-    assert d["total_ingresos"] == 176000  # 200000 - 24000
+    assert d["total_ingresos"] == 176000  # 200000 - 24000 (comision_pds)
     assert d["servicios_completados"] == 1
     assert d["promedio_mensual"] == round(176000 / 12)
     assert len(d["historial"]) == 12

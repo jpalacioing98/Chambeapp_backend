@@ -21,6 +21,8 @@ from app.routes.oferta_socket import register_ofertas_socketio
 from app.routes.legal import blp as legal_blp
 from app.routes.kyc import blp as kyc_blp
 from app.routes.subscriptions import blp as subscriptions_blp
+from app.routes.wallet import blp as wallet_blp
+from app.routes.prices import blp as prices_blp
 from app.models.user import User
 
 
@@ -64,10 +66,32 @@ def create_app(config_class: str = "app.config.DevelopmentConfig") -> Flask:
     api.register_blueprint(legal_blp, url_prefix="/api/v1/legal")
     api.register_blueprint(kyc_blp, url_prefix="/api/v1/kyc")
     api.register_blueprint(subscriptions_blp, url_prefix="/api/v1/subscriptions")
+    api.register_blueprint(wallet_blp, url_prefix="/api/v1/wallet")
+    api.register_blueprint(prices_blp, url_prefix="/api/v1/prices")
 
     # Handlers SocketIO (después de init_app)
     register_chat_socketio(socketio)
     register_ofertas_socketio(socketio)
+
+    # Cron job: limpiar monedas vencidas cada 24 horas
+    def _setup_scheduler():
+        try:
+            from apscheduler.schedulers.background import BackgroundScheduler
+            from app.services.wallet import limpiar_monedas_vencidas
+
+            scheduler = BackgroundScheduler()
+            scheduler.add_job(
+                func=limpiar_monedas_vencidas,
+                trigger="interval",
+                hours=24,
+                id="limpiar_monedas_vencidas",
+            )
+            scheduler.start()
+        except ImportError:
+            pass  # APScheduler no instalado, saltar cron
+
+    with app.app_context():
+        _setup_scheduler()
 
     # Carga el usuario desde el identity del JWT (current_user / lookup).
     @jwt.user_lookup_loader

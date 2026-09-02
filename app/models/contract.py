@@ -57,7 +57,7 @@ class Contract(db.Model):
 
 
 class Dispute(db.Model):
-    """Disputa / escalamiento de contrato con resolución de escrow (RBAC Fase 2)."""
+    """Disputa / escalamiento de contrato con resolucion de pago (RBAC Fase 2)."""
 
     __tablename__ = "disputes"
 
@@ -74,7 +74,7 @@ class Dispute(db.Model):
     )
     resolved_at = db.Column(db.DateTime, nullable=True)
     resolution = db.Column(db.Text, nullable=True)
-    escrow_action = db.Column(
+    payment_action = db.Column(
         db.String(20), nullable=True
     )  # release | refund
     created_at = db.Column(

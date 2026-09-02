@@ -1,8 +1,11 @@
-"""Service layer: pasarela de pagos y ciclo de escrow (RF-08).
+"""Service layer: pasarela de pagos directos (RF-08).
 
 Implementa un gateway abstracto (Protocol) para que la logica de negocio sea
 testable sin claves reales de MercadoPago. Se incluye MockGateway (siempre ok)
 y un stub comentado de MercadoPagoGateway para iteracion futura.
+
+Flujo: pago directo sin escrow — al confirmar, el monto neto se transfiere
+al proveedor inmediatamente.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -10,8 +13,6 @@ import uuid
 
 from app.config import (
     COMMISSION_EXEMPT_THRESHOLD,
-    COMMISSION_RATE,
-    ESCROW_AUTO_RELEASE_HOURS,
 )
 from app.extensions import db
 from app.models.contract import Contract, EstadoContrato
@@ -81,8 +82,9 @@ def crear_pago(
     """RF-08.1: crea un pago asociado a un contrato completado.
 
     - Valida que el contrato exista y su estado sea 'completado'.
-    - Calcula comision: 0 si monto < COMMISSION_EXEMPT_THRESHOLD,
-      sino round(monto * COMMISSION_RATE) (T&C §7.1).
+    - Calcula comisiones: 
+      - PDS: 12% si monto >= COMMISSION_EXEMPT_THRESHOLD
+      - Solicitante: 8% si monto >= COMMISSION_EXEMPT_THRESHOLD
     - Crea Payment en estado 'pendiente'.
     - Por defecto la pasarela es 'nequi' (transferencia manual). Para
       pagos 'nequi' se genera una referencia tipo NEQ-XXXX.
@@ -95,10 +97,13 @@ def crear_pago(
 
     gateway = gateway or DEFAULT_GATEWAY
 
+    # Calcular comisiones
     if monto < COMMISSION_EXEMPT_THRESHOLD:
-        comision = 0
+        comision_pds = 0
+        comision_solicitante = 0
     else:
-        comision = round(monto * COMMISSION_RATE)
+        comision_pds = round(monto * 0.12)  # 12% para PDS
+        comision_solicitante = round(monto * 0.08)  # 8% para solicitante
 
     # Referencia de pasarela: Nequi usa NEQ-XXXX; el gateway mock la fija en confirm.
     referencia = f"NEQ-{uuid.uuid4().hex[:8].upper()}" if pasarela == "nequi" else None
@@ -106,7 +111,8 @@ def crear_pago(
     payment = Payment(
         contract_id=contract.id,
         monto=monto,
-        comision=comision,
+        comision_pds=comision_pds,
+        comision_solicitante=comision_solicitante,
         estado=EstadoPago.PENDIENTE,
         pasarela=pasarela,
         referencia_pasarela=referencia,
@@ -117,10 +123,13 @@ def crear_pago(
 
 
 def confirmar_pago(payment_id: int, gateway: PaymentGateway = None) -> Payment:
-    """RF-08.3: confirma el cargo en la pasarela y retiene en escrow.
+    """RF-08.3: confirma el cargo en la pasarela y completa el pago.
 
-    Estado pendiente -> en_escrow. Ejecuta el gateway; si falla pasa a
+    Estado pendiente -> completado. Ejecuta el gateway; si falla pasa a
     'fallido' con referencia de error (RF-08.5 reintentable).
+    
+    El pago se completa directamente y el monto neto
+    (monto - comision_pds) se transfiere al proveedor.
     """
     payment = db.session.get(Payment, payment_id)
     if payment is None:
@@ -136,21 +145,8 @@ def confirmar_pago(payment_id: int, gateway: PaymentGateway = None) -> Payment:
         db.session.commit()
         raise RuntimeError(f"Pasarela rechazó el pago: {ref}")
 
-    payment.estado = EstadoPago.EN_ESCROW
+    payment.estado = EstadoPago.COMPLETADO
     payment.referencia_pasarela = ref
-    db.session.commit()
-    return payment
-
-
-def liberar_escrow(payment_id: int) -> Payment:
-    """RF-08.6: libera el escrow al proveedor (estado en_escrow -> liberado)."""
-    payment = db.session.get(Payment, payment_id)
-    if payment is None:
-        raise ValueError("El pago no existe.")
-    if payment.estado != EstadoPago.EN_ESCROW:
-        raise ValueError("Solo se libera un pago en estado 'en_escrow'.")
-
-    payment.estado = EstadoPago.LIBERADO
     payment.liberado_en = datetime.now(timezone.utc)
     db.session.commit()
     return payment
@@ -161,13 +157,54 @@ def reembolsar(payment_id: int, motivo: str) -> Payment:
     payment = db.session.get(Payment, payment_id)
     if payment is None:
         raise ValueError("El pago no existe.")
-    if payment.estado in (EstadoPago.LIBERADO, EstadoPago.REEMBOLSADO):
-        raise ValueError("No se reembolsa un pago ya liberado o reembolsado.")
+    if payment.estado in (EstadoPago.REEMBOLSADO, EstadoPago.FALLIDO):
+        raise ValueError("No se reembolsa un pago ya reembolsado o fallido.")
 
     payment.estado = EstadoPago.REEMBOLSADO
     payment.motivo_reembolso = motivo
     db.session.commit()
     return payment
+
+
+def liberar_pago(payment_id: int) -> Payment:
+    """Libera un pago al proveedor (pago directo, sin escrow).
+
+    Si el pago esta pendiente, lo confirma. Si ya esta completado, retorna
+    sin cambios. Equivalente al antiguo liberar_escrow.
+    """
+    payment = db.session.get(Payment, payment_id)
+    if payment is None:
+        raise ValueError("El pago no existe.")
+    if payment.estado == EstadoPago.PENDIENTE:
+        return confirmar_pago(payment_id)
+    if payment.estado in (EstadoPago.COMPLETADO, EstadoPago.REEMBOLSADO):
+        return payment
+    raise ValueError(
+        f"No se puede liberar un pago en estado '{payment.estado.value}'."
+    )
+
+
+def auto_liberar_vencidos() -> int:
+    """Auto-libera pagos pendientes con mas de 48h (RF-08.6 simplificado).
+
+    En el modelo de pago directo, simplemente confirma pagos pendientes
+    vencidos. Retorna el numero de pagos liberados.
+    """
+    from app.config import ESCROW_AUTO_RELEASE_HOURS
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=ESCROW_AUTO_RELEASE_HOURS)
+    pendientes = Payment.query.filter(
+        Payment.estado == EstadoPago.PENDIENTE,
+        Payment.creado_en < cutoff,
+    ).all()
+    liberados = 0
+    for p in pendientes:
+        try:
+            confirmar_pago(p.id)
+            liberados += 1
+        except (ValueError, RuntimeError):
+            continue
+    return liberados
 
 
 def reintentar_pago(payment_id: int, gateway: PaymentGateway = None) -> Payment:
@@ -185,30 +222,8 @@ def reintentar_pago(payment_id: int, gateway: PaymentGateway = None) -> Payment:
         db.session.commit()
         raise RuntimeError(f"Reintento falló: {ref}")
 
-    payment.estado = EstadoPago.EN_ESCROW
+    payment.estado = EstadoPago.COMPLETADO
     payment.referencia_pasarela = ref
+    payment.liberado_en = datetime.now(timezone.utc)
     db.session.commit()
     return payment
-
-
-def auto_liberar_vencidos(now: datetime = None) -> int:
-    """RF-08.6: libera escrows con >48h desde confirmacion y sin queja.
-
-    Devuelve el numero de pagos liberados. (Celery lo programara despues.)
-    """
-    now = now or datetime.now(timezone.utc)
-    limite = now - timedelta(hours=ESCROW_AUTO_RELEASE_HOURS)
-
-    vencidos = (
-        Payment.query.filter(Payment.estado == EstadoPago.EN_ESCROW)
-        .filter(Payment.actualizado_en <= limite)
-        .all()
-    )
-    count = 0
-    for p in vencidos:
-        p.estado = EstadoPago.LIBERADO
-        p.liberado_en = now
-        count += 1
-    if count:
-        db.session.commit()
-    return count

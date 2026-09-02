@@ -124,7 +124,7 @@ class ContractListResponseSchema(Schema):
 
 
 # --------------------------------------------------------------------------
-# Fase 2: disputas / escrow
+# Fase 2: disputas / pagos directos
 # --------------------------------------------------------------------------
 class DisputeListSchema(Schema):
     id = fields.Integer()
@@ -147,7 +147,7 @@ class DisputeDetailSchema(Schema):
     resolved_by = fields.Integer(allow_none=True)
     resolved_at = fields.DateTime(allow_none=True)
     resolution = fields.String(allow_none=True)
-    escrow_action = fields.String(allow_none=True)
+    payment_action = fields.String(allow_none=True)
     created_at = fields.DateTime()
     contract = fields.Raw(allow_none=True)
     payment = fields.Raw(allow_none=True)
@@ -155,7 +155,7 @@ class DisputeDetailSchema(Schema):
 
 class DisputeResolveSchema(Schema):
     resolution = fields.String(required=True)
-    escrow_action = fields.String(
+    payment_action = fields.String(
         required=True, validate=validate.OneOf(["release", "refund"])
     )
 

@@ -46,23 +46,10 @@ PLANES_CATALOGO = [
             "Analytics basicos",
         ],
     },
-    {
-        "plan": "empresa",
-        "nombre": "Empresa",
-        "precio": 75000,
-        "beneficios": [
-            "Postulaciones ilimitadas",
-            "Perfil destacado en busquedas",
-            "Gestion de equipos",
-            "Multi-cuenta",
-            "Analytics avanzados",
-            "Soporte prioritario",
-        ],
-    },
 ]
 
 PLANES_PRECIO = {p["plan"]: p["precio"] for p in PLANES_CATALOGO}
-PLANES_DESTACADOS = {"profesional", "empresa"}
+PLANES_DESTACADOS = {"profesional"}
 
 
 def _now():

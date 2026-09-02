@@ -13,7 +13,7 @@ class PaymentCreateSchema(Schema):
     pasarela = fields.String(
         required=False,
         load_default="nequi",
-        validate=validate.OneOf(["nequi", "mock"]),
+        validate=validate.OneOf(["nequi", "mercadopago", "pse", "mock"]),
     )
 
 
@@ -31,7 +31,8 @@ class PaymentSchema(Schema):
     id = fields.Integer()
     contract_id = fields.Integer()
     monto = fields.Integer()
-    comision = fields.Integer()
+    comision_pds = fields.Integer()
+    comision_solicitante = fields.Integer()
     estado = fields.Enum(EstadoPago, by_value=True)
     pasarela = fields.String()
     referencia_pasarela = fields.String(allow_none=True)
@@ -52,7 +53,7 @@ class IncomeCertificateHistorySchema(Schema):
     """Entrada mensual del historial de ingresos (RF-13)."""
 
     mes = fields.String()  # "YYYY-MM"
-    ingreso = fields.Integer()  # neto (monto - comision)
+    ingreso = fields.Integer()  # neto (monto - comision_pds)
     servicios = fields.Integer()  # contratos completados en el mes
 
 

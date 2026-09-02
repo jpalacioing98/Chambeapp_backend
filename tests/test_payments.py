@@ -1,4 +1,4 @@
-"""pytest suite — payments (RF-08) + escrow/refund/retry + RF-09 parcial."""
+"""pytest suite — payments (RF-08) + pagos directos/refund/retry + RF-09 parcial."""
 
 import pytest
 
@@ -92,7 +92,7 @@ def test_crear_pago_ok(client):
     d = resp.get_json()
     assert d["estado"] == "pendiente"
     assert d["monto"] == 100000
-    assert d["comision"] == 12000  # 12% de 100000
+    assert d["comision_pds"] == 12000  # 12% de 100000
 
 
 def test_crear_pago_orden_no_completada(client):
@@ -119,7 +119,7 @@ def test_comision_exenta_bajo_umbral(client):
         "/api/v1/payments/", json={"contract_id": oid, "monto": 40000}, headers=emp_h
     )
     assert resp.status_code == 201
-    assert resp.get_json()["comision"] == 0  # < 50000 => exenta
+    assert resp.get_json()["comision_pds"] == 0  # < 50000 => exenta
 
 
 def test_comision_12_por_encima_umbral(client):
@@ -130,11 +130,11 @@ def test_comision_12_por_encima_umbral(client):
         "/api/v1/payments/", json={"contract_id": oid, "monto": 50000}, headers=emp_h
     )
     assert resp.status_code == 201
-    assert resp.get_json()["comision"] == 6000  # 12% de 50000
+    assert resp.get_json()["comision_pds"] == 6000  # 12% de 50000
 
 
 # ---------------- RF-08.3 / 08.6 / 08.7: ciclo ----------------
-def test_confirmar_en_escrow(client):
+def test_confirmar_pago_directo(client):
     emp_h = _user(client, "emp@example.com", rol="solicitante")
     tr_h = _user(client, "tr@example.com", rol="pds")
     oid = _contrato_completado(client, emp_h, tr_h, tr_id=2)
@@ -143,11 +143,11 @@ def test_confirmar_en_escrow(client):
     ).get_json()["id"]
     r = client.post(f"/api/v1/payments/{pid}/confirm", headers=emp_h)
     assert r.status_code == 200
-    assert r.get_json()["estado"] == "en_escrow"
+    assert r.get_json()["estado"] == "completado"
     assert r.get_json()["referencia_pasarela"].startswith("MOCK-")
 
 
-def test_liberar_escrow(client):
+def test_liberar_pago_directo(client):
     emp_h = _user(client, "emp@example.com", rol="solicitante")
     tr_h = _user(client, "tr@example.com", rol="pds")
     oid = _contrato_completado(client, emp_h, tr_h, tr_id=2)
@@ -158,7 +158,7 @@ def test_liberar_escrow(client):
     r = client.post(f"/api/v1/payments/{pid}/release", headers=emp_h)
     assert r.status_code == 200
     d = r.get_json()
-    assert d["estado"] == "liberado"
+    assert d["estado"] == "completado"
     assert d["liberado_en"] is not None
 
 
@@ -189,7 +189,7 @@ def test_retry_fallido(client, app):
     # crear pago y forzar estado 'fallido' via DB directa
     with app.app_context():
         p = Payment(
-            contract_id=oid, monto=100000, comision=12000,
+            contract_id=oid, monto=100000, comision_pds=12000, comision_solicitante=8000,
             estado=EstadoPago.FALLIDO, pasarela="mock",
         )
         db.session.add(p)
@@ -197,7 +197,7 @@ def test_retry_fallido(client, app):
         pid = p.id
     r = client.post(f"/api/v1/payments/{pid}/retry", headers=emp_h)
     assert r.status_code == 200
-    assert r.get_json()["estado"] == "en_escrow"
+    assert r.get_json()["estado"] == "completado"
 
 
 # ---------------- RF-09 parcial: GET /mine ----------------

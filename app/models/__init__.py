@@ -16,6 +16,8 @@ from app.models.audit import AuditLog, write_audit
 from app.models.config import SystemConfig, FeatureFlag
 from app.models.kyc import DocumentoRequerido, DocumentoUsuario
 from app.models.subscription import Suscripcion
+from app.models.wallet import Wallet, Transaction, TipoTransaccion, TipoMoneda, Coin
+from app.models.modalidad import Modalidad, Milestone, TipoModalidad, EstadoHito
 
 __all__ = [
     "RolUsuario",
@@ -42,4 +44,14 @@ __all__ = [
     "DocumentoRequerido",
     "DocumentoUsuario",
     "Suscripcion",
+    # Nuevos modelos RF-25/26/27/29
+    "Wallet",
+    "Transaction",
+    "TipoTransaccion",
+    "TipoMoneda",
+    "Coin",
+    "Modalidad",
+    "Milestone",
+    "TipoModalidad",
+    "EstadoHito",
 ]

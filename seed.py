@@ -211,7 +211,7 @@ def seed_config() -> int:
     config_defaults = [
         ("commission_rate", "12", "int", "Comisión de plataforma principal (%)"),
         ("commission_rate_alt", "8", "int", "Comisión alternativa (%)"),
-        ("escrow_hours", "48", "int", "Horas de auto-liberación de escrow"),
+        ("payment_release_hours", "48", "int", "Horas de auto-liberación de pagos pendientes"),
         ("dispute_days", "5", "int", "Días hábiles para abrir disputa"),
         ("volume_discount", "10", "int", "Descuento por volumen (%)"),
         (

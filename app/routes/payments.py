@@ -1,4 +1,4 @@
-"""Payments blueprint: pasarela de pagos y escrow (RF-08, RF-09 parcial)."""
+"""Payments blueprint: pasarela de pagos directos (RF-08, RF-09 parcial)."""
 
 from flask.views import MethodView
 from flask import current_app
@@ -19,7 +19,7 @@ from app.schemas.payment import (
 from app.services.payments import (
     crear_pago,
     confirmar_pago,
-    liberar_escrow,
+    liberar_pago,
     reembolsar,
     reintentar_pago,
     auto_liberar_vencidos,
@@ -82,7 +82,7 @@ class PaymentConfirm(MethodView):
     @jwt_required()
     @blp.response(200, PaymentSchema)
     def post(self, payment_id):
-        """RF-08.3: confirma el cargo (simula pasarela ok) -> en_escrow."""
+        """RF-08.3: confirma el cargo (simula pasarela ok) -> pago directo."""
         user_id = int(get_jwt_identity())
         payment = db.session.get(Payment, payment_id)
         if payment is None:
@@ -105,7 +105,7 @@ class PaymentRelease(MethodView):
     @jwt_required()
     @blp.response(200, PaymentSchema)
     def post(self, payment_id):
-        """RF-08.6: libera el escrow al proveedor."""
+        """RF-08.6: libera el pago al proveedor (pago directo)."""
         user_id = int(get_jwt_identity())
         payment = db.session.get(Payment, payment_id)
         if payment is None:
@@ -116,7 +116,7 @@ class PaymentRelease(MethodView):
             abort(403, message="No autorizado para liberar este pago.")
 
         try:
-            payment = liberar_escrow(payment.id)
+            payment = liberar_pago(payment.id)
         except ValueError as e:
             abort(400, message=str(e))
         return payment
@@ -210,7 +210,7 @@ class PaymentAdminAutoRelease(MethodView):
     @jwt_required()
     @blp.response(200)
     def post(self):
-        """Helper admin: ejecuta auto_liberar_vencidos (RF-08.6)."""
+        """Helper admin: ejecuta auto_liberar_vencidos (pagos directos)."""
         user_id = int(get_jwt_identity())
         if not _es_admin(user_id):
             abort(403, message="Requiere rol admin.")
@@ -264,12 +264,12 @@ class IncomeCertificate(MethodView):
             Payment.query.join(Contract, Payment.contract_id == Contract.id)
             .filter(
                 Contract.proveedor_id == user.id,
-                Payment.estado == EstadoPago.LIBERADO,
+                Payment.estado == EstadoPago.COMPLETADO,
             )
             .all()
         )
 
-        total_ingresos = sum((p.monto - p.comision) for p in pagos)
+        total_ingresos = sum((p.monto - p.comision_pds) for p in pagos)
 
         # Historial: ultimos 12 meses (mes actual hacia atras), ascendente.
         hoy = datetime.utcnow()
@@ -284,7 +284,7 @@ class IncomeCertificate(MethodView):
             for p in pagos:
                 ref = p.liberado_en or p.creado_en
                 if ref is not None and inicio <= ref < fin:
-                    ingreso += (p.monto - p.comision)
+                    ingreso += (p.monto - p.comision_pds)
 
             servicios = 0
             for c in contratos_completados:

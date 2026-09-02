@@ -19,7 +19,7 @@ from app.models.contract import Contract, EstadoContrato, Dispute
 from app.models.payment import Payment, EstadoPago
 from app.models.ticket import Ticket
 from app.models.audit import write_audit
-from app.services.payments import liberar_escrow, reembolsar
+from app.services.payments import liberar_pago, reembolsar
 from app.schemas.admin import (
     UserListSchema,
     UserDetailSchema,
@@ -145,7 +145,7 @@ class AdminStats(MethodView):
         contracts_total = Contract.query.count()
         revenue_total = (
             db.session.query(db.func.sum(Payment.monto))
-            .filter(Payment.estado == EstadoPago.LIBERADO)
+            .filter(Payment.estado == EstadoPago.COMPLETADO)
             .scalar()
             or 0
         )
@@ -318,7 +318,7 @@ class AdminContractModerate(MethodView):
 
 
 # ==========================================================================
-# FASE 2 — Disputas / Escrow
+# FASE 2 — Disputas / Pagos directos
 # ==========================================================================
 @blp.route("/disputes")
 class AdminDisputeList(MethodView):
@@ -361,7 +361,8 @@ class AdminDisputeDetail(MethodView):
                 "id": payment.id,
                 "estado": payment.estado.value,
                 "monto": payment.monto,
-                "comision": payment.comision,
+                "comision_pds": payment.comision_pds,
+                "comision_solicitante": payment.comision_solicitante,
             }
             if payment
             else None
@@ -375,7 +376,7 @@ class AdminDisputeResolve(MethodView):
     @blp.arguments(DisputeResolveSchema)
     @blp.response(200)
     def post(self, data, dispute_id):
-        """Resuelve una disputa y aplica la acción de escrow."""
+        """Resuelve una disputa y aplica la accion de pago."""
         dispute = db.get_or_404(Dispute, dispute_id)
         if dispute.status == "resuelta":
             abort(400, message="La disputa ya está resuelta.")
@@ -384,23 +385,24 @@ class AdminDisputeResolve(MethodView):
 
         before = {
             "status": dispute.status,
-            "escrow_action": dispute.escrow_action,
+            "payment_action": dispute.payment_action,
             "payment_estado": payment.estado.value if payment else None,
         }
         dispute.resolved_by = _actor_id()
         dispute.resolved_at = datetime.now(timezone.utc)
         dispute.resolution = data["resolution"]
-        dispute.escrow_action = data["escrow_action"]
+        dispute.payment_action = data["payment_action"]
         dispute.status = "resuelta"
 
         if payment is not None:
             try:
-                if data["escrow_action"] == "release":
-                    liberar_escrow(payment.id)
-                elif data["escrow_action"] == "refund":
+                if data["payment_action"] == "release":
+                    liberar_pago(payment.id)
+                elif data["payment_action"] == "refund":
                     reembolsar(payment.id, data["resolution"])
                     # Revierte la comisión de plataforma en reembolso.
-                    payment.comision = 0
+                    payment.comision_pds = 0
+                    payment.comision_solicitante = 0
                     db.session.commit()
             except (ValueError, RuntimeError) as e:
                 abort(400, message=str(e))
@@ -410,7 +412,7 @@ class AdminDisputeResolve(MethodView):
             before,
             {
                 "status": "resuelta",
-                "escrow_action": data["escrow_action"],
+                "payment_action": data["payment_action"],
                 "payment_estado": payment.estado.value if payment else None,
             },
             _client_ip(),
@@ -419,7 +421,7 @@ class AdminDisputeResolve(MethodView):
         return {
             "id": dispute.id,
             "status": "resuelta",
-            "escrow_action": data["escrow_action"],
+            "payment_action": data["payment_action"],
         }
 
 

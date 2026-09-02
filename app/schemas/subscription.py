@@ -23,7 +23,7 @@ class SuscripcionCreateSchema(Schema):
 
     plan = fields.String(
         required=True,
-        validate=validate.OneOf(["basico", "profesional", "empresa"]),
+        validate=validate.OneOf(["basico", "profesional"]),
     )
 
 

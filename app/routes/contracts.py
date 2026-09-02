@@ -130,6 +130,44 @@ class ContractEstado(MethodView):
             solicitud = db.session.get(Solicitud, contract.service_id)
             if solicitud is not None:
                 solicitud.estado = EstadoSolicitud.COMPLETADO
+
+            # --- RF-25/26: Integrar billetera al completar contrato ---
+            try:
+                from app.services.wallet import get_modalidad, descontar_comision, acreditar_pago, dar_monedas_ganadas
+                from app.config import COMMISSION_EXEMPT_THRESHOLD
+
+                modalidad = get_modalidad(solicitud.id)
+                monto_total = solicitud.presupuesto or 0
+
+                if monto_total > 0:
+                    # Determinar si hay comisión (Modalidad A, monto >= umbral)
+                    comision = 0
+                    if modalidad.tipo.value == "A_comision" and monto_total >= COMMISSION_EXEMPT_THRESHOLD:
+                        comision = int(monto_total * 0.12)
+
+                    # Descontar comisión del PDS
+                    if comision > 0:
+                        descontar_comision(
+                            contract.proveedor_id,
+                            comision,
+                            f"COMISION-CONTRATO-{contract.id}",
+                        )
+
+                    # Acreditar pago neto al PDS
+                    monto_neto = monto_total - comision
+                    acreditar_pago(
+                        contract.proveedor_id,
+                        monto_neto,
+                        f"PAGO-CONTRATO-{contract.id}",
+                    )
+
+                    # Otorgar monedas ganadas al completar servicio
+                    dar_monedas_ganadas(contract.proveedor_id, 10)
+
+            except Exception:
+                # No romper el flujo de contrato si falla la billetera
+                pass
+
             crear_notificacion(
                 contract.solicitante_id,
                 "contrato_completado",

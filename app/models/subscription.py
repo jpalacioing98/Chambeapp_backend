@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from app.extensions import db
 
 
-PLANES = ("basico", "profesional", "empresa", "free")
+PLANES = ("basico", "profesional", "free")
 ESTADOS_SUSCRIPCION = ("activa", "cancelada", "vencida")
 
 

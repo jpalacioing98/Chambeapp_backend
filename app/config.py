@@ -64,5 +64,5 @@ class TestingConfig(Config):
 COMMISSION_RATE = 0.12
 # Umbral de exención: montos < 50000 COP no generan comisión (T&C §7.1).
 COMMISSION_EXEMPT_THRESHOLD = 50000
-# Plazo de auto-liberación de escrow sin quejas (RF-08.6): 48h.
+# Plazo de auto-liberación de pagos pendientes sin confirmación (RF-08.6): 48h.
 ESCROW_AUTO_RELEASE_HOURS = 48
