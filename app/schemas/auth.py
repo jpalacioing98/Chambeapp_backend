@@ -64,3 +64,20 @@ class RegisterResponseSchema(Schema):
     profile = fields.Raw()
     access_token = fields.String()
     refresh_token = fields.String()
+
+
+class ForgotPasswordSchema(Schema):
+    """Schema para solicitud de reseteo de contraseña."""
+    email = fields.Email(required=True)
+
+
+class ResetPasswordSchema(Schema):
+    """Schema para reseteo de contraseña."""
+    token = fields.String(required=True)
+    new_password = fields.String(required=True, validate=validate.Length(min=8))
+    current_password = fields.String(load_only=True)
+
+
+class MessageResponseSchema(Schema):
+    """Schema para respuestas con mensaje."""
+    message = fields.String(required=True)

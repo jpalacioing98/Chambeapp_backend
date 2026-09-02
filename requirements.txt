@@ -28,6 +28,16 @@ redis==8.1.0
 # Security
 bcrypt==5.0.0
 
+# Production WSGI Server
+gunicorn==23.0.0
+eventlet==0.37.0
+
+# Task Queue
+celery==5.4.0
+
+# Email (for password reset)
+flask-mail==0.10.0
+
 # Testing
 pytest==9.1.1
 pytest-flask==1.3.0

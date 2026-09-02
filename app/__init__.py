@@ -23,6 +23,7 @@ from app.routes.kyc import blp as kyc_blp
 from app.routes.subscriptions import blp as subscriptions_blp
 from app.routes.wallet import blp as wallet_blp
 from app.routes.prices import blp as prices_blp
+from app.routes.auth_password import blp as auth_password_blp
 from app.models.user import User
 
 
@@ -68,6 +69,7 @@ def create_app(config_class: str = "app.config.DevelopmentConfig") -> Flask:
     api.register_blueprint(subscriptions_blp, url_prefix="/api/v1/subscriptions")
     api.register_blueprint(wallet_blp, url_prefix="/api/v1/wallet")
     api.register_blueprint(prices_blp, url_prefix="/api/v1/prices")
+    api.register_blueprint(auth_password_blp, url_prefix="/api/v1/auth")
 
     # Handlers SocketIO (después de init_app)
     register_chat_socketio(socketio)
