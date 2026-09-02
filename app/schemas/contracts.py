@@ -18,7 +18,7 @@ class ContractEstadoSchema(Schema):
 
     estado = fields.String(
         required=True,
-        validate=validate.OneOf(["aceptar", "completar", "cancelar"]),
+        validate=validate.OneOf(["aceptar", "completar", "confirmar", "cancelar"]),
     )
     motivo_cancelacion = fields.String(required=False, allow_none=True)
 
@@ -42,6 +42,25 @@ class ContractSchema(Schema):
     motivo_cancelacion = fields.String(allow_none=True)
     inicio_en = fields.DateTime(allow_none=True)
     fin_en = fields.DateTime(allow_none=True)
+    confirmado_en = fields.DateTime(allow_none=True)  # RF-23
     creado_en = fields.DateTime()
     actualizado_en = fields.DateTime()
     service = fields.Nested(SolicitudResumenSchema, dump_only=True, allow_none=True)
+
+
+class DisputeCreateSchema(Schema):
+    """Body de creación de disputa."""
+    reason = fields.String(required=True, validate=validate.Length(min=10, max=2000))
+
+
+class DisputeSchema(Schema):
+    """Schema de disputa."""
+    id = fields.Integer()
+    contract_id = fields.Integer()
+    reason = fields.String()
+    status = fields.String()
+    resolved_by = fields.Integer(allow_none=True)
+    resolved_at = fields.DateTime(allow_none=True)
+    resolution = fields.String(allow_none=True)
+    payment_action = fields.String(allow_none=True)
+    created_at = fields.DateTime()

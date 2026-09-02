@@ -11,6 +11,7 @@ class EstadoContrato(str, Enum):
 
     PENDIENTE = "pendiente"
     EN_PROGRESO = "en_progreso"
+    COMPLETADO_PENDIENTE = "completado_pendiente"  # RF-23: PDS marcó completado, esperando confirmación
     COMPLETADO = "completado"
     CANCELADO = "cancelado"
     # RBAC Fase 2: moderación admin (flag de contrato sospechoso).
@@ -41,6 +42,7 @@ class Contract(db.Model):
     # Ciclo de vida "capeta": check-in (inicio) / check-out (fin) del pds.
     inicio_en = db.Column(db.DateTime, nullable=True)
     fin_en = db.Column(db.DateTime, nullable=True)
+    confirmado_en = db.Column(db.DateTime, nullable=True)  # RF-23: Confirmación dual
     creado_en = db.Column(
         db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )

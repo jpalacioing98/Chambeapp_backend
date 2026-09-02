@@ -57,6 +57,12 @@ class TestingConfig(Config):
     )
     CACHE_TYPE = "SimpleCache"
     PROPAGATE_EXCEPTIONS = False
+    
+    @classmethod
+    def init(cls):
+        """Set testing environment variables."""
+        os.environ["TESTING"] = "1"
+        os.environ["FLASK_TESTING"] = "1"
 
 
 # ---------------- RF-08: Pasarela de Pagos ----------------

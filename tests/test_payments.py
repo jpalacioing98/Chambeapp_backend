@@ -64,7 +64,7 @@ def _crear_servicio(client, headers):
 
 
 def _contrato_completado(client, emp_h, tr_h, tr_id):
-    """Crea servicio, contrato, acepta y completa. Devuelve contract_id."""
+    """Crea servicio, contrato, acepta y completa (con confirmación dual). Devuelve contract_id."""
     sid = _crear_servicio(client, emp_h)
     oid = client.post(
         "/api/v1/contracts/",
@@ -76,6 +76,10 @@ def _contrato_completado(client, emp_h, tr_h, tr_id):
     )
     client.patch(
         f"/api/v1/contracts/{oid}/estado", json={"estado": "completar"}, headers=tr_h
+    )
+    # RF-23: Confirmación dual - solicitante confirma
+    client.patch(
+        f"/api/v1/contracts/{oid}/estado", json={"estado": "confirmar"}, headers=emp_h
     )
     return oid
 

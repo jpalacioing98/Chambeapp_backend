@@ -195,7 +195,7 @@ def test_completar_sets_fin_en(client):
     )
     assert resp.status_code == 200
     d = resp.get_json()
-    assert d["estado"] == "completado"
+    assert d["estado"] == "completado_pendiente"  # RF-23: Confirmación dual
     assert d["inicio_en"] is not None
     assert d["fin_en"] is not None
 
@@ -263,7 +263,7 @@ def test_completar_ok_propagates_service(client):
         headers=tr_h,
     )
     assert resp.status_code == 200
-    assert resp.get_json()["estado"] == "completado"
+    assert resp.get_json()["estado"] == "completado_pendiente"  # RF-23: Confirmación dual
     # Service.estado queda 'completado' (habilita ratings RF-03)
     svc = client.get(f"/api/v1/solicitudes/{sid}").get_json()
     assert svc["estado"] == "completado"

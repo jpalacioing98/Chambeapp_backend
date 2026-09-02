@@ -125,13 +125,37 @@ class ContractEstado(MethodView):
             # check-out: solo el pds (proveedor) finaliza el trabajo.
             if user_id != contract.proveedor_id:
                 abort(403, message="Solo el proveedor puede completar el contrato.")
-            contract.estado = EstadoContrato.COMPLETADO
+            # RF-23: Confirmación dual - el contrato queda en estado "completado_pendiente"
+            # hasta que el solicitante confirme
+            contract.estado = EstadoContrato.COMPLETADO_PENDIENTE
             contract.fin_en = datetime.now(timezone.utc)
             solicitud = db.session.get(Solicitud, contract.service_id)
             if solicitud is not None:
                 solicitud.estado = EstadoSolicitud.COMPLETADO
 
-            # --- RF-25/26: Integrar billetera al completar contrato ---
+            crear_notificacion(
+                contract.solicitante_id,
+                "contrato_completado_pendiente",
+                "El proveedor marcó el contrato como completado. Por favor confirma que el trabajo está bien.",
+            )
+            crear_notificacion(
+                contract.proveedor_id,
+                "contrato_esperando_confirmacion",
+                "El contrato fue marcado como completado. Esperando confirmación del solicitante.",
+            )
+
+        elif accion == "confirmar":
+            # RF-23: Confirmación dual - solo el solicitante puede confirmar
+            if contract.estado != EstadoContrato.COMPLETADO_PENDIENTE:
+                abort(400, message="Solo se puede confirmar un contrato en estado 'completado_pendiente'.")
+            if user_id != contract.solicitante_id:
+                abort(403, message="Solo el solicitante puede confirmar la finalización del contrato.")
+            
+            contract.estado = EstadoContrato.COMPLETADO
+            contract.confirmado_en = datetime.now(timezone.utc)
+
+            # --- RF-25/26: Integrar billetera al confirmar contrato ---
+            solicitud = db.session.get(Solicitud, contract.service_id)
             try:
                 from app.services.wallet import get_modalidad, descontar_comision, acreditar_pago, dar_monedas_ganadas
                 from app.config import COMMISSION_EXEMPT_THRESHOLD
@@ -169,14 +193,14 @@ class ContractEstado(MethodView):
                 pass
 
             crear_notificacion(
-                contract.solicitante_id,
-                "contrato_completado",
-                "Tu contrato de trabajo fue marcado como completado.",
+                contract.proveedor_id,
+                "contrato_confirmado",
+                "El solicitante confirmó que el trabajo está completado. ¡Pago procesado!",
             )
             crear_notificacion(
-                contract.proveedor_id,
-                "contrato_completado",
-                "El contrato de trabajo fue marcado como completado.",
+                contract.solicitante_id,
+                "contrato_confirmado",
+                "Has confirmado la finalización del contrato.",
             )
 
         elif accion == "cancelar":

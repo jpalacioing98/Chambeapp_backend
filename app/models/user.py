@@ -37,6 +37,8 @@ class User(db.Model):
     telefono = db.Column(db.String(30), nullable=True)
     edad_verificada = db.Column(db.Boolean, default=False, nullable=False)
     acepto_tyc = db.Column(db.Boolean, default=False, nullable=False)
+    consentimiento_datos = db.Column(db.Boolean, default=False, nullable=False)  # Habeas Data (Ley 1581)
+    email_verificado = db.Column(db.Boolean, default=False, nullable=False)  # P1: Verificación email
     fecha_registro = db.Column(
         db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )

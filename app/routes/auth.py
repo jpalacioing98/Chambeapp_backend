@@ -17,6 +17,7 @@ from app.schemas.auth import (
     MeSchema,
     RegisterResponseSchema,
 )
+from app.rate_limit import check_login_rate_limit, check_register_rate_limit
 
 blp = Blueprint("auth", __name__, description="Autenticación y registro")
 
@@ -30,6 +31,10 @@ class Register(MethodView):
     @blp.response(201, RegisterResponseSchema)
     def post(self, data):
         """RF-01 + RF-17: registro requiere acepto_tyc=true."""
+        # P1: Rate limiting
+        if not check_register_rate_limit():
+            abort(429, message="Demasiados intentos de registro. Intenta más tarde.")
+        
         if not data["acepto_tyc"]:
             abort(400, message="Debe aceptar los Términos y Condiciones (RF-17).")
 
@@ -83,6 +88,10 @@ class Login(MethodView):
     @blp.arguments(LoginSchema)
     def post(self, data):
         """Autentica y retorna access + refresh token (JWT 8h)."""
+        # P1: Rate limiting
+        if not check_login_rate_limit():
+            abort(429, message="Demasiados intentos de login. Intenta más tarde.")
+        
         user = User.query.filter_by(email=data["email"]).first()
         if not user or not user.check_password(data["password"]):
             abort(401, message="Credenciales inválidas.")
