@@ -15,6 +15,10 @@ class RegisterSchema(Schema):
         required=True, validate=validate.OneOf(RolUsuario.values())
     )
     acepto_tyc = fields.Boolean(required=True)
+    nombre = fields.String(required=False, load_default=None)
+    username = fields.String(required=False, load_default=None)
+    telefono = fields.String(required=False, load_default=None)
+    consentimiento_datos = fields.Boolean(required=False, load_default=False)
     ip = fields.String(required=False, load_default=None)
 
 
@@ -81,3 +85,14 @@ class ResetPasswordSchema(Schema):
 class MessageResponseSchema(Schema):
     """Schema para respuestas con mensaje."""
     message = fields.String(required=True)
+
+
+class OtpSendSchema(Schema):
+    """Schema para envío de OTP."""
+    telefono = fields.String(required=True)
+
+
+class OtpVerifySchema(Schema):
+    """Schema para verificación de OTP."""
+    telefono = fields.String(required=True)
+    code = fields.String(required=True)

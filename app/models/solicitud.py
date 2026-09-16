@@ -63,6 +63,8 @@ class Solicitud(db.Model):
     )
     especificaciones_tecnicas = db.Column(db.JSON, nullable=True)
     imagen_360 = db.Column(db.String(500), nullable=True)
+    # RF-04 (geo): radio de geocerca en kilómetros para cascada de notificaciones.
+    radio_km = db.Column(db.Float, default=5.0, nullable=True)
     creado_en = db.Column(
         db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )

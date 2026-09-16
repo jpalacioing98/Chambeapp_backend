@@ -1,5 +1,7 @@
 """ChambeApp backend — application factory."""
 
+import os
+
 from flask import Flask
 from flask_smorest import Api
 
@@ -18,6 +20,7 @@ from app.routes.tickets import blp as tickets_blp
 from app.routes.superadmin import blp as superadmin_blp
 from app.routes.ofertas import blp as ofertas_blp
 from app.routes.oferta_socket import register_ofertas_socketio
+from app.routes.notification_socket import register_notification_socketio
 from app.routes.legal import blp as legal_blp
 from app.routes.kyc import blp as kyc_blp
 from app.routes.subscriptions import blp as subscriptions_blp
@@ -26,8 +29,12 @@ from app.routes.prices import blp as prices_blp
 from app.routes.auth_password import blp as auth_password_blp
 from app.routes.disputes import blp as disputes_blp
 from app.routes.email_verification import blp as email_verification_blp
+from app.routes.otp import blp as otp_blp
 from app.routes.providers import blp as providers_blp
 from app.routes.onboarding import blp as onboarding_blp
+from app.routes.portfolio import blp as portfolio_blp
+from app.routes.ai_metrics import blp as ai_metrics_blp
+from app.routes.negocios import blp as negocios_blp
 from app.models.user import User
 
 
@@ -52,7 +59,14 @@ def create_app(config_class: str = "app.config.DevelopmentConfig") -> Flask:
         }},
     )
     # threading: compatible con test client/werkzeug; en prod usar eventlet.
-    socketio.init_app(app, cors_allowed_origins="*", async_mode="threading")
+    # message_queue: Redis permite emitir desde procesos externos (Celery).
+    # En TestingConfig es None para no requerir Redis en los tests.
+    socketio.init_app(
+        app,
+        cors_allowed_origins="*",
+        async_mode="threading",
+        message_queue=app.config.get("SOCKETIO_MESSAGE_QUEUE"),
+    )
 
     # API + blueprints (Flask-Smorest)
     api = Api(app)
@@ -76,12 +90,17 @@ def create_app(config_class: str = "app.config.DevelopmentConfig") -> Flask:
     api.register_blueprint(auth_password_blp, url_prefix="/api/v1/auth")
     api.register_blueprint(disputes_blp, url_prefix="/api/v1")
     api.register_blueprint(email_verification_blp, url_prefix="/api/v1/auth")
+    api.register_blueprint(otp_blp, url_prefix="/api/v1/auth")
     api.register_blueprint(providers_blp, url_prefix="/api/v1/providers")
     api.register_blueprint(onboarding_blp, url_prefix="/api/v1/onboarding")
+    api.register_blueprint(portfolio_blp, url_prefix="/api/v1/portfolio")
+    api.register_blueprint(ai_metrics_blp, url_prefix="/api/v1/ai")
+    api.register_blueprint(negocios_blp, url_prefix="/api/v1/negocios")
 
     # Handlers SocketIO (después de init_app)
     register_chat_socketio(socketio)
     register_ofertas_socketio(socketio)
+    register_notification_socketio(socketio)
 
     # Cron job: limpiar monedas vencidas cada 24 horas
     def _setup_scheduler():

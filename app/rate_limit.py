@@ -50,7 +50,8 @@ def _check_rate_limit(key: str, max_attempts: int, window_seconds: int) -> bool:
 def check_login_rate_limit() -> bool:
     """Verifica límite de intentos de login."""
     import os
-    if os.environ.get("FLASK_TESTING") or os.environ.get("TESTING"):
+    env = os.environ.get("FLASK_ENV", os.environ.get("FLASK_DEBUG", ""))
+    if os.environ.get("FLASK_TESTING") or os.environ.get("TESTING") or env == "development":
         return True
     return _check_rate_limit("login", LOGIN_MAX_ATTEMPTS, LOGIN_WINDOW_SECONDS)
 

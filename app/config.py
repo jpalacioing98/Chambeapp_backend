@@ -26,6 +26,10 @@ class Config:
     CACHE_TYPE = os.environ.get("CACHE_TYPE", "RedisCache")
     CACHE_REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 
+    # SocketIO message queue (Redis en prod/dev para emitir desde Celery;
+    # None en test para evitar conexiones a Redis inexistente).
+    SOCKETIO_MESSAGE_QUEUE = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+
     # OpenAPI / Flask-Smorest
     API_TITLE = "ChambeApp API"
     API_VERSION = "v1"
@@ -37,9 +41,21 @@ class Config:
     NEQUI_NUMBER = os.environ.get("NEQUI_NUMBER", "3000000000")
     NEQUI_TITULAR = os.environ.get("NEQUI_TITULAR", "ChambeApp")
 
+    # Onurix SMS (2FA) - https://docs.onurix.com
+    ONURIX_CLIENT = os.environ.get("ONURIX_CLIENT")
+    ONURIX_KEY = os.environ.get("ONURIX_KEY")
+    ONURIX_APP_NAME = os.environ.get("ONURIX_APP_NAME", "ChambeApp")
+    # SMS_SEND_DEV=1 envía SMS reales en desarrollo (requiere credenciales Onurix)
+    SMS_SEND_DEV = os.environ.get("SMS_SEND_DEV", "0") == "1"
+
 
 class DevelopmentConfig(Config):
     DEBUG = True
+    # PostgreSQL con PostGIS para desarrollo (dev = prod)
+    SQLALCHEMY_DATABASE_URI = os.environ.get(
+        "DATABASE_URL",
+        "postgresql://chambeapp:chambeapp_dev@localhost:5432/chambeapp"
+    )
 
 
 class ProductionConfig(Config):
@@ -56,6 +72,7 @@ class TestingConfig(Config):
         "TEST_DATABASE_URL", "sqlite:///:memory:"
     )
     CACHE_TYPE = "SimpleCache"
+    SOCKETIO_MESSAGE_QUEUE = None
     PROPAGATE_EXCEPTIONS = False
     
     @classmethod

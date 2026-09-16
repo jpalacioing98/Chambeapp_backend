@@ -22,3 +22,16 @@ class Notification(db.Model):
     )
 
     user = db.relationship("User")
+
+    def to_dict(self) -> dict:
+        """Serializa la notificación para emisión por Socket.IO."""
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "tipo": self.tipo,
+            "titulo": self.titulo,
+            "mensaje": self.mensaje,
+            "leida": self.leida,
+            "datos": self.datos,
+            "creado_en": self.creado_en.isoformat() if self.creado_en else None,
+        }

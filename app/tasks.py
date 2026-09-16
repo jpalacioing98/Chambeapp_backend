@@ -47,6 +47,16 @@ celery_app.conf.beat_schedule = {
         "task": "app.tasks.check_kyc_sla",
         "schedule": crontab(minute="*/60"),  # Every hour
     },
+    # Retrain ML model weekly
+    "retrain-ml-model": {
+        "task": "app.tasks.retrain_ml_model",
+        "schedule": crontab(day_of_week=0, hour=3, minute=0),  # Weekly Sunday 3AM
+    },
+    # Check ML health every 6 hours
+    "check-ml-health": {
+        "task": "app.tasks.check_ml_health",
+        "schedule": crontab(minute="*/360"),  # Every 6 hours
+    },
 }
 
 
@@ -153,3 +163,57 @@ def check_kyc_sla():
             pass
         
         return f"KYC SLA check: {len(pending_docs)} documents pending"
+
+
+@celery_app.task(name="app.tasks.retrain_ml_model")
+def retrain_ml_model():
+    """Re-entrena el modelo ML de ranking semanalmente."""
+    from app import create_app
+    from app.ai.train import generate_training_data, train_model
+    from app.ai.ml_ranker import MLRanker
+    
+    app = create_app()
+    with app.app_context():
+        try:
+            metrics = train_model()
+            if metrics:
+                return f"Modelo re-entrenado: {metrics['version']} ({metrics['n_samples']} samples)"
+            else:
+                return "No hay suficientes datos para re-entrenar"
+        except Exception as e:
+            return f"Error re-entrenando modelo: {str(e)}"
+
+
+@celery_app.task(name="app.tasks.check_ml_health")
+def check_ml_health():
+    """Verifica salud del modelo ML y alerta si hay problemas."""
+    from app import create_app
+    from app.ai.ab_testing import ABTest
+    from app.ai.ml_ranker import MLRanker
+    
+    app = create_app()
+    with app.app_context():
+        ranker = MLRanker()
+        metrics = ABTest.get_metrics()
+        
+        alerts = []
+        
+        # Alerta si modelo no entrenado
+        if not ranker.is_trained():
+            alerts.append("⚠️ Modelo ML no entrenado")
+        
+        # Alerta si tasa de aceptación cae >20% del baseline (40%)
+        baseline = 0.4
+        for group, data in metrics.items():
+            if data['tasa_aceptacion'] < baseline * 0.8:  # <32%
+                alerts.append(
+                    f"⚠️ Grupo {group}: tasa aceptación {data['tasa_aceptacion']:.1%} "
+                    f"(baseline {baseline:.1%})"
+                )
+        
+        if alerts:
+            # TODO: Enviar alerta a admin (email/Slack)
+            # send_admin_alert("\n".join(alerts))
+            return f"Alertas ML: {'; '.join(alerts)}"
+        
+        return "ML health OK"

@@ -70,11 +70,12 @@ La Plataforma opera bajo un modelo de monetización híbrido diseñado para gara
 * **Exención para micro-servicios:** Los servicios cuyo valor acordado sea inferior a cincuenta mil pesos colombianos ($50.000 COP) estarán exentos del cobro de comisiones para incentivar el volumen transaccional.
 * **Descuentos por volumen:** La Plataforma podrá otorgar un 10% de descuento en la comisión del Proveedor si este completa más de 10 servicios en un mes calendario.
 
-**7.2. Planes de Suscripción Premium**
-Adicional a la cuenta gratuita, La Plataforma ofrece suscripciones mensuales voluntarias:
-* **Plan Básico ($15.000 COP/mes):** Dirigido a proveedores que inician, permite hasta 5 postulaciones al mes.
-* **Plan Profesional ($35.000 COP/mes):** Dirigido a proveedores establecidos, ofrece postulaciones ilimitadas, perfil destacado en búsquedas y analíticas básicas.
-* **Renovación y Cancelación:** Las suscripciones se renovarán automáticamente cada mes. El usuario podrá cancelar su suscripción en cualquier momento sin lugar a reembolsos por periodos ya facturados.
+**7.2. Planes de Suscripción**
+La Plataforma ofrece una cuenta gratuita y suscripciones mensuales voluntarias:
+* **Plan Free ($0 COP/mes):** Cuenta gratuita por defecto para todo usuario nuevo. Permite hasta 3 postulaciones al mes, publicar solicitudes ilimitadas, chat en tiempo real, verificación de identidad (KYC) y acceso a la billetera y monedas.
+* **Plan Básico ($15.000 COP/mes):** Dirigido a proveedores que inician, permite hasta 15 postulaciones al mes e incluye 50 monedas de bienvenida.
+* **Plan Profesional ($35.000 COP/mes):** Dirigido a proveedores establecidos, ofrece postulaciones ilimitadas, perfil destacado en búsquedas, 150 monedas de bienvenida, analíticas de desempeño, verificación express incluida y certificado de ingresos mensual.
+* **Renovación y Cancelación:** Las suscripciones se renovarán automáticamente cada mes. El usuario podrá cancelar su suscripción en cualquier momento sin lugar a reembolsos por periodos ya facturados, y su cuenta revertirá al Plan Free.
 
 **7.3. Servicios de Valor Agregado (A la carta)**
 Los usuarios podrán adquirir servicios adicionales de manera individual, incluyendo:

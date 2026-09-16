@@ -4,13 +4,15 @@ from datetime import datetime, timezone
 from enum import Enum
 
 from app.extensions import db
+from geoalchemy2 import Geometry
 
 
 class RolUsuario(str, Enum):
-    """6 roles de ChambeApp."""
+    """7 roles de ChambeApp."""
 
     PDS = "pds"
     SOLICITANTE = "solicitante"
+    MERCHANT = "merchant"
     VERIFICADOR = "verificador"
     SOPORTE = "soporte"
     ADMIN = "admin"
@@ -34,6 +36,7 @@ class User(db.Model):
                        index=True)  # active | suspended | banned
     role_version = db.Column(db.Integer, default=1, nullable=False)
     nombre = db.Column(db.String(120), nullable=True)
+    username = db.Column(db.String(60), unique=True, nullable=True, index=True)
     telefono = db.Column(db.String(30), nullable=True)
     edad_verificada = db.Column(db.Boolean, default=False, nullable=False)
     acepto_tyc = db.Column(db.Boolean, default=False, nullable=False)
@@ -74,6 +77,11 @@ class Profile(db.Model):
     portafolio = db.Column(db.JSON, default=list)  # fotos / enlaces
     categorias = db.Column(db.JSON, default=list)
     perfil_completo = db.Column(db.Boolean, default=False, nullable=False)
+    # Coordenadas geoespaciales (RF-10 geo fallback)
+    latitud = db.Column(db.Float, nullable=True)
+    longitud = db.Column(db.Float, nullable=True)
+    # geom: columna espacial PostGIS para búsquedas de proximidad (app.ai.geo).
+    geom = db.Column(Geometry('POINT', srid=4326), nullable=True)
     # RF-11: plan de suscripción y perfil destacado.
     plan = db.Column(db.String(20), default="free", nullable=False)
     destacado = db.Column(db.Boolean, default=False, nullable=False)

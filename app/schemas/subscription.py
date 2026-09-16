@@ -32,5 +32,6 @@ class PlanSchema(Schema):
 
     plan = fields.String()
     nombre = fields.String()
+    tagline = fields.String()
     precio = fields.Integer()
     beneficios = fields.List(fields.String())

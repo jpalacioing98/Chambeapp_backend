@@ -2,6 +2,11 @@
 
 DocumentoRequerido: catálogo de documentos exigidos según el rol del usuario.
 DocumentoUsuario: trazabilidad del estado de cada documento enviado por un usuario.
+
+Documentos multi-instancia (válidos para vários ejemplares del mismo tipo):
+  - validacion_profesional: una por habilidad/certificación
+  - cert_bancaria: una por cuenta bancaria
+  - certificado_laboral: una por empleo/referencia laboral
 """
 
 from datetime import datetime, timezone
@@ -21,6 +26,7 @@ class DocumentoRequerido(db.Model):
     descripcion = db.Column(db.Text, nullable=True)
     obligatorio = db.Column(db.Boolean, default=True, nullable=False)
     grupo = db.Column(db.String(30), nullable=True)  # identidad|antecedentes|financiero|opcional
+    multi_instancia = db.Column(db.Boolean, default=False, nullable=False)
     orden = db.Column(db.Integer, default=0, nullable=False)
 
     __table_args__ = (
@@ -33,6 +39,11 @@ class DocumentoUsuario(db.Model):
 
     Estado (máquina de estados): no_enviado | enviado | aprobado | rechazado.
     El MVP almacena el archivo en base64 (sin S3).
+
+    multi_instancia: documentos como validacion_profesional, cert_bancaria
+    o certificado_laboral pueden tener vários ejemplares (uno por habilidad,
+    cuenta bancaria o empleo). La columna `instancia` los diferencia.
+    Para documentos single-instance (doc_identidad, etc.) instancia es NULL.
     """
 
     __tablename__ = "documentos_usuario"
@@ -45,6 +56,7 @@ class DocumentoUsuario(db.Model):
         db.Integer, db.ForeignKey("documentos_requeridos.id"), nullable=True, index=True
     )
     documento_clave = db.Column(db.String(60), nullable=False)
+    instancia = db.Column(db.String(120), nullable=True)  # ej: "Electricidad", "Nequi", "Empresa XYZ"
     rol = db.Column(db.String(30), nullable=True)
     estado = db.Column(
         db.String(20), default="no_enviado", nullable=False
@@ -63,6 +75,7 @@ class DocumentoUsuario(db.Model):
 
     __table_args__ = (
         db.UniqueConstraint(
-            "user_id", "documento_clave", name="uq_documento_usuario_user_clave"
+            "user_id", "documento_clave", "instancia",
+            name="uq_documento_usuario_user_clave_instancia",
         ),
     )

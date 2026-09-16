@@ -10,6 +10,7 @@ class RecommendationSchema(Schema):
     email = fields.Email(allow_none=True)
     score = fields.Float()
     explicacion = fields.String()
+    ab_group = fields.String(dump_only=True, allow_none=True)
 
 
 class RecommendationsSchema(Schema):

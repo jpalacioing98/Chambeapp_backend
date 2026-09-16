@@ -28,28 +28,52 @@ blp = Blueprint(
 
 PLANES_CATALOGO = [
     {
+        "plan": "free",
+        "nombre": "Free",
+        "tagline": "Empieza gratis, sin tarjeta",
+        "precio": 0,
+        "beneficios": [
+            "3 postulaciones por mes",
+            "Publica solicitudes ilimitadas",
+            "Chat en tiempo real",
+            "Verificacion de identidad (KYC)",
+            "Billetera y monedas",
+        ],
+    },
+    {
         "plan": "basico",
         "nombre": "Basico",
+        "tagline": "Para chambear en serio",
         "precio": 15000,
         "beneficios": [
-            "Hasta 5 postulaciones por mes",
-            "Perfil basico",
+            "15 postulaciones por mes",
+            "50 monedas de bienvenida",
+            "Publica solicitudes ilimitadas",
+            "Chat en tiempo real",
+            "Verificacion de identidad (KYC)",
+            "Billetera y monedas",
         ],
     },
     {
         "plan": "profesional",
         "nombre": "Profesional",
+        "tagline": "Para escalar tu negocio",
         "precio": 35000,
         "beneficios": [
             "Postulaciones ilimitadas",
             "Perfil destacado en busquedas",
-            "Analytics basicos",
+            "150 monedas de bienvenida",
+            "Analytics de desempeno",
+            "Verificacion express incluida",
+            "Certificado de ingresos mensual",
         ],
     },
 ]
 
 PLANES_PRECIO = {p["plan"]: p["precio"] for p in PLANES_CATALOGO}
 PLANES_DESTACADOS = {"profesional"}
+# Límite de postulaciones mensuales por plan. Valor None = ilimitado.
+PLANES_LIMITE_POSTULACIONES = {"free": 3, "basico": 15, "profesional": None}
 
 
 def _now():

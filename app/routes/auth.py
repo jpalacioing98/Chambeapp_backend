@@ -25,6 +25,12 @@ blp = Blueprint("auth", __name__, description="Autenticación y registro")
 TYC_VERSION = "1.0"
 
 
+@blp.route("/health")
+def health():
+    """Health check (usado por el HEALTHCHECK del Dockerfile)."""
+    return {"status": "ok"}, 200
+
+
 @blp.route("/register")
 class Register(MethodView):
     @blp.arguments(RegisterSchema)
@@ -41,10 +47,18 @@ class Register(MethodView):
         if User.query.filter_by(email=data["email"]).first():
             abort(409, message="El email ya está registrado.")
 
+        username = (data.get("username") or "").strip() or None
+        if username and User.query.filter_by(username=username).first():
+            abort(409, message="El nombre de usuario ya está en uso.")
+
         user = User(
             email=data["email"],
             rol=RolUsuario(data["rol"]),
             acepto_tyc=True,
+            nombre=(data.get("nombre") or "").strip() or None,
+            username=username,
+            telefono=(data.get("telefono") or "").strip() or None,
+            consentimiento_datos=bool(data.get("consentimiento_datos")),
         )
         user.set_password(data["password"])
         profile = Profile(user=user)

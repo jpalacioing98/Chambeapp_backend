@@ -3,7 +3,7 @@ version: '3.8'
 
 services:
   db:
-    image: postgres:16-alpine
+    image: postgis/postgis:16-3.4
     container_name: chambeapp_db
     restart: unless-stopped
     environment:
@@ -32,6 +32,25 @@ services:
       timeout: 5s
       retries: 5
 
+  minio:
+    image: minio/minio:latest
+    container_name: chambeapp_minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER:-chambeapp}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:-chambeapp_dev}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   backend:
     build: .
     container_name: chambeapp_backend
@@ -44,10 +63,20 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-me-in-production}
       - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      - S3_ENDPOINT=http://minio:9000
+      - S3_ACCESS_KEY=${MINIO_USER:-chambeapp}
+      - S3_SECRET_KEY=${MINIO_PASSWORD:-chambeapp_dev}
+      - S3_BUCKET=chambeapp-portfolio
+      - ONURIX_CLIENT=${ONURIX_CLIENT:-}
+      - ONURIX_KEY=${ONURIX_KEY:-}
+      - ONURIX_APP_NAME=${ONURIX_APP_NAME:-ChambeApp}
+      - SMS_SEND_DEV=${SMS_SEND_DEV:-0}
     depends_on:
       db:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      minio:
         condition: service_healthy
     volumes:
       - ./migrations:/app/migrations
@@ -63,10 +92,16 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-me-in-production}
       - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      - S3_ENDPOINT=http://minio:9000
+      - S3_ACCESS_KEY=${MINIO_USER:-chambeapp}
+      - S3_SECRET_KEY=${MINIO_PASSWORD:-chambeapp_dev}
+      - S3_BUCKET=chambeapp-portfolio
     depends_on:
       db:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      minio:
         condition: service_healthy
 
   celery_beat:
@@ -80,11 +115,18 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-me-in-production}
       - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      - S3_ENDPOINT=http://minio:9000
+      - S3_ACCESS_KEY=${MINIO_USER:-chambeapp}
+      - S3_SECRET_KEY=${MINIO_PASSWORD:-chambeapp_dev}
+      - S3_BUCKET=chambeapp-portfolio
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
+      minio:
+        condition: service_healthy
 
 volumes:
   postgres_data:
+  minio_data:

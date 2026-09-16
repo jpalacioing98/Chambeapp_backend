@@ -24,6 +24,7 @@ class SolicitudCreateSchema(Schema):
     latitud = fields.Float(required=False, allow_none=True)
     longitud = fields.Float(required=False, allow_none=True)
     direccion = fields.String(required=False, allow_none=True)
+    radio_km = fields.Float(required=False, allow_none=True, load_default=5.0)
 
 
 class SolicitudEstadoSchema(Schema):
@@ -48,6 +49,7 @@ class SolicitudSchema(Schema):
     latitud = fields.Float(allow_none=True)
     longitud = fields.Float(allow_none=True)
     direccion = fields.String(allow_none=True)
+    radio_km = fields.Float(allow_none=True, dump_default=5.0)
     creado_en = fields.DateTime()
     actualizado_en = fields.DateTime()
     advertencia = fields.String(dump_only=True, allow_none=True)

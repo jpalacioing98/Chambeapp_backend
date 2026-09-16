@@ -21,6 +21,7 @@ from app.models.payment import Payment
 from app.models.config import SystemConfig, FeatureFlag
 from app.models.kyc import DocumentoRequerido, DocumentoUsuario
 from app.data.tyc import TYC_CONTENT, TYC_VERSION
+from app.data.seed_kyc_merchant import seed_kyc_merchant
 
 
 # Datos exactos de los 6 usuarios semilla (un rol por usuario).
@@ -47,6 +48,8 @@ def _build_profile(rol: RolUsuario) -> Profile:
             calificacion_promedio=5.0,
             verificado=True,
             zona="Valledupar",
+            latitud=10.4806,
+            longitud=-73.2495,
             perfil_completo=True,
         )
     # Demás roles: mínimo categorias=["plomería"] para perfil_completo=True.
@@ -56,6 +59,8 @@ def _build_profile(rol: RolUsuario) -> Profile:
         calificacion_promedio=0.0,
         verificado=False,
         zona="Valledupar",
+        latitud=10.4806,
+        longitud=-73.2495,
         perfil_completo=True,
     )
 
@@ -275,42 +280,57 @@ def seed_config() -> int:
 def seed_kyc() -> int:
     """Siembra el catálogo de documentos KYC requeridos por rol (Politica_KYC.md)."""
     catalogo = [
-        # ROL pds (obligatorios)
+        # ── ROL pds · OBLIGATORIOS ──
+        # Grupo: identidad
         ("pds", "doc_identidad", "Documento de Identidad",
-         "Fotografía por ambas caras de CC, CE o PPT.", True, "identidad", 1),
+         "Fotografía por ambas caras de CC, CE o PPT.", True, "identidad", False, 1),
         ("pds", "prueba_vida", "Prueba de Vida (Biometría)",
-         "Selfie en tiempo real que coincide con el documento de identidad.", True, "identidad", 2),
+         "Selfie en tiempo real que coincide con el documento de identidad.", True, "identidad", False, 2),
+        ("pds", "comprobante_residencia", "Comprobante de Residencia",
+         "Recibo de servicios públicos, extracto bancario o certificación de dirección (máx. 3 meses).", True, "identidad", False, 3),
+        # Grupo: antecedentes
         ("pds", "antecedentes_judiciales", "Certificado de Antecedentes Judiciales",
-         "Consulta en bases de la Policía Nacional.", True, "antecedentes", 3),
+         "Consulta en bases de la Policía Nacional.", True, "antecedentes", False, 4),
         ("pds", "rnmc", "Registro Nacional de Medidas Correctivas (RNMC)",
-         "Verificación de multas por comportamientos contrarios a la convivencia.", True, "antecedentes", 4),
+         "Verificación de multas por comportamientos contrarios a la convivencia.", True, "antecedentes", False, 5),
+        ("pds", "antecedentes_procuraduria", "Antecedentes de Procuraduría",
+         "Consulta de antecedentes disciplinarios — Procuraduría General de la Nación.", True, "antecedentes", False, 6),
+        ("pds", "antecedentes_contraduria", "Antecedentes de Contraloría",
+         "Consulta de responsabilidad fiscal — Contraloría General de la República.", True, "antecedentes", False, 7),
+        # Grupo: financiero
         ("pds", "cert_bancaria", "Certificación Bancaria",
-         "Cuenta a nombre exclusivo del titular (Nequi, Daviplata, Bancolombia…).", True, "financiero", 5),
-        # ROL pds (opcionales)
+         "Cuenta a nombre exclusivo del titular (Nequi, Daviplata, Bancolombia…). Se puede registrar varias (una por cuenta).", True, "financiero", True, 8),
+        # ── ROL pds · OPCIONALES ──
         ("pds", "validacion_profesional", "Validación Profesional",
-         "Tarjeta profesional o certificado SENA (para badges de habilidad).", False, "opcional", 6),
+         "Tarjeta profesional, certificado SENA o constancia de competencia. Se puede registrar varias (una por habilidad/certificación).", False, "opcional", True, 9),
         ("pds", "salud_seguridad", "Salud y Seguridad (EPS + ARL)",
-         "Afiliación activa al Sistema de Seguridad Social. Obligatorio para planes Premium.", False, "opcional", 7),
-        # ROL solicitante (obligatorios)
+         "Afiliación activa al Sistema de Seguridad Social. Obligatorio para planes Premium.", False, "opcional", False, 10),
+        ("pds", "certificado_laboral", "Certificado Laboral / Referencia de Empleo",
+         "Constancia de trabajo o referencia de un empleador anterior. Se puede registrar varias (una por empleo).", False, "opcional", True, 11),
+        # ── ROL solicitante · OBLIGATORIOS ──
         ("solicitante", "doc_identidad", "Documento de Identidad",
-         "CC, CE o NIT (persona jurídica).", True, "identidad", 1),
+         "CC, CE o NIT (persona jurídica).", True, "identidad", False, 1),
         ("solicitante", "verificacion_contacto", "Verificación de Contacto",
-         "Validación de teléfono celular por OTP en registro.", True, "identidad", 2),
+         "Validación de teléfono celular por OTP en registro.", True, "identidad", False, 2),
         ("solicitante", "validacion_pago", "Validación de Método de Pago",
-         "Micro-cargo de autorización vía pasarela (MercadoPago).", True, "financiero", 3),
+         "Micro-cargo de autorización vía pasarela (MercadoPago).", True, "financiero", False, 3),
     ]
     created = 0
-    for rol, clave, nombre, descripcion, obligatorio, grupo, orden in catalogo:
+    for rol, clave, nombre, descripcion, obligatorio, grupo, multi, orden in catalogo:
         if DocumentoRequerido.query.filter_by(rol=rol, clave=clave).first():
             continue
         db.session.add(
             DocumentoRequerido(
                 rol=rol, clave=clave, nombre=nombre, descripcion=descripcion,
-                obligatorio=obligatorio, grupo=grupo, orden=orden,
+                obligatorio=obligatorio, grupo=grupo, multi_instancia=multi, orden=orden,
             )
         )
         created += 1
         print(f"  CREADO doc KYC: {rol}/{clave}")
+
+    # ── KYC merchant (módulo negocios) ──
+    created += seed_kyc_merchant()
+
     return created
 
 
@@ -330,7 +350,7 @@ if __name__ == "__main__":
         seed_sample_contract()
         print("Sembrando configuración global y feature flags...")
         seed_config()
-        print("Sembrando catálogo de documentos KYC por rol...")
+        print("Sembrando catálogo de documentos KYC por rol (incluye merchant)...")
         seed_kyc()
 
         db.session.commit()

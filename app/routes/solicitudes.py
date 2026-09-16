@@ -65,6 +65,7 @@ class SolicitudList(MethodView):
             latitud=data.get("latitud"),
             longitud=data.get("longitud"),
             direccion=data.get("direccion"),
+            radio_km=data.get("radio_km", 5.0),
             estado=EstadoSolicitud.PUBLICADO,
         )
         solicitud.advertencia = None

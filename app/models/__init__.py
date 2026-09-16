@@ -19,6 +19,10 @@ from app.models.subscription import Suscripcion
 from app.models.wallet import Wallet, Transaction, TipoTransaccion, TipoMoneda, Coin
 from app.models.modalidad import Modalidad, Milestone, TipoModalidad, EstadoHito
 from app.models.badges import BadgeType
+from app.models.negocio import (
+    Negocio, NegocioHorario, NegocioRating, NegocioReporte,
+    TipoNegocio, EstadoNegocio, EstadoReporte, TipoReporte,
+)
 
 __all__ = [
     "RolUsuario",
@@ -56,4 +60,13 @@ __all__ = [
     "TipoModalidad",
     "EstadoHito",
     "BadgeType",
+    # Módulo Negocios
+    "Negocio",
+    "NegocioHorario",
+    "NegocioRating",
+    "NegocioReporte",
+    "TipoNegocio",
+    "EstadoNegocio",
+    "EstadoReporte",
+    "TipoReporte",
 ]

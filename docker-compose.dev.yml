@@ -1,0 +1,160 @@
+# ChambeApp Backend - docker-compose.dev.yml
+# Entorno de DESARROLLO con hot-reload (no modifica docker-compose.yml de producción).
+# Uso:
+#   docker compose -f docker-compose.dev.yml up -d --build   (primera vez / rebuild)
+#   docker compose -f docker-compose.dev.yml up -d           (levantar)
+#   docker compose -f docker-compose.dev.yml down            (detener)
+#   docker compose -f docker-compose.dev.yml logs -f backend (ver logs)
+#
+# Los secrets caen a valores por defecto si no existe un .env; crea .env desde
+# .env.example para sobrescribir DB_PASSWORD, JWT_SECRET_KEY, SECRET_KEY, etc.
+
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    container_name: chambeapp_db_dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: chambeapp
+      POSTGRES_USER: chambeapp
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-chambeapp_dev}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data_dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chambeapp"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: chambeapp_redis_dev
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    container_name: chambeapp_minio_dev
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER:-chambeapp}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:-chambeapp_dev}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data_dev:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: .
+    container_name: chambeapp_backend_dev
+    restart: unless-stopped
+    # Desarrollo: entrypoint inicializa DB (seed + postgis) y arranca run.py con hot-reload.
+    command: sh ./docker-entrypoint-dev.sh
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_APP=run.py
+      - FLASK_ENV=development
+      - FLASK_DEBUG=1
+      - DATABASE_URL=postgresql://chambeapp:${DB_PASSWORD:-chambeapp_dev}@db:5432/chambeapp
+      - REDIS_URL=redis://redis:6379/0
+      - SOCKETIO_MESSAGE_QUEUE=redis://redis:6379/0
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-dev-jwt-secret-change-me}
+      - SECRET_KEY=${SECRET_KEY:-dev-secret-change-me}
+      - CACHE_TYPE=RedisCache
+      - S3_ENDPOINT=http://minio:9000
+      - S3_ACCESS_KEY=${MINIO_USER:-chambeapp}
+      - S3_SECRET_KEY=${MINIO_PASSWORD:-chambeapp_dev}
+      - S3_BUCKET=chambeapp-portfolio
+      - S3_REGION=us-east-1
+      - ONURIX_CLIENT=${ONURIX_CLIENT:-}
+      - ONURIX_KEY=${ONURIX_KEY:-}
+      - ONURIX_APP_NAME=${ONURIX_APP_NAME:-ChambeApp}
+      - SMS_SEND_DEV=${SMS_SEND_DEV:-0}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    volumes:
+      # Monta el código para hot-reload. El __pycache__ vive en el bind mount
+      # (no en un volumen) para evitar .pyc desactualizados en dev.
+      - .:/app
+
+  celery_worker:
+    build: .
+    container_name: chambeapp_celery_dev
+    restart: unless-stopped
+    # No sirve HTTP: desactiva el healthcheck HTTP heredado del Dockerfile.
+    healthcheck:
+      disable: true
+    command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=2
+    environment:
+      - FLASK_ENV=development
+      - DATABASE_URL=postgresql://chambeapp:${DB_PASSWORD:-chambeapp_dev}@db:5432/chambeapp
+      - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-dev-jwt-secret-change-me}
+      - SECRET_KEY=${SECRET_KEY:-dev-secret-change-me}
+      - S3_ENDPOINT=http://minio:9000
+      - S3_ACCESS_KEY=${MINIO_USER:-chambeapp}
+      - S3_SECRET_KEY=${MINIO_PASSWORD:-chambeapp_dev}
+      - S3_BUCKET=chambeapp-portfolio
+      - S3_REGION=us-east-1
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    volumes:
+      - .:/app
+
+  celery_beat:
+    build: .
+    container_name: chambeapp_celery_beat_dev
+    restart: unless-stopped
+    healthcheck:
+      disable: true
+    command: celery -A app.tasks.celery_app beat --loglevel=info
+    environment:
+      - FLASK_ENV=development
+      - DATABASE_URL=postgresql://chambeapp:${DB_PASSWORD:-chambeapp_dev}@db:5432/chambeapp
+      - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-dev-jwt-secret-change-me}
+      - SECRET_KEY=${SECRET_KEY:-dev-secret-change-me}
+      - S3_ENDPOINT=http://minio:9000
+      - S3_ACCESS_KEY=${MINIO_USER:-chambeapp}
+      - S3_SECRET_KEY=${MINIO_PASSWORD:-chambeapp_dev}
+      - S3_BUCKET=chambeapp-portfolio
+      - S3_REGION=us-east-1
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    volumes:
+      - .:/app
+
+volumes:
+  postgres_data_dev:
+  minio_data_dev:

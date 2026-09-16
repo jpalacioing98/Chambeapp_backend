@@ -8,6 +8,7 @@ class DocumentoUploadSchema(Schema):
 
     documento_requerido_id = fields.Integer(required=False, allow_none=True)
     clave = fields.String(required=False, allow_none=True)
+    instancia = fields.String(required=False, allow_none=True)  # Para docs multi-instancia (habilidad, cuenta, empleo)
     archivo_base64 = fields.String(required=False, allow_none=True)
     nombre_archivo = fields.String(required=False, allow_none=True)
     tipo_mime = fields.String(required=False, allow_none=True)
@@ -32,6 +33,7 @@ class DocumentoRequeridoMinSchema(Schema):
     nombre = fields.String()
     obligatorio = fields.Boolean()
     grupo = fields.String(allow_none=True)
+    multi_instancia = fields.Boolean()
 
 
 class UsuarioMinSchema(Schema):
@@ -50,6 +52,7 @@ class DocumentoUsuarioOutSchema(Schema):
     user_id = fields.Integer()
     documento_requerido_id = fields.Integer(allow_none=True)
     documento_clave = fields.String()
+    instancia = fields.String(allow_none=True)
     rol = fields.String(allow_none=True)
     estado = fields.String()
     url = fields.String(allow_none=True)
@@ -68,6 +71,7 @@ class PendienteOutSchema(Schema):
     id = fields.Integer()
     user_id = fields.Integer()
     documento_clave = fields.String()
+    instancia = fields.String(allow_none=True)
     estado = fields.String()
     url = fields.String(allow_none=True)
     nombre_archivo = fields.String(allow_none=True)

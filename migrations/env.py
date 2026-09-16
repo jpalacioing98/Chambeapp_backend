@@ -19,9 +19,9 @@ if config.config_file_name is not None:
 
 # add your model's MetaData object here
 # for 'autogenerate' support
-# from myapp import mymodel
-# target_metadata = mymodel.Base.metadata
-target_metadata = None
+from app.extensions import db
+from app.models import *  # noqa: F401,F403 — force all models to register
+target_metadata = db.metadata
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
@@ -55,14 +55,11 @@ def run_migrations_offline() -> None:
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode.
 
-    In this scenario we need to create an Engine
-    and associate a connection with the context.
+    Usa el engine configurado en la app Flask (DATABASE_URL) en lugar de leer
+    sqlalchemy.url desde alembic.ini, evitando hardcodear credenciales y
+    funcionando igual en dev y prod.
     """
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
+    connectable = db.engine
 
     with connectable.connect() as connection:
         context.configure(

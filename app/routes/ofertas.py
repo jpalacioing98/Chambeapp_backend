@@ -26,6 +26,7 @@ from app.schemas.oferta import (
     MisOfertasSchema,
 )
 from app.routes.notifications import crear_notificacion
+from app.routes.subscriptions import PLANES_LIMITE_POSTULACIONES
 
 blp = Blueprint("ofertas", __name__, description="Ofertas pds/solicitante")
 
@@ -59,10 +60,11 @@ class OfertaList(MethodView):
         if solicitud.solicitante_id == user_id:
             abort(403, message="No puedes ofertar en tu propia solicitud.")
 
-        # RF-11: límite de postulaciones mensuales para planes free/basico.
+        # RF-11: límite de postulaciones mensuales escalonado por plan.
         profile = Profile.query.get(user_id)
         plan = profile.plan if profile else "free"
-        if plan in ("free", "basico"):
+        limite = PLANES_LIMITE_POSTULACIONES.get(plan)
+        if limite is not None:
             now = datetime.now(timezone.utc)
             inicio_mes = now.replace(
                 day=1, hour=0, minute=0, second=0, microsecond=0
@@ -71,13 +73,13 @@ class OfertaList(MethodView):
                 Oferta.pds_id == user_id,
                 Oferta.created_at >= inicio_mes,
             ).count()
-            if count >= 5:
+            if count >= limite:
                 abort(
                     403,
                     message=(
-                        "Has alcanzado el limite de postulaciones de tu plan "
-                        "(5/mes). Suscribete a Profesional para postulaciones "
-                        "ilimitadas."
+                        f"Has alcanzado el limite de postulaciones de tu plan "
+                        f"({limite}/mes). Suscribete a un plan superior para "
+                        f"mas postulaciones."
                     ),
                 )
 

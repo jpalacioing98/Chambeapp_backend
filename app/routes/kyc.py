@@ -3,10 +3,15 @@
 Endpoints (JWT requerido):
   GET  /api/v1/kyc/documentos-requeridos -> catálogo filtrado por rol del usuario.
   GET  /api/v1/kyc/mis-documentos        -> estado de los documentos del usuario.
-  POST /api/v1/kyc/documentos           -> envía (upsert) un documento del usuario (base64 MVP).
-  GET  /api/v1/kyc/documentos/mios      -> documentos subidos por el usuario (con catálogo).
-  GET  /api/v1/kyc/pendientes           -> docs enviados para revisión (verificador/admin/soporte).
+  POST /api/v1/kyc/documentos            -> envía (upsert) un documento del usuario (base64 MVP).
+  GET  /api/v1/kyc/documentos/mios       -> documentos subidos por el usuario (con catálogo).
+  GET  /api/v1/kyc/pendientes            -> docs enviados para revisión (verificador/admin/soporte).
   POST /api/v1/kyc/documentos/<id>/verificar -> aprueba/rechaza (verificador/admin).
+
+Multi-instancia:
+  Documentos como validacion_profesional, cert_bancaria o certificado_laboral
+  admiten múltiples ejemplares (uno por habilidad, cuenta o empleo).
+  Se diferencian por la columna `instancia`.
 """
 
 from datetime import datetime, timezone
@@ -36,20 +41,30 @@ def _current_user() -> User:
 
 def _recalcular_verificado(user: User, profile: Profile) -> None:
     """Recalcula Profile.verificado: True si TODOS los docs obligatorios del rol
-    tienen un DocumentoUsuario aprobado."""
+    tienen al menos un DocumentoUsuario aprobado.
+
+    Para documentos multi-instancia solo se requiere al menos una instancia
+    aprobada (ej: una validación profesional, un cert bancario, un cert laboral).
+    """
     obligatorios = DocumentoRequerido.query.filter_by(
         rol=user.rol.value, obligatorio=True
     ).all()
     if not obligatorios:
         return
-    claves_oblig = {d.clave for d in obligatorios}
+
     aprobados = {
         du.documento_clave
         for du in DocumentoUsuario.query.filter_by(
             user_id=user.id, estado="aprobado"
         ).all()
     }
-    profile.verificado = claves_oblig.issubset(aprobados)
+
+    for doc_req in obligatorios:
+        if doc_req.clave not in aprobados:
+            profile.verificado = False
+            return
+
+    profile.verificado = True
 
 
 @blp.route("/documentos-requeridos")
@@ -74,6 +89,7 @@ class DocumentosRequeridos(MethodView):
                             "descripcion": d.descripcion,
                             "obligatorio": d.obligatorio,
                             "grupo": d.grupo,
+                            "multi_instancia": d.multi_instancia,
                             "orden": d.orden,
                         }
                         for d in docs
@@ -88,30 +104,58 @@ class DocumentosRequeridos(MethodView):
 class MisDocumentos(MethodView):
     @jwt_required()
     def get(self):
-        """Estado de los documentos KYC del usuario, unido con el catálogo."""
+        """Estado de los documentos KYC del usuario, unido con el catálogo.
+
+        Para docs multi-instancia, incluye todas las instancias subidas.
+        """
         user = _current_user()
         requeridos = DocumentoRequerido.query.filter_by(rol=user.rol.value).all()
-        enviados = {
-            du.documento_clave: du
-            for du in DocumentoUsuario.query.filter_by(user_id=user.id).all()
-        }
+        enviados = DocumentoUsuario.query.filter_by(user_id=user.id).all()
+
+        enviados_por_clave: dict[str, list] = {}
+        for du in enviados:
+            enviados_por_clave.setdefault(du.documento_clave, []).append(du)
+
         documentos = []
         for d in requeridos:
-            du = enviados.get(d.clave)
-            documentos.append(
-                {
+            instancias = enviados_por_clave.get(d.clave, [])
+            if d.multi_instancia:
+                documentos.append({
                     "clave": d.clave,
                     "nombre": d.nombre,
                     "descripcion": d.descripcion,
                     "obligatorio": d.obligatorio,
                     "grupo": d.grupo,
+                    "multi_instancia": True,
+                    "instancias": [
+                        {
+                            "instancia_id": du.id,
+                            "instancia": du.instancia,
+                            "estado": du.estado,
+                            "url": du.url,
+                            "nombre_archivo": du.nombre_archivo,
+                            "fecha_envio": du.fecha_envio.isoformat() if du.fecha_envio else None,
+                        }
+                        for du in instancias
+                    ],
+                    "enviado": len(instancias) > 0,
+                })
+            else:
+                du = instancias[0] if instancias else None
+                documentos.append({
+                    "clave": d.clave,
+                    "nombre": d.nombre,
+                    "descripcion": d.descripcion,
+                    "obligatorio": d.obligatorio,
+                    "grupo": d.grupo,
+                    "multi_instancia": False,
                     "estado": du.estado if du else "no_enviado",
                     "url": du.url if du else None,
                     "fecha_envio": (
                         du.fecha_envio.isoformat() if du and du.fecha_envio else None
                     ),
-                }
-            )
+                    "enviado": du is not None,
+                })
         return jsonify({"documentos": documentos}), 200
 
 
@@ -123,8 +167,9 @@ class Documentos(MethodView):
     def post(self, data):
         """Envía (upsert) un documento KYC válido para el rol del usuario.
 
-        Acepta documento_requerido_id (nuevo) o clave (legacy). El archivo se
-        guarda en base64 (MVP sin S3).
+        Para documentos multi-instancia, el campo `instancia` diferencia
+        cada ejemplar (ej: "Electricidad", "Nequi", "Empresa XYZ").
+        Para documentos single-instance, `instancia` debe ser null/omiso.
         """
         user = _current_user()
         req = None
@@ -146,14 +191,23 @@ class Documentos(MethodView):
         if req is None:
             abort(400, message="La clave de documento no es válida para su rol.")
 
+        instancia = data.get("instancia") or None
+
+        if req.multi_instancia:
+            if not instancia:
+                abort(400, message=f"El documento '{req.nombre}' requiere un nombre de instancia (ej: habilidad, cuenta, empleo).")
+        else:
+            instancia = None
+
         du = DocumentoUsuario.query.filter_by(
-            user_id=user.id, documento_clave=clave
+            user_id=user.id, documento_clave=clave, instancia=instancia
         ).first()
         now = datetime.now(timezone.utc)
         if du is None:
             du = DocumentoUsuario(
                 user_id=user.id,
                 documento_clave=clave,
+                instancia=instancia,
                 rol=user.rol.value,
             )
             db.session.add(du)

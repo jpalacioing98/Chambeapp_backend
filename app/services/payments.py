@@ -4,7 +4,7 @@ Implementa un gateway abstracto (Protocol) para que la logica de negocio sea
 testable sin claves reales de MercadoPago. Se incluye MockGateway (siempre ok)
 y un stub comentado de MercadoPagoGateway para iteracion futura.
 
-Flujo: pago directo sin escrow — al confirmar, el monto neto se transfiere
+Flujo: pago directo — al confirmar, el monto neto se transfiere
 al proveedor inmediatamente.
 """
 
@@ -167,10 +167,10 @@ def reembolsar(payment_id: int, motivo: str) -> Payment:
 
 
 def liberar_pago(payment_id: int) -> Payment:
-    """Libera un pago al proveedor (pago directo, sin escrow).
+    """Libera un pago al proveedor (pago directo).
 
     Si el pago esta pendiente, lo confirma. Si ya esta completado, retorna
-    sin cambios. Equivalente al antiguo liberar_escrow.
+    sin cambios.
     """
     payment = db.session.get(Payment, payment_id)
     if payment is None:

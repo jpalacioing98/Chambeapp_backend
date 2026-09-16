@@ -1,5 +1,7 @@
 """AI blueprint: recomendaciones / motor de match (RF-05)."""
 
+import logging
+
 from flask import request, jsonify
 from flask.views import MethodView
 from flask_smorest import Blueprint, abort
@@ -9,9 +11,16 @@ from app.extensions import db
 from app.models.user import User
 from app.models.solicitud import Solicitud
 from app.ai.recommender import get_recommender
+from app.ai.ab_testing import ABTest
 from app.schemas.ai import RecommendationsSchema
 
 blp = Blueprint("ai", __name__, description="Motor de match / recomendaciones")
+logger = logging.getLogger(__name__)
+
+
+def _get_recommender_model(recommender) -> str:
+    """Infer model name from recommender type for A/B logging."""
+    return type(recommender).__name__
 
 
 @blp.route("/recommendations")
@@ -25,7 +34,26 @@ class Recommendations(MethodView):
         solicitud = db.session.get(Solicitud, service_id)
         if solicitud is None:
             abort(404, message="Solicitud no encontrada.")
-        recs = get_recommender().rank_providers_for_service(solicitud)
+        recommender = get_recommender()
+        recs = recommender.rank_providers_for_service(solicitud)
+
+        # ── A/B: assign group + log each recommendation ──────────────
+        try:
+            ab_group = ABTest.get_group(solicitud.solicitante_id)
+            model_name = _get_recommender_model(recommender)
+            for i, rec in enumerate(recs):
+                ABTest.log_recommendation(
+                    solicitud_id=solicitud.id,
+                    provider_id=rec["user_id"],
+                    score=rec["score"],
+                    model=model_name,
+                    group=ab_group,
+                    ranking_pos=i + 1,
+                )
+                rec["ab_group"] = ab_group
+        except Exception:
+            logger.exception("A/B logging failed for recommendations")
+
         return {"recommendations": recs}
 
 
@@ -41,5 +69,24 @@ class SolicitudesForProvider(MethodView):
         """
         user = db.get_or_404(User, int(get_jwt_identity()))
         profile = user.profile
-        recs = get_recommender().rank_services_for_provider(profile)
+        recommender = get_recommender()
+        recs = recommender.rank_services_for_provider(profile)
+
+        # ── A/B: assign group + log each recommendation ──────────────
+        try:
+            ab_group = ABTest.get_group(user.id)
+            model_name = _get_recommender_model(recommender)
+            for i, rec in enumerate(recs):
+                ABTest.log_recommendation(
+                    solicitud_id=rec["id"],
+                    provider_id=user.id,
+                    score=rec["score"],
+                    model=model_name,
+                    group=ab_group,
+                    ranking_pos=i + 1,
+                )
+                rec["ab_group"] = ab_group
+        except Exception:
+            logger.exception("A/B logging failed for solicitudes-for-provider")
+
         return jsonify(recs)

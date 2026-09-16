@@ -74,14 +74,16 @@ def _crear_solicitud(client, headers, titulo="Armar mueble"):
 
 
 # ---------------- catálogo de planes ----------------
-def test_get_planes_retorna_2(client):
+def test_get_planes_retorna_3(client):
     resp = client.get("/api/v1/subscriptions/planes")
     assert resp.status_code == 200
     planes = resp.get_json()
-    assert len(planes) == 2
+    assert len(planes) == 3
     planes_dict = {p["plan"]: p for p in planes}
+    assert planes_dict["free"]["precio"] == 0
     assert planes_dict["basico"]["precio"] == 15000
     assert planes_dict["profesional"]["precio"] == 35000
+    assert "15 postulaciones por mes" in planes_dict["basico"]["beneficios"]
     assert "Postulaciones ilimitadas" in planes_dict["profesional"]["beneficios"]
 
 
@@ -138,7 +140,7 @@ def test_plan_invalido_422(client):
 
 
 # ---------------- límite de postulaciones free ----------------
-def test_limite_postulaciones_free_403_en_sexta(client):
+def test_limite_postulaciones_free_403_en_cuarta(client):
     emp = _make_user("emp@example.com", rol=RolUsuario.SOLICITANTE)
     pds = _make_user("pdsfree@example.com", rol=RolUsuario.PDS)
     emp_h = _headers(emp)
@@ -151,8 +153,8 @@ def test_limite_postulaciones_free_403_en_sexta(client):
 
     sid = _crear_solicitud(client, emp_h)
 
-    # 5 ofertas OK
-    for i in range(5):
+    # 3 ofertas OK (límite free)
+    for i in range(3):
         r = client.post(
             f"/api/v1/solicitudes/{sid}/ofertas",
             json={"monto": 100000 + i},
@@ -160,14 +162,44 @@ def test_limite_postulaciones_free_403_en_sexta(client):
         )
         assert r.status_code == 201, f"oferta {i+1} debió ser 201"
 
-    # 6ta => 403
-    r6 = client.post(
+    # 4ta => 403
+    r4 = client.post(
         f"/api/v1/solicitudes/{sid}/ofertas",
         json={"monto": 999999},
         headers=pds_h,
     )
-    assert r6.status_code == 403
-    assert "limite" in r6.get_json()["message"].lower()
+    assert r4.status_code == 403
+    assert "limite" in r4.get_json()["message"].lower()
+
+
+# ---------------- límite de postulaciones basico (15/mes) ----------------
+def test_limite_postulaciones_basico_403_en_decimosexta(client):
+    emp = _make_user("emp3@example.com", rol=RolUsuario.SOLICITANTE)
+    pds = _make_user("pdsbasico@example.com", rol=RolUsuario.PDS)
+    emp_h = _headers(emp)
+    pds_h = _headers(pds)
+
+    client.post("/api/v1/subscriptions/", json={"plan": "basico"}, headers=pds_h)
+
+    sid = _crear_solicitud(client, emp_h)
+
+    # 15 ofertas OK (límite básico)
+    for i in range(15):
+        r = client.post(
+            f"/api/v1/solicitudes/{sid}/ofertas",
+            json={"monto": 100000 + i},
+            headers=pds_h,
+        )
+        assert r.status_code == 201, f"oferta {i+1} debió ser 201"
+
+    # 16ta => 403
+    r16 = client.post(
+        f"/api/v1/solicitudes/{sid}/ofertas",
+        json={"monto": 999999},
+        headers=pds_h,
+    )
+    assert r16.status_code == 403
+    assert "limite" in r16.get_json()["message"].lower()
 
 
 # ---------------- profesional NO tiene límite ----------------
