@@ -6,9 +6,10 @@ from flask_smorest import Blueprint, abort
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 
 from app.extensions import db
-from app.models.user import User, Profile
+from app.models.user import User, Profile, RolUsuario
 from app.models.solicitud import Solicitud, Rating, EstadoSolicitud, UrgenciaSolicitud
 from app.models.contract import Contract
+from app.models.config import SystemConfig
 from app.schemas.solicitud import (
     SolicitudCreateSchema,
     SolicitudEstadoSchema,
@@ -17,6 +18,18 @@ from app.schemas.solicitud import (
 from app.schemas.rating import RatingCreateSchema, RatingSchema
 
 blp = Blueprint("solicitudes", __name__, description="Solicitudes y calificaciones")
+
+# Ciudad base de operación (geofence de solicitudes). Configurable vía
+# SystemConfig key="ciudad_base"; Medellin es el valor por defecto del producto.
+CIUDAD_BASE_DEFAULT = "Medellin"
+
+
+def _ciudad_base() -> str:
+    """Devuelve la ciudad base configurada (o Medellin por defecto)."""
+    cfg = SystemConfig.query.filter_by(key="ciudad_base").first()
+    if cfg and cfg.value:
+        return cfg.value
+    return CIUDAD_BASE_DEFAULT
 
 
 def _recalcular_promedio(calificado_id: int) -> None:
@@ -36,11 +49,17 @@ class SolicitudList(MethodView):
     @blp.arguments(SolicitudCreateSchema, location="json")
     @blp.response(201, SolicitudSchema)
     def post(self, data):
-        """RF-04: crea una solicitud (solicitante = usuario JWT)."""
+        """RF-04: crea una solicitud (solicitante o comerciante = usuario JWT).
+
+        Contrato (cambio 2026-09-17): el rol merchant también puede publicar
+        chambas (pantalla merchant-solicitudes del diseño) para recibir ofertas
+        de los PDS. El aislamiento se mantiene: cada solicitud queda ligada a
+        su creador vía solicitante_id y solo el dueño la modifica/elimina.
+        """
         user_id = int(get_jwt_identity())
         role = get_jwt().get("role")
-        if role != "solicitante":
-            abort(403, message="Solo el solicitante puede publicar solicitudes.")
+        if role not in (RolUsuario.SOLICITANTE.value, RolUsuario.MERCHANT.value):
+            abort(403, message="Solo el solicitante o el comerciante puede publicar solicitudes.")
 
         for campo in ("titulo", "categoria", "descripcion", "ubicacion"):
             valor = data.get(campo)
@@ -62,6 +81,8 @@ class SolicitudList(MethodView):
             urgencia=data.get("urgencia"),
             especificaciones_tecnicas=data.get("especificaciones_tecnicas"),
             imagen_360=data.get("imagen_360"),
+            horario=data.get("horario"),
+            imagenes=data.get("imagenes"),
             latitud=data.get("latitud"),
             longitud=data.get("longitud"),
             direccion=data.get("direccion"),
@@ -69,13 +90,21 @@ class SolicitudList(MethodView):
             estado=EstadoSolicitud.PUBLICADO,
         )
         solicitud.advertencia = None
-        if solicitud.ubicacion != "Valledupar":
+        ciudad_base = _ciudad_base()
+        if solicitud.ubicacion != ciudad_base:
             solicitud.advertencia = (
-                "La ubicación está fuera de Valledupar; verifica disponibilidad "
-                "del pds."
+                f"La ubicación está fuera de {ciudad_base}; verifica "
+                "disponibilidad del pds."
             )
 
         db.session.add(solicitud)
+        # División regional: deriva la región del solicitante desde su ubicación.
+        try:
+            from app.services.region import assign_region
+            owner = db.session.get(User, user_id)
+            assign_region(owner, text=solicitud.ubicacion)
+        except Exception:
+            pass
         db.session.commit()
         return solicitud
 
@@ -119,6 +148,61 @@ class SolicitudList(MethodView):
         if isinstance(result, list):
             return items
         result["items"] = items
+        return result
+
+
+@blp.route("/mias")
+class SolicitudMias(MethodView):
+    """RF-04: solicitudes del usuario autenticado (dueño).
+
+    El listado público `GET /solicitudes/` devuelve TODAS las publicadas;
+    esta ruta es la que usa el panel del solicitante. Aquí sí se incluyen
+    las coordenadas exactas porque el dueño es quien las registró.
+    """
+
+    @jwt_required()
+    @blp.response(200)
+    def get(self):
+        user_id = int(get_jwt_identity())
+        query = (
+            Solicitud.query.filter(Solicitud.solicitante_id == user_id)
+            .order_by(Solicitud.creado_en.desc())
+        )
+
+        from app.services.pagination import paginate_query
+        page = request.args.get("page")
+        per_page = request.args.get("per_page")
+        result = paginate_query(query, page=page, per_page=per_page)
+
+        if isinstance(result, list):
+            items = result
+            payload = SolicitudSchema(many=True).dump(items)
+        else:
+            items = result["items"]
+            payload = SolicitudSchema(many=True).dump(items)
+
+        # Conteo de ofertas por solicitud en UNA sola query (evita el N+1
+        # que haría el frontend al pedir las ofertas de cada tarjeta).
+        from sqlalchemy import func as _func
+        from app.models.oferta import Oferta
+
+        ids = [s.id for s in items]
+        conteos = {}
+        if ids:
+            filas = (
+                db.session.query(Oferta.solicitud_id, _func.count(Oferta.id))
+                .filter(Oferta.solicitud_id.in_(ids))
+                .group_by(Oferta.solicitud_id)
+                .all()
+            )
+            conteos = {sid: n for sid, n in filas}
+
+        for item in payload:
+            item["ofertas_count"] = conteos.get(item["id"], 0)
+
+        if isinstance(result, list):
+            return payload
+        result["items"] = payload
         return result
 
 

@@ -23,6 +23,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from app.extensions import db
 from app.auth.decorators import role_required
+from app.auth.region import region_scope_id
 from app.models.user import User, Profile
 from app.models.kyc import DocumentoRequerido, DocumentoUsuario
 from app.schemas.kyc import (
@@ -161,7 +162,7 @@ class MisDocumentos(MethodView):
 
 @blp.route("/documentos")
 class Documentos(MethodView):
-    @role_required(["pds", "solicitante"])
+    @role_required(["pds", "solicitante", "merchant"])
     @blp.arguments(DocumentoUploadSchema)
     @blp.response(200, DocumentoUsuarioOutSchema)
     def post(self, data):
@@ -251,12 +252,18 @@ class DocumentosPendientes(MethodView):
     @role_required(["verificador", "admin", "superadmin", "soporte"])
     @blp.response(200, PendienteOutSchema(many=True))
     def get(self):
-        """Lista documentos enviados (estado='enviado') para revisión del verificador."""
-        docs = (
-            DocumentoUsuario.query.filter_by(estado="enviado")
-            .order_by(DocumentoUsuario.id)
-            .all()
-        )
+        """Lista documentos enviados (estado='enviado') para revisión.
+
+        División regional: un verificador/soporte/admin solo ve los
+        documentos de usuarios de su región. El superadmin ve todo.
+        """
+        actor = db.get_or_404(User, int(get_jwt_identity()))
+        scope = region_scope_id(actor)
+        query = DocumentoUsuario.query.filter_by(estado="enviado")
+        if scope is not None:
+            region_users = db.select(User.id).where(User.region_id == scope)
+            query = query.filter(DocumentoUsuario.user_id.in_(region_users))
+        docs = query.order_by(DocumentoUsuario.id).all()
         for du in docs:
             user = db.session.get(User, du.user_id)
             du.usuario = (
@@ -283,7 +290,12 @@ class DocumentoVerificar(MethodView):
     def post(self, data, doc_usuario_id):
         """Aprueba o rechaza un documento KYC y recalcula Profile.verificado."""
         actor_id = int(get_jwt_identity())
+        actor = db.get_or_404(User, actor_id)
+        scope = region_scope_id(actor)
         du = db.get_or_404(DocumentoUsuario, doc_usuario_id)
+        user = db.get_or_404(User, du.user_id)
+        if scope is not None and user.region_id != scope:
+            abort(404, message="Documento no encontrado en tu región.")
         decision = data["decision"]
         now = datetime.now(timezone.utc)
 
@@ -292,7 +304,6 @@ class DocumentoVerificar(MethodView):
         du.revisor_id = actor_id
         du.nota = data.get("nota")
 
-        user = db.get_or_404(User, du.user_id)
         profile = user.profile
         if profile is None:
             profile = Profile(user_id=user.id)

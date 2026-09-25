@@ -134,6 +134,39 @@ class StorageService:
             key,
             content_type="image/webp"
         )
+
+    def upload_avatar(self, file_bytes: bytes, user_id: str, filename: str) -> str:
+        """Sube la foto de perfil (optimizada a WebP) del usuario.
+
+        Args:
+            file_bytes: Contenido de la imagen
+            user_id: ID del usuario
+            filename: Nombre del archivo original
+
+        Returns:
+            URL de la foto de perfil optimizada
+        """
+        if len(file_bytes) > self.MAX_IMAGE_SIZE:
+            raise ValueError(f"Imagen excede {self.MAX_IMAGE_SIZE} bytes")
+
+        # Optimizar imagen (mismo pipeline que upload_image)
+        img = Image.open(io.BytesIO(file_bytes))
+        if img.mode in ('RGBA', 'P'):
+            img = img.convert('RGB')
+        img.thumbnail(
+            (self.IMAGE_MAX_DIMENSION, self.IMAGE_MAX_DIMENSION),
+            Image.Resampling.LANCZOS
+        )
+        buffer = io.BytesIO()
+        img.save(buffer, format=self.IMAGE_FORMAT, quality=self.IMAGE_QUALITY)
+        buffer.seek(0)
+
+        key = f"avatar/{user_id}/{filename}.webp"
+        return self.upload_file(
+            buffer.getvalue(),
+            key,
+            content_type="image/webp"
+        )
     
     def upload_video(self, file_bytes: bytes, pds_id: str, filename: str) -> str:
         """Sube video al portafolio.

@@ -10,7 +10,6 @@ class EstadoPago(str, Enum):
     """Estados de un pago (RF-08)."""
 
     PENDIENTE = "pendiente"
-    CONFIRMADO = "confirmado"
     COMPLETADO = "completado"
     REEMBOLSADO = "reembolsado"
     FALLIDO = "fallido"
@@ -49,7 +48,6 @@ class Payment(db.Model):
         onupdate=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
-    liberado_en = db.Column(db.DateTime, nullable=True)
 
     contract = db.relationship("Contract")
 

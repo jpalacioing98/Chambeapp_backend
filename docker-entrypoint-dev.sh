@@ -66,6 +66,27 @@ with app.app_context():
             print(f"  (omitido) {sql[:70]} -> {e}")
     run("CREATE EXTENSION IF NOT EXISTS postgis")
     run("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS geom geometry(POINT, 4326)")
+    # Solicitudes: horario preferido + fotos adjuntas (idempotente, complementa
+    # la migración 003 sin re-ejecutar create_table).
+    run("ALTER TABLE solicitudes ADD COLUMN IF NOT EXISTS horario VARCHAR(80)")
+    run("ALTER TABLE solicitudes ADD COLUMN IF NOT EXISTS imagenes JSON")
+    # Barrido 360: la equirectangular va como data URL (cientos de KB) → TEXT
+    run("ALTER TABLE solicitudes ALTER COLUMN imagen_360 TYPE TEXT")
+    # Pago directo: sin retencion de fondos. Drop idempotente de columnas.
+    run("ALTER TABLE payments DROP COLUMN IF EXISTS liberado_en")
+    run("ALTER TABLE disputes DROP COLUMN IF EXISTS payment_action")
+    # Recrear el enum estadopago sin el valor CONFIRMADO ("en garantia").
+    run(
+        "DO $$ BEGIN "
+        "IF EXISTS (SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid "
+        "WHERE t.typname = 'estadopago' AND e.enumlabel = 'CONFIRMADO') THEN "
+        "UPDATE payments SET estado = 'COMPLETADO' WHERE estado::text = 'CONFIRMADO'; "
+        "ALTER TYPE estadopago RENAME TO estadopago_old; "
+        "CREATE TYPE estadopago AS ENUM ('PENDIENTE','COMPLETADO','REEMBOLSADO','FALLIDO'); "
+        "ALTER TABLE payments ALTER COLUMN estado TYPE estadopago USING estado::text::estadopago; "
+        "DROP TYPE estadopago_old; "
+        "END IF; END $$;"
+    )
     # Backfill de coordenadas (dev: Valledupar) y poblado de geom desde lat/long.
     run("UPDATE profiles SET latitud = 10.4806, longitud = -73.2495 WHERE latitud IS NULL OR longitud IS NULL")
     run("UPDATE profiles SET geom = ST_SetSRID(ST_MakePoint(longitud, latitud), 4326) WHERE latitud IS NOT NULL AND longitud IS NOT NULL")

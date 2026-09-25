@@ -494,3 +494,108 @@ class TestListarRatings:
         r = client.get(f"{NEGOCIOS_URL}/{nid}/ratings?per_page=2&page=1")
         assert r.status_code == 200
         assert len(r.get_json()) == 2
+
+
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║  DELETE /negocios/<id>/imagenes/<idx> — Borrar imagen (BUG persistencia)    ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
+
+@pytest.mark.integration
+class TestImagenesNegocio:
+
+    def _negocio_con_imagenes(self, client, h, urls):
+        """Crea negocio y agrega imágenes vía POST /imagenes."""
+        resp = _crear_negocio(client, h)
+        nid = resp.get_json()["id"]
+        for url in urls:
+            r = client.post(
+                f"{NEGOCIOS_URL}/{nid}/imagenes",
+                json={"url": url},
+                headers=h,
+            )
+            assert r.status_code == 201
+        return nid
+
+    def test_borrar_imagen_persiste(self, client):
+        """DELETE /imagenes/<idx> persiste tras re-consultar (BUG: mutación
+        in-place de columna JSON no marcaba dirty en SQLAlchemy 2.0)."""
+        h = _create_merchant(client, "img_owner@test.com")
+        nid = self._negocio_con_imagenes(
+            client, h, ["https://cdn.test/a.jpg", "https://cdn.test/b.jpg"]
+        )
+
+        # Borrar la primera imagen (idx 0)
+        del_resp = client.delete(f"{NEGOCIOS_URL}/{nid}/imagenes/0", headers=h)
+        assert del_resp.status_code == 200
+        assert del_resp.get_json()["imagenes"] == ["https://cdn.test/b.jpg"]
+
+        # Re-consultar: el borrado debe persistir en BD
+        detail = client.get(f"{NEGOCIOS_URL}/{nid}").get_json()
+        assert detail["imagenes"] == ["https://cdn.test/b.jpg"]
+
+    def test_borrar_imagen_indice_invalido_400(self, client):
+        """DELETE con índice inexistente → 400 coherente."""
+        h = _create_merchant(client, "img_bad@test.com")
+        nid = self._negocio_con_imagenes(client, h, ["https://cdn.test/a.jpg"])
+
+        r = client.delete(f"{NEGOCIOS_URL}/{nid}/imagenes/5", headers=h)
+        assert r.status_code == 400
+
+        # La imagen original sigue intacta
+        detail = client.get(f"{NEGOCIOS_URL}/{nid}").get_json()
+        assert detail["imagenes"] == ["https://cdn.test/a.jpg"]
+
+    def test_agregar_imagen_persiste(self, client):
+        """POST /imagenes persiste incluso cuando ya hay imágenes (misma
+        mutación in-place que el DELETE)."""
+        h = _create_merchant(client, "img_add@test.com")
+        nid = self._negocio_con_imagenes(client, h, ["https://cdn.test/a.jpg"])
+
+        r = client.post(
+            f"{NEGOCIOS_URL}/{nid}/imagenes",
+            json={"url": "https://cdn.test/c.jpg"},
+            headers=h,
+        )
+        assert r.status_code == 201
+
+        detail = client.get(f"{NEGOCIOS_URL}/{nid}").get_json()
+        assert detail["imagenes"] == [
+            "https://cdn.test/a.jpg", "https://cdn.test/c.jpg",
+        ]
+
+
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║  GET /negocios/categorias — Catálogo completo + en uso                      ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
+
+@pytest.mark.integration
+class TestCategoriasNegocio:
+
+    def test_categorias_devuelve_catalogo_completo(self, client):
+        """GET /negocios/categorias expone el catálogo completo + en_uso."""
+        from app.data.categorias_negocio import CATEGORIAS_NEGOCIO
+
+        resp = client.get(f"{NEGOCIOS_URL}/categorias")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["categorias"] == CATEGORIAS_NEGOCIO
+        assert "gastronomia" in data["categorias"]
+        assert "en_uso" in data
+
+    def test_categorias_en_uso_refleja_negocios_activos(self, client):
+        """en_uso contiene solo categorías de negocios activos."""
+        from app.models.negocio import Negocio, EstadoNegocio
+
+        h = _create_merchant(client, "cat_owner@test.com")
+        resp = _crear_negocio(client, h)
+        nid = resp.get_json()["id"]
+        n = db.session.get(Negocio, nid)
+        n.estado = EstadoNegocio.ACTIVO
+        db.session.commit()
+
+        data = client.get(f"{NEGOCIOS_URL}/categorias").get_json()
+        assert "gastronomia" in data["en_uso"]
+        assert data["categorias"] == [
+            "gastronomia", "tiendas", "belleza", "salud",
+            "tecnologia", "construccion", "hogar", "otros",
+        ]

@@ -109,3 +109,26 @@ def test_me_with_token(client):
     )
     assert resp.status_code == 200
     assert resp.get_json()["email"] == "test@example.com"
+
+
+def test_me_incluye_nombre_telefono_username(client):
+    """GET /auth/me expone nombre/telefono/username/email_verificado (BUG:
+    el schema no los dumps aunque las columnas existen)."""
+    _register(client, nombre="Ana Pérez", telefono="3001234567", username="anaperez")
+    login = client.post(
+        "/api/v1/auth/login",
+        json={"email": "test@example.com", "password": "secret123"},
+    ).get_json()
+    me = client.get(
+        "/api/v1/auth/me",
+        headers={"Authorization": f"Bearer {login['access_token']}"},
+    ).get_json()
+
+    assert me["nombre"] == "Ana Pérez"
+    assert me["telefono"] == "3001234567"
+    assert me["username"] == "anaperez"
+    assert me["email_verificado"] is False
+    assert me["fecha_registro"] is not None
+    # El perfil anidado también expone los campos del User
+    assert me["profile"]["nombre"] == "Ana Pérez"
+    assert me["profile"]["telefono"] == "3001234567"

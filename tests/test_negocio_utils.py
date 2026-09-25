@@ -92,52 +92,68 @@ class TestCalcularEstadoHorario:
     @pytest.mark.unit
     def test_dia_abierto_en_horario(self):
         from app.services.negocio_utils import calcular_estado_horario
-        now = datetime.now()
+        # Hora fija (12:00) para evitar flakiness: entre 23:29-23:59 el
+        # cierre (23:59) está a <30min → cierra_pronto=True y el test fallaba.
+        fijo = datetime(2026, 9, 15, 12, 0, 0)
         horarios = [
             _HorarioMock(
-                dia_semana=now.weekday(),
+                dia_semana=fijo.weekday(),
                 abierto=True,
                 hora_apertura=time(0, 0),
                 hora_cierre=time(23, 59),
             )
         ]
-        result = calcular_estado_horario(horarios)
+        with patch("app.services.negocio_utils.datetime") as mock_dt:
+            mock_dt.now.return_value = fijo
+            mock_dt.combine = datetime.combine
+            result = calcular_estado_horario(horarios)
         assert result["esta_abierto"] is True
         assert result["cierra_pronto"] is False
 
     @pytest.mark.unit
     def test_cierra_pronto_true(self):
         from app.services.negocio_utils import calcular_estado_horario
-        now = datetime.now()
+        # Hora fija (12:00) para evitar el wrap de medianoche (now+10min
+        # cruzaba al día siguiente entre 23:50-23:59 y el test era flaky).
+        fijo = datetime(2026, 9, 15, 12, 0, 0)
         # Cierre en 10 minutos → cierra_pronto = True
-        cierre = (now + timedelta(minutes=10)).time()
+        cierre = (fijo + timedelta(minutes=10)).time()
         horarios = [
             _HorarioMock(
-                dia_semana=now.weekday(),
+                dia_semana=fijo.weekday(),
                 abierto=True,
                 hora_apertura=time(0, 0),
                 hora_cierre=cierre,
             )
         ]
-        result = calcular_estado_horario(horarios)
+        with patch("app.services.negocio_utils.datetime") as mock_dt:
+            mock_dt.now.return_value = fijo
+            mock_dt.combine = datetime.combine
+            result = calcular_estado_horario(horarios)
         assert result["esta_abierto"] is True
         assert result["cierra_pronto"] is True
 
     @pytest.mark.unit
     def test_cierra_pronto_false(self):
         from app.services.negocio_utils import calcular_estado_horario
-        now = datetime.now()
+        # Hora fija (12:00) para evitar el wrap de medianoche: si se corre
+        # entre 23:00-23:59, now+60min cruza al día siguiente y el test
+        # era flaky. Se congela el reloj como en test_borde_cierre_exacto.
+        fijo = datetime(2026, 9, 15, 12, 0, 0)
         # Cierre en 60 minutos → cierra_pronto = False
-        cierre = (now + timedelta(minutes=60)).time()
+        cierre = (fijo + timedelta(minutes=60)).time()
         horarios = [
             _HorarioMock(
-                dia_semana=now.weekday(),
+                dia_semana=fijo.weekday(),
                 abierto=True,
                 hora_apertura=time(0, 0),
                 hora_cierre=cierre,
             )
         ]
-        result = calcular_estado_horario(horarios)
+        with patch("app.services.negocio_utils.datetime") as mock_dt:
+            mock_dt.now.return_value = fijo
+            mock_dt.combine = datetime.combine
+            result = calcular_estado_horario(horarios)
         assert result["esta_abierto"] is True
         assert result["cierra_pronto"] is False
 

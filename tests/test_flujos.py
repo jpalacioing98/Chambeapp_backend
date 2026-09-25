@@ -161,6 +161,22 @@ class TestFlujo2PerfilPDS:
         assert get_resp.status_code == 200
         assert get_resp.get_json()["zona"] == "Valledupar"
 
+        # 3b. Edición de datos de cuenta + ubicación (nombre/teléfono/geo)
+        put_resp2 = client.put("/api/v1/users/me/profile", headers=hdrs, json={
+            "nombre": "Prestador Editado",
+            "telefono": "+57 300 111 2233",
+            "latitud": 10.4806,
+            "longitud": -73.2436,
+        })
+        assert put_resp2.status_code == 200
+        perfil2 = put_resp2.get_json()
+        assert perfil2["nombre"] == "Prestador Editado"
+        assert perfil2["telefono"] == "+57 300 111 2233"
+        with client.application.app_context():
+            u = User.query.filter_by(email="pds_perfil@test.com").first()
+            assert u.profile.latitud == 10.4806
+            assert u.profile.longitud == -73.2436
+
         # 4. Trust score — create one manually then fetch
         pds_user = User.query.filter_by(email="pds_perfil@test.com").first()
         trust = TrustScore.get_or_create(pds_id=pds_user.id)
@@ -228,7 +244,7 @@ class TestFlujo3SolicitudGeofence:
             "latitud": 10.4806,
             "longitud": -73.2495,
             "direccion": "Calle 15 #8-30",
-            "urgencia": "media",
+            "urgencia": "semana",
         })
         assert resp.status_code == 201, f"Expected 201, got {resp.status_code}: {resp.data}"
         sol = resp.get_json()

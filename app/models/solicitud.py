@@ -7,11 +7,14 @@ from app.extensions import db
 
 
 class UrgenciaSolicitud(str, Enum):
-    """Nivel de urgencia de una solicitud de trabajo informal ocasional."""
+    """Urgencia de una solicitud: hoy / esta semana / flexible.
 
-    BAJA = "baja"
-    MEDIA = "media"
-    ALTA = "alta"
+    Se almacenan los VALORES (hoy/semana/flexible) vía values_callable.
+    """
+
+    HOY = "hoy"
+    SEMANA = "semana"
+    FLEXIBLE = "flexible"
 
     @classmethod
     def values(cls):
@@ -56,13 +59,24 @@ class Solicitud(db.Model):
     presupuesto = db.Column(db.Integer, nullable=True)  # None => "a convenir"
     fecha_deseada = db.Column(db.Date, nullable=True)
     urgencia = db.Column(
-        db.Enum(UrgenciaSolicitud), nullable=True, default=UrgenciaSolicitud.MEDIA
+        db.Enum(
+            UrgenciaSolicitud,
+            values_callable=lambda enum: [e.value for e in enum],
+        ),
+        nullable=True,
+        default=UrgenciaSolicitud.SEMANA,
     )
     estado = db.Column(
         db.Enum(EstadoSolicitud), nullable=False, default=EstadoSolicitud.PUBLICADO
     )
     especificaciones_tecnicas = db.Column(db.JSON, nullable=True)
-    imagen_360 = db.Column(db.String(500), nullable=True)
+    # Text (no String(500)): el barrido 360 produce una equirectangular en
+    # data URL de cientos de KB; con VARCHAR(500) Postgres la rechazaba.
+    imagen_360 = db.Column(db.Text, nullable=True)
+    # Horario preferido declarado por el solicitante (ej. "Mañana (6:00 - 12:00)").
+    horario = db.Column(db.String(80), nullable=True)
+    # Fotos adjuntas (máx. 3) como data URL base64. Mismo patrón que KYC.
+    imagenes = db.Column(db.JSON, nullable=True)
     # RF-04 (geo): radio de geocerca en kilómetros para cascada de notificaciones.
     radio_km = db.Column(db.Float, default=5.0, nullable=True)
     creado_en = db.Column(

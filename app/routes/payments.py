@@ -20,10 +20,8 @@ from app.schemas.payment import (
 from app.services.payments import (
     crear_pago,
     confirmar_pago,
-    liberar_pago,
     reembolsar,
     reintentar_pago,
-    auto_liberar_vencidos,
 )
 from app.services.pagination import paginate_query
 from app.schemas.payment import PaymentSchema
@@ -103,28 +101,6 @@ class PaymentConfirm(MethodView):
         return payment
 
 
-@blp.route("/<int:payment_id>/release")
-class PaymentRelease(MethodView):
-    @jwt_required()
-    @blp.response(200, PaymentSchema)
-    def post(self, payment_id):
-        """RF-08.6: libera el pago al proveedor (pago directo)."""
-        user_id = int(get_jwt_identity())
-        payment = db.session.get(Payment, payment_id)
-        if payment is None:
-            abort(404, message="El pago no existe.")
-        contract = db.session.get(Contract, payment.contract_id)
-        # Solo el solicitante (quien pagó) o admin liberan.
-        if not _es_admin(user_id) and contract.solicitante_id != user_id:
-            abort(403, message="No autorizado para liberar este pago.")
-
-        try:
-            payment = liberar_pago(payment.id)
-        except ValueError as e:
-            abort(400, message=str(e))
-        return payment
-
-
 @blp.route("/<int:payment_id>/refund")
 class PaymentRefund(MethodView):
     @jwt_required()
@@ -193,7 +169,7 @@ class PaymentDetail(MethodView):
 @blp.route("/mine")
 class MyPayments(MethodView):
     @jwt_required()
-    @blp.response(200, PaymentSchema(many=True))
+    @blp.response(200)
     def get(self):
         """RF-09 parcial: historial de pagos donde el usuario es proveedor
         o solicitante del contrato asociado.
@@ -215,21 +191,11 @@ class MyPayments(MethodView):
         result = paginate_query(query, page=page, per_page=per_page)
 
         if isinstance(result, list):
-            return result
+            return PaymentSchema(many=True).dump(result)
+        # Igual que en /contracts/mine: serializar los items antes de
+        # devolver el dict paginado (si no, marshmallow serializa las claves).
+        result["items"] = PaymentSchema(many=True).dump(result["items"])
         return result
-
-
-@blp.route("/admin/auto-release")
-class PaymentAdminAutoRelease(MethodView):
-    @jwt_required()
-    @blp.response(200)
-    def post(self):
-        """Helper admin: ejecuta auto_liberar_vencidos (pagos directos)."""
-        user_id = int(get_jwt_identity())
-        if not _es_admin(user_id):
-            abort(403, message="Requiere rol admin.")
-        liberados = auto_liberar_vencidos()
-        return {"liberados": liberados}
 
 
 def _meses_ventana(hoy):
@@ -296,7 +262,7 @@ class IncomeCertificate(MethodView):
 
             ingreso = 0
             for p in pagos:
-                ref = p.liberado_en or p.creado_en
+                ref = p.creado_en
                 if ref is not None and inicio <= ref < fin:
                     ingreso += (p.monto - p.comision_pds)
 
@@ -368,7 +334,7 @@ class IncomeCertificatePDF(MethodView):
 
             ingreso = 0
             for p in pagos:
-                ref = p.liberado_en or p.creado_en
+                ref = p.creado_en
                 if ref is not None and inicio <= ref < fin:
                     ingreso += (p.monto - p.comision_pds)
 

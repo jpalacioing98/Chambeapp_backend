@@ -3,6 +3,7 @@
 from marshmallow import Schema, fields, validate
 
 from app.models.user import RolUsuario
+from app.schemas.region import RegionMinSchema
 
 
 class UserListSchema(Schema):
@@ -12,6 +13,7 @@ class UserListSchema(Schema):
     rol = fields.Enum(RolUsuario, by_value=True)
     status = fields.String()
     created_at = fields.DateTime(attribute="fecha_registro")
+    region = fields.Nested(RegionMinSchema, allow_none=True)
 
 
 class UserDetailSchema(Schema):
@@ -23,6 +25,7 @@ class UserDetailSchema(Schema):
     telefono = fields.String(allow_none=True)
     created_at = fields.DateTime(attribute="fecha_registro")
     last_login = fields.DateTime(allow_none=True)
+    region = fields.Nested(RegionMinSchema, allow_none=True)
 
 
 class RolePatchSchema(Schema):
@@ -147,7 +150,6 @@ class DisputeDetailSchema(Schema):
     resolved_by = fields.Integer(allow_none=True)
     resolved_at = fields.DateTime(allow_none=True)
     resolution = fields.String(allow_none=True)
-    payment_action = fields.String(allow_none=True)
     created_at = fields.DateTime()
     contract = fields.Raw(allow_none=True)
     payment = fields.Raw(allow_none=True)
@@ -155,9 +157,6 @@ class DisputeDetailSchema(Schema):
 
 class DisputeResolveSchema(Schema):
     resolution = fields.String(required=True)
-    payment_action = fields.String(
-        required=True, validate=validate.OneOf(["release", "refund"])
-    )
 
 
 # --------------------------------------------------------------------------
@@ -219,3 +218,35 @@ class ContentModerateSchema(Schema):
     action = fields.String(
         required=True, validate=validate.OneOf(["hide", "delete"])
     )
+
+
+# --------------------------------------------------------------------------
+# División regional: personal (verificador/soporte) que crea el admin regional
+# --------------------------------------------------------------------------
+class StaffCreateSchema(Schema):
+    """Crea un verificador/soporte dentro de la región del admin."""
+
+    email = fields.Email(required=True)
+    nombre = fields.String(required=True)
+    rol = fields.String(
+        required=True,
+        validate=validate.OneOf(
+            [RolUsuario.VERIFICADOR.value, RolUsuario.SOPORTE.value]
+        ),
+    )
+    password = fields.String(required=True, validate=validate.Length(min=6))
+
+
+class StaffItemSchema(Schema):
+    id = fields.Integer()
+    email = fields.Email()
+    nombre = fields.String(allow_none=True)
+    rol = fields.Enum(RolUsuario, by_value=True)
+    status = fields.String()
+    created_at = fields.DateTime(attribute="fecha_registro")
+    region = fields.Nested(RegionMinSchema, allow_none=True)
+
+
+class StaffListResponseSchema(Schema):
+    items = fields.List(fields.Nested(StaffItemSchema))
+    total = fields.Integer()

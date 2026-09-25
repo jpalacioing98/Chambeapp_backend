@@ -6,6 +6,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from app.extensions import db, socketio
 from app.models.chat import Conversation, Message
+from app.models.user import User
 from app.schemas.chat import (
     ConversationSchema,
     ConversationCreateSchema,
@@ -25,6 +26,28 @@ def _ensure_participant(conv: Conversation, user_id: int) -> None:
         abort(403, message="No eres participante de esta conversación.")
 
 
+def _attach_peer(conv: Conversation, current_user_id: int) -> None:
+    """Adjunta el otro participante (perspectiva del usuario autenticado).
+
+    El "otro" cambia según quién consulta: si current es user_a, el peer es
+    user_b y viceversa. Se guarda como atributo transitorio `conv.peer` que
+    `ConversationSchema.otro_participante` serializa.
+    """
+    peer_id = conv.user_b_id if conv.user_a_id == current_user_id else conv.user_a_id
+    peer = db.session.get(User, peer_id)
+    if peer is None:
+        conv.peer = None
+        return
+    conv.peer = {
+        "id": peer.id,
+        "nombre": peer.nombre,
+        "username": peer.username,
+        "verificado": bool(peer.profile.verificado) if peer.profile else False,
+        "rol": getattr(peer.rol, "value", peer.rol),
+        "foto_perfil": peer.profile.foto_perfil if peer.profile else None,
+    }
+
+
 @blp.route("/conversations")
 class Conversations(MethodView):
     @jwt_required()
@@ -41,11 +64,13 @@ class Conversations(MethodView):
         a, b = Conversation.normalize(current, int(otro))
         conv = Conversation.query.filter_by(user_a_id=a, user_b_id=b).first()
         if conv:
+            _attach_peer(conv, current)
             return conv, 200
 
         conv = Conversation(user_a_id=a, user_b_id=b)
         db.session.add(conv)
         db.session.commit()
+        _attach_peer(conv, current)
         return conv, 201
 
     @jwt_required()
@@ -67,6 +92,7 @@ class Conversations(MethodView):
                 .order_by(Message.creado_en.desc())
                 .first()
             )
+            _attach_peer(conv, current)
         return convs
 
 

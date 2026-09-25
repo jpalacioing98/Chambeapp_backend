@@ -37,11 +37,18 @@ class Oferta(db.Model):
     )
     monto = db.Column(db.Float, nullable=True)
     mensaje = db.Column(db.Text, nullable=True)
+    # Parámetros "a convenir" concretados por el PDS en su oferta cuando la
+    # solicitud no los definió (fecha deseada / franja horaria).
+    fecha_deseada = db.Column(db.Date, nullable=True)
+    horario = db.Column(db.String(80), nullable=True)
     estado = db.Column(
         db.String(20), nullable=False, default=EstadoOferta.PENDIENTE.value
     )
     contra_monto = db.Column(db.Float, nullable=True)
     contra_mensaje = db.Column(db.Text, nullable=True)
+    # Ajustes negociados en el chat (contraoferta) para los mismos parámetros.
+    contra_fecha_deseada = db.Column(db.Date, nullable=True)
+    contra_horario = db.Column(db.String(80), nullable=True)
     created_at = db.Column(
         db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )

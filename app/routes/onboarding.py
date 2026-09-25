@@ -65,6 +65,14 @@ class OnboardingStep(MethodView):
         if "zona" in step_data:
             profile.zona = step_data["zona"]
 
+        # División regional: deriva la región del usuario desde su zona al
+        # momento del onboarding (el punto más temprano de identificación).
+        try:
+            from app.services.region import assign_region
+            assign_region(user, text=profile.zona)
+        except Exception:
+            pass
+
         # Check if profile is now complete
         cats = profile.categorias or []
         habs = profile.habilidades or []

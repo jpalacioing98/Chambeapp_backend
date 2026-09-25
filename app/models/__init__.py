@@ -9,6 +9,14 @@ from app.models.user import (
 from app.models.solicitud import Solicitud, Rating, EstadoSolicitud
 from app.models.oferta import Oferta, EstadoOferta
 from app.models.contract import Contract, EstadoContrato, Dispute
+from app.models.chamba import Chamba, EstadoChamba
+from app.models.marana import Marana, EstadoMarana, MaranaOferta, EstadoMaranaOferta
+from app.models.anuncio import (
+    AnuncioLaboral,
+    EstadoAnuncio,
+    AnuncioPostulacion,
+    EstadoPostulacionAnuncio,
+)
 from app.models.ticket import Ticket
 from app.models.notification import Notification
 from app.models.chat import Conversation, Message
@@ -38,6 +46,16 @@ __all__ = [
     "Contract",
     "EstadoContrato",
     "Dispute",
+    "Chamba",
+    "EstadoChamba",
+    "Marana",
+    "EstadoMarana",
+    "MaranaOferta",
+    "EstadoMaranaOferta",
+    "AnuncioLaboral",
+    "EstadoAnuncio",
+    "AnuncioPostulacion",
+    "EstadoPostulacionAnuncio",
     "Ticket",
     "Notification",
     "Conversation",

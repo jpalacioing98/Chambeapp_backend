@@ -1,43 +1,30 @@
-"""Seed script for ChambeApp backend (AUP Implementation).
+"""Seed script for ChambeApp backend (AUP Implementation)."""
 
-Uso:
-    python seed.py
-
-Crea las tablas (db.create_all) y 6 usuarios de prueba (uno por rol),
-idempotente: si el email ya existe, lo omite. Por defecto usa SQLite
-(chambeapp.db) vía DevelopmentConfig.
-"""
+from datetime import datetime, timezone
 
 from app import create_app
 from app.extensions import db
-from app.models.user import User, Profile, LegalAcceptance, RolUsuario, Verification
-from app.models.audit import AuditLog  # asegura creación de la tabla en create_all
-from app.models.solicitud import Solicitud, EstadoSolicitud, UrgenciaSolicitud
-from datetime import date, timedelta, datetime, timezone
+from app.models.user import User, Profile, LegalAcceptance, RolUsuario
+from app.models.solicitud import Solicitud, EstadoSolicitud
 from app.models.oferta import Oferta, EstadoOferta
 from app.models.contract import Dispute, Contract, EstadoContrato
-from app.models.ticket import Ticket
-from app.models.payment import Payment
 from app.models.config import SystemConfig, FeatureFlag
-from app.models.kyc import DocumentoRequerido, DocumentoUsuario
+from app.models.kyc import DocumentoRequerido
+from app.models.merchant import MerchantPreference
 from app.data.tyc import TYC_CONTENT, TYC_VERSION
 from app.data.seed_kyc_merchant import seed_kyc_merchant
 
+PASSWORD = "ChambeApp123!"
+TYC_IP = "127.0.0.1"
 
-# Datos exactos de los 6 usuarios semilla (un rol por usuario).
 SEED_USERS = [
     {"email": "pds@chambeapp.com", "rol": RolUsuario.PDS, "nombre": "Trabajador Demo"},
     {"email": "solicitante@chambeapp.com", "rol": RolUsuario.SOLICITANTE, "nombre": "Empleador Demo"},
+    {"email": "merchant@chambeapp.com", "rol": RolUsuario.MERCHANT, "nombre": "Comerciante Demo"},
     {"email": "verificador@chambeapp.com", "rol": RolUsuario.VERIFICADOR, "nombre": "Verificador Demo"},
     {"email": "soporte@chambeapp.com", "rol": RolUsuario.SOPORTE, "nombre": "Soporte Demo"},
     {"email": "admin@chambeapp.com", "rol": RolUsuario.ADMIN, "nombre": "Admin Demo"},
-    {"email": "superadmin@chambeapp.com", "rol": RolUsuario.SUPERADMIN, "nombre": "Superadmin Demo"},
 ]
-
-PASSWORD = "ChambeApp123!"
-TYC_VERSION = "1.0"
-TYC_IP = "127.0.0.1"
-
 
 def _build_profile(rol: RolUsuario) -> Profile:
     """Construye un Profile con perfil_completo=True según el rol."""
@@ -120,7 +107,7 @@ def seed_sample_service() -> bool:
         ubicacion="Valledupar",
         presupuesto=120000,
         fecha_deseada=date.today() + timedelta(days=2),
-        urgencia=UrgenciaSolicitud.MEDIA,
+        urgencia=UrgenciaSolicitud.SEMANA,
         estado=EstadoSolicitud.PUBLICADO,
     )
     db.session.add(solicitud)
@@ -207,6 +194,65 @@ def seed_sample_contract() -> bool:
     return True
 
 
+def seed_merchant_business() -> bool:
+    """Crea un negocio demo para el merchant semilla (idempotente).
+
+    Crea un negocio 'Restaurante El Sazón' con horarios e imágenes de ejemplo.
+    """
+    merchant = User.query.filter_by(email="merchant@chambeapp.com").first()
+    if not merchant:
+        return False
+    if Negocio.query.filter_by(owner_id=merchant.id).first():
+        print("  SKIP negocio merchant demo (ya existe)")
+        return False
+
+    from app.services.negocio_utils import generar_slug
+
+    slug = generar_slug("Restaurante El Sazón")
+    negocio = Negocio(
+        owner_id=merchant.id,
+        slug=slug,
+        nombre="Restaurante El Sazón",
+        descripcion="Restaurante tradicional colombiano en El Poblado, Medellín.",
+        tipo="comercio",
+        latitud=6.2138,
+        longitud=-75.5689,
+        direccion="Calle 10 #43-14, El Poblado, Medellín",
+        ciudad="Medellin",
+        departamento="Antioquia",
+        categoria_principal="gastronomia",
+        categorias_secundarias=["bebidas", "postres"],
+        servicios=[
+            {"titulo": "Comida a la mesa", "descripcion": "Platos típicos colombianos en el local."},
+            {"titulo": "Para llevar", "descripcion": "Empaque y pedidos por mostrador."},
+        ],
+        palabras_clave=["comida colombiana", "restaurante", "medellin"],
+        estado="activo",
+        verificado=True,
+    )
+    db.session.add(negocio)
+    db.session.flush()
+
+    # Crear horarios: lunes a viernes abiertos, sáb-dom cerrados
+    for dia in range(7):
+        abierto = dia < 5  # lunes(0) a viernes(4)
+        h = NegocioHorario(
+            negocio_id=negocio.id,
+            dia_semana=dia,
+            abierto=abierto,
+            hora_apertura="08:00" if abierto else None,
+            hora_cierre="20:00" if abierto else None,
+        )
+        db.session.add(h)
+
+    # Crear preferencias por defecto
+    prefs = MerchantPreference(user_id=merchant.id)
+    db.session.add(prefs)
+
+    print("  CREADO negocio demo: Restaurante El Sazón (merchant@chambeapp.com)")
+    return True
+
+
 def seed_config() -> int:
     """Crea SystemConfig y FeatureFlag por defecto si no existen. Devuelve nº creados."""
     created = 0
@@ -216,7 +262,6 @@ def seed_config() -> int:
     config_defaults = [
         ("commission_rate", "12", "int", "Comisión de plataforma principal (%)"),
         ("commission_rate_alt", "8", "int", "Comisión alternativa (%)"),
-        ("payment_release_hours", "48", "int", "Horas de auto-liberación de pagos pendientes"),
         ("dispute_days", "5", "int", "Días hábiles para abrir disputa"),
         ("volume_discount", "10", "int", "Descuento por volumen (%)"),
         (
@@ -245,6 +290,12 @@ def seed_config() -> int:
             "json",
             "Pesos del modelo de recomendación IA",
         ),
+        (
+            "ciudad_base",
+            "Medellin",
+            "string",
+            "Ciudad base de operación (geofence de solicitudes)",
+        ),
     ]
     for key, value, vtype, desc in config_defaults:
         if SystemConfig.query.filter_by(key=key).first():
@@ -257,6 +308,25 @@ def seed_config() -> int:
         db.session.add(cfg)
         created += 1
         print(f"  CREADO config: {key} ({vtype})")
+
+    # --- Actualiza T&C si la versión cambió (re-publicación) ---
+    tyc_cfg = SystemConfig.query.filter_by(key="tyc_current").first()
+    if tyc_cfg is not None:
+        try:
+            actual = SystemConfig.parse_value(tyc_cfg.value, "json") or {}
+            if actual.get("version") != TYC_VERSION:
+                tyc_cfg.value = SystemConfig.serialize_value(
+                    {
+                        "version": TYC_VERSION,
+                        "content": TYC_CONTENT,
+                        "published_at": now,
+                    },
+                    "json",
+                )
+                created += 1
+                print(f"  ACTUALIZADO tyc_current → v{TYC_VERSION}")
+        except Exception:
+            pass
 
     # --- FeatureFlag por defecto ---
     flag_defaults = [
@@ -278,60 +348,87 @@ def seed_config() -> int:
 
 
 def seed_kyc() -> int:
-    """Siembra el catálogo de documentos KYC requeridos por rol (Politica_KYC.md)."""
-    catalogo = [
-        # ── ROL pds · OBLIGATORIOS ──
-        # Grupo: identidad
-        ("pds", "doc_identidad", "Documento de Identidad",
-         "Fotografía por ambas caras de CC, CE o PPT.", True, "identidad", False, 1),
-        ("pds", "prueba_vida", "Prueba de Vida (Biometría)",
-         "Selfie en tiempo real que coincide con el documento de identidad.", True, "identidad", False, 2),
-        ("pds", "comprobante_residencia", "Comprobante de Residencia",
-         "Recibo de servicios públicos, extracto bancario o certificación de dirección (máx. 3 meses).", True, "identidad", False, 3),
-        # Grupo: antecedentes
-        ("pds", "antecedentes_judiciales", "Certificado de Antecedentes Judiciales",
-         "Consulta en bases de la Policía Nacional.", True, "antecedentes", False, 4),
-        ("pds", "rnmc", "Registro Nacional de Medidas Correctivas (RNMC)",
-         "Verificación de multas por comportamientos contrarios a la convivencia.", True, "antecedentes", False, 5),
-        ("pds", "antecedentes_procuraduria", "Antecedentes de Procuraduría",
-         "Consulta de antecedentes disciplinarios — Procuraduría General de la Nación.", True, "antecedentes", False, 6),
-        ("pds", "antecedentes_contraduria", "Antecedentes de Contraloría",
-         "Consulta de responsabilidad fiscal — Contraloría General de la República.", True, "antecedentes", False, 7),
-        # Grupo: financiero
-        ("pds", "cert_bancaria", "Certificación Bancaria",
-         "Cuenta a nombre exclusivo del titular (Nequi, Daviplata, Bancolombia…). Se puede registrar varias (una por cuenta).", True, "financiero", True, 8),
-        # ── ROL pds · OPCIONALES ──
-        ("pds", "validacion_profesional", "Validación Profesional",
-         "Tarjeta profesional, certificado SENA o constancia de competencia. Se puede registrar varias (una por habilidad/certificación).", False, "opcional", True, 9),
-        ("pds", "salud_seguridad", "Salud y Seguridad (EPS + ARL)",
-         "Afiliación activa al Sistema de Seguridad Social. Obligatorio para planes Premium.", False, "opcional", False, 10),
-        ("pds", "certificado_laboral", "Certificado Laboral / Referencia de Empleo",
-         "Constancia de trabajo o referencia de un empleador anterior. Se puede registrar varias (una por empleo).", False, "opcional", True, 11),
-        # ── ROL solicitante · OBLIGATORIOS ──
-        ("solicitante", "doc_identidad", "Documento de Identidad",
-         "CC, CE o NIT (persona jurídica).", True, "identidad", False, 1),
-        ("solicitante", "verificacion_contacto", "Verificación de Contacto",
-         "Validación de teléfono celular por OTP en registro.", True, "identidad", False, 2),
-        ("solicitante", "validacion_pago", "Validación de Método de Pago",
-         "Micro-cargo de autorización vía pasarela (MercadoPago).", True, "financiero", False, 3),
-    ]
-    created = 0
-    for rol, clave, nombre, descripcion, obligatorio, grupo, multi, orden in catalogo:
-        if DocumentoRequerido.query.filter_by(rol=rol, clave=clave).first():
+    """Siembra el catálogo de documentos KYC requeridos por rol.
+
+    El catálogo canónico vive en app/data/seed_kyc.py; esta función solo
+    lo sincroniza (inserta faltantes y PODA obsoletos, p. ej.
+    "validacion_pago" del solicitante).
+    """
+    from app.data.seed_kyc import sync_kyc_catalog
+    return sync_kyc_catalog()
+
+
+def seed_habilidades() -> int:
+    """Siembra/actualiza el CATÁLOGO NACIONAL de OFICIOS con competencias
+    ampliadas y rutas certificables (CUOC / SENA).
+
+    Fuente: app/data/seed_habilidades.py — categorías del catálogo nacional,
+    20 oficios con sus competencias y niveles (quiz >=80% + certificación).
+    """
+    from app.data.seed_habilidades import CATALOGO_OFICIOS, build_niveles
+    from app.models.habilidad import Habilidad
+
+    # Nombres cortos usados en catálogos sembrados antes del rediseño →
+    # nombres COMPLETOS del documento (CUOC/SENA). Se renombran los oficios
+    # existentes (mismo id → no se rompen referencias).
+    LEGACY = {
+        "Plomería": "Plomería y Fontanería",
+        "Electricidad": "Electricidad Residencial y Comercial",
+        "Albañilería": "Albañilería, Mampostería y Cimentación",
+        "Pintura": "Pintura, Impermeabilización y Acabados",
+        "Carpintería": "Carpintería en Madera, MDF y RH (Mueble Fijo y RTA)",
+        "Soldadura": "Soldadura, Metalmecánica y Carpintería Metálica",
+        "Aire Acondicionado": "Mantenimiento e Instalación de Aire Acondicionado y Climatización",
+        "Electrodomésticos": "Reparación y Mantenimiento de Electrodomésticos",
+        "Redes y CCTV": "Técnico en Redes, CCTV y Soporte Informático",
+        "Jardinería": "Jardinería, Paisajismo y Zonas Verdes",
+        "Aseo": "Aseo, Limpieza General y Mantenimiento de Espacios",
+        "Cuidado de personas": "Cuidado de Personas y Auxiliar Doméstico",
+        "Mudanzas": "Mudanzas, Acarreos y Manejo de Carga Liviana",
+        "Barbería": "Barbería, Peluquería y Estilismo",
+        "Manicura": "Manicura, Pedicura y Estética de Uñas",
+        "Estética facial": "Estética Facial y Corporal (No Invasiva)",
+        "Mecánica rápida": "Mecánica Rápida de Automóviles",
+        "Mecánica de motos": "Mecánica y Mantenimiento de Motocicletas",
+    }
+
+    cambios = 0
+    for categoria, nombre, descripcion, competencias, quiz_preguntas in CATALOGO_OFICIOS:
+        existente = Habilidad.query.filter_by(nombre=nombre).first()
+        if existente is None:
+            # Busca el nombre corto previo y lo RENOMBRA (mismo id).
+            corto = next((k for k, v in LEGACY.items() if v == nombre), None)
+            if corto:
+                existente = Habilidad.query.filter_by(nombre=corto).first()
+                if existente:
+                    existente.nombre = nombre
+
+        niveles = build_niveles(quiz_preguntas)
+        if existente:
+            if (existente.habilidades != competencias
+                    or existente.categoria != categoria
+                    or existente.descripcion != descripcion):
+                existente.habilidades = competencias
+                existente.categoria = categoria
+                existente.descripcion = descripcion
+                existente.niveles = niveles
+                db.session.add(existente)
+                cambios += 1
+                print(f"  ACTUALIZADO oficio: {nombre} ({categoria})")
             continue
         db.session.add(
-            DocumentoRequerido(
-                rol=rol, clave=clave, nombre=nombre, descripcion=descripcion,
-                obligatorio=obligatorio, grupo=grupo, multi_instancia=multi, orden=orden,
+            Habilidad(
+                nombre=nombre,
+                descripcion=descripcion,
+                categoria=categoria,
+                habilidades=competencias,
+                niveles=niveles,
             )
         )
-        created += 1
-        print(f"  CREADO doc KYC: {rol}/{clave}")
-
-    # ── KYC merchant (módulo negocios) ──
-    created += seed_kyc_merchant()
-
-    return created
+        cambios += 1
+        print(f"  CREADO oficio: {nombre} ({categoria}, {len(competencias)} competencias)")
+    db.session.commit()
+    return cambios
 
 
 if __name__ == "__main__":
@@ -348,10 +445,14 @@ if __name__ == "__main__":
         seed_sample_service()
         seed_sample_oferta()
         seed_sample_contract()
+        print("Sembrando negocio y preferencias del merchant demo...")
+        seed_merchant_business()
         print("Sembrando configuración global y feature flags...")
         seed_config()
         print("Sembrando catálogo de documentos KYC por rol (incluye merchant)...")
         seed_kyc()
+        print("Sembrando catálogo de habilidades con rutas certificables...")
+        seed_habilidades()
 
         db.session.commit()
 

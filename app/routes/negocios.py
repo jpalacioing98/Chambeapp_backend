@@ -1,4 +1,4 @@
-"""Blueprint Negocios: CRUD, mapa, búsqueda, horarios, ratings, reportes."""
+"""Blueprint Negocios: CRUD, mapa, búsqueda, horarios, ratings, reportes, stats, imagenes upload."""
 
 from datetime import datetime, timezone
 
@@ -28,6 +28,7 @@ from app.schemas.negocios import (
     NegocioMapResponseSchema,
 )
 from app.services.negocio_utils import calcular_estado_horario, generar_slug
+from app.data.categorias_negocio import CATEGORIAS_NEGOCIO
 
 blp = Blueprint("negocios", __name__, description="Directorio de negocios y comerciantes")
 
@@ -119,7 +120,7 @@ class NegociosList(MethodView):
     @blp.response(200, NegocioResponseSchema(many=True))
     def get(self):
         """Listar negocios activos con filtros opcionales."""
-        query = Negocio.query.filter_by(estado=EstadoNegocio.ACTIVO)
+        query = Negocio.query.filter(Negocio.estado == EstadoNegocio.ACTIVO.value)
 
         # Filtros
         categoria = request.args.get("categoria")
@@ -223,7 +224,7 @@ class NegociosMapa(MethodView):
         lng = request.args.get("lng", type=float)
         radio = request.args.get("radio", 10, type=float)
 
-        query = Negocio.query.filter_by(estado=EstadoNegocio.ACTIVO)
+        query = Negocio.query.filter(Negocio.estado == EstadoNegocio.ACTIVO.value)
 
         if lat and lng:
             radio_metros = radio * 1000
@@ -291,7 +292,7 @@ class NegociosBuscar(MethodView):
         if not q or len(q) < 2:
             abort(400, message="El parámetro 'q' debe tener al menos 2 caracteres.")
 
-        query = Negocio.query.filter_by(estado=EstadoNegocio.ACTIVO).filter(
+        query = Negocio.query.filter(Negocio.estado == EstadoNegocio.ACTIVO.value).filter(
             db.or_(
                 Negocio.nombre.ilike(f"%{q}%"),
                 Negocio.descripcion.ilike(f"%{q}%"),
@@ -313,11 +314,17 @@ class NegociosBuscar(MethodView):
 class NegociosCategorias(MethodView):
     @blp.doc()
     def get(self):
-        """Categorías disponibles (distinct de categorías activas)."""
+        """Catálogo completo de categorías + las que están en uso.
+
+        `categorias`: catálogo canónico del producto (app/data/categorias_negocio.py).
+        `en_uso`: categorías presentes en negocios activos (compatibilidad con
+        el comportamiento anterior).
+        """
         result = db.session.query(
             Negocio.categoria_principal
-        ).filter_by(estado=EstadoNegocio.ACTIVO).distinct().all()
-        return {"categorias": [r[0] for r in result]}
+        ).filter(Negocio.estado == EstadoNegocio.ACTIVO.value).distinct().all()
+        en_uso = [r[0] for r in result]
+        return {"categorias": CATEGORIAS_NEGOCIO, "en_uso": en_uso}
 
 
 # ── Horarios ──────────────────────────────────────────────────────────
@@ -387,7 +394,9 @@ class NegocioImagenes(MethodView):
         negocio = _get_negocio_or_404(negocio_id)
         _ensure_owner(negocio, user_id)
 
-        imagenes = negocio.imagenes or []
+        # Copia nueva: mutar la lista JSON in-place no marca la columna dirty
+        # en SQLAlchemy 2.0 (JSON no es mutable-tracked por defecto).
+        imagenes = list(negocio.imagenes or [])
         imagenes.append(data["url"])
         negocio.imagenes = imagenes
         db.session.commit()
@@ -405,12 +414,13 @@ class NegocioImagenDelete(MethodView):
         negocio = _get_negocio_or_404(negocio_id)
         _ensure_owner(negocio, user_id)
 
-        imagenes = negocio.imagenes or []
+        imagenes = list(negocio.imagenes or [])
         if idx < 0 or idx >= len(imagenes):
             abort(400, message="Índice de imagen inválido.")
 
-        imagenes.pop(idx)
-        negocio.imagenes = imagenes
+        # Reasignar lista NUEVA (no mutar in-place): SQLAlchemy 2.0 no detecta
+        # cambios en columnas JSON mutadas por referencia.
+        negocio.imagenes = [img for i, img in enumerate(imagenes) if i != idx]
         db.session.commit()
         return negocio
 
@@ -508,3 +518,133 @@ class NegocioReporteCreate(MethodView):
         reporte.ticket_id = ticket.id
         db.session.commit()
         return reporte
+
+
+# ── Stats del Negocio ──────────────────────────────────────────────────
+
+@blp.route("/<int:negocio_id>/stats")
+class NegocioStats(MethodView):
+    @blp.doc()
+    @blp.response(200)
+    @jwt_required()
+    def get(self, negocio_id):
+        """Estadísticas del dashboard del merchant (rating, reviews, solicitudes, contratos, pagos)."""
+        user_id = int(get_jwt_identity())
+        negocio = _get_negocio_or_404(negocio_id)
+        _ensure_owner(negocio, user_id)
+
+        # Distribución de estrellas
+        distribucion = {str(i): 0 for i in range(1, 6)}
+        ratings = NegocioRating.query.filter_by(negocio_id=negocio_id).all()
+        for r in ratings:
+            key = str(r.puntaje)
+            distribucion[key] = distribucion.get(key, 0) + 1
+
+        # Solicitudes en zona (categoría del negocio o cercanas)
+        from app.models.solicitud import Solicitud, EstadoSolicitud
+        solicitudes_query = Solicitud.query.filter(
+            Solicitud.categoria == negocio.categoria_principal,
+        )
+        total_solicitudes_zona = solicitudes_query.count()
+        solicitudes_activas = solicitudes_query.filter(
+            Solicitud.estado == EstadoSolicitud.PUBLICADO
+        ).count()
+
+        # Contratos completados de este merchant
+        from app.models.contract import Contract, EstadoContrato
+        contratos_completados = Contract.query.filter(
+            Contract.proveedor_id == user_id,
+            Contract.estado == EstadoContrato.COMPLETADO,
+        ).count()
+
+        # Ingresos totales (pagos recibidos)
+        from app.models.payment import Payment, EstadoPago
+        from sqlalchemy import func
+        ingreso_row = db.session.query(func.coalesce(func.sum(Payment.monto), 0)).join(
+            Contract
+        ).filter(
+            Contract.proveedor_id == user_id,
+            Payment.estado == EstadoPago.COMPLETADO,
+        ).scalar()
+        ingresos_totales = int(ingreso_row or 0)
+
+        # Tasa de respuesta (contratos / solicitudes recibidas)
+        tasa = (
+            round(contratos_completados / total_solicitudes_zona, 2)
+            if total_solicitudes_zona > 0
+            else 0.0
+        )
+
+        return {
+            "negocio_id": negocio_id,
+            "periodo": "total",
+            "calificacion_promedio": negocio.calificacion_promedio or 0.0,
+            "total_calificaciones": negocio.total_calificaciones or 0,
+            "distribucion_estrellas": distribucion,
+            "total_solicitudes_zona": total_solicitudes_zona,
+            "solicitudes_activas": solicitudes_activas,
+            "contratos_completados": contratos_completados,
+            "ingresos_totales": ingresos_totales,
+            "visitas_perfil": 0,  # Placeholder: se implementa con tracking
+            "tasa_respuesta": tasa,
+        }
+
+
+# ── Upload de Imagen del Negocio ───────────────────────────────────────
+
+@blp.route("/<int:negocio_id>/imagenes/upload")
+class NegocioImagenUpload(MethodView):
+    @blp.doc()
+    @blp.response(201)
+    @jwt_required()
+    def post(self, negocio_id):
+        """Sube una imagen real del negocio a MinIO (Form-data con campo 'file')."""
+        user_id = int(get_jwt_identity())
+        negocio = _get_negocio_or_404(negocio_id)
+        _ensure_owner(negocio, user_id)
+
+        # Validar archivo
+        file = request.files.get("file")
+        if not file:
+            abort(400, message="Campo 'file' requerido.")
+
+        # Validar tipo MIME
+        allowed_types = ("image/jpeg", "image/png", "image/webp")
+        if file.content_type not in allowed_types:
+            abort(400, message="Formato no válido. Aceptados: jpg, png, webp.")
+
+        # Leer bytes
+        file_bytes = file.read()
+        if not file_bytes:
+            abort(400, message="Archivo vacío.")
+
+        # Límite 5MB
+        if len(file_bytes) > 5 * 1024 * 1024:
+            abort(400, message="El archivo excede el límite de 5MB.")
+
+        # Límite 20 imágenes por negocio
+        imagenes_actuales = list(negocio.imagenes or [])
+        if len(imagenes_actuales) >= 20:
+            abort(400, message="Máximo 20 imágenes por negocio.")
+
+        # Subir a MinIO
+        from app.services.storage import storage
+        if storage is None:
+            abort(500, message="Servicio de almacenamiento no disponible.")
+
+        try:
+            import time
+            filename = f"negocio_{negocio_id}_{int(time.time())}"
+            url = storage.upload_image(file_bytes, str(negocio_id), filename)
+        except ValueError as e:
+            abort(400, message=str(e))
+        except Exception as e:
+            abort(500, message=f"Error subiendo imagen: {str(e)}")
+
+        # Agregar URL al array de imágenes del negocio
+        imagenes_actuales.append(url)
+        negocio.imagenes = imagenes_actuales
+        negocio.actualizado_en = datetime.now(timezone.utc)
+        db.session.commit()
+
+        return {"url": url, "negocio_id": negocio_id}, 201

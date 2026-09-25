@@ -47,6 +47,15 @@ class User(db.Model):
     )
     last_login = db.Column(db.DateTime, nullable=True)
     activo = db.Column(db.Boolean, default=True, nullable=False)
+    # Seguridad: autenticación en dos pasos (toggle persistido del perfil).
+    two_factor_enabled = db.Column(db.Boolean, default=False, nullable=False)
+    # División regional: el personal (admin/verificador/soporte) pertenece a
+    # una región; los usuarios públicos pueden tener región asignada según
+    # su ubicación. None = sin asignar (superadmin o global).
+    region_id = db.Column(
+        db.Integer, db.ForeignKey("regions.id"), nullable=True, index=True
+    )
+    region = db.relationship("Region", foreign_keys=[region_id])
 
     profile = db.relationship(
         "Profile", back_populates="user", uselist=False,
@@ -77,6 +86,8 @@ class Profile(db.Model):
     portafolio = db.Column(db.JSON, default=list)  # fotos / enlaces
     categorias = db.Column(db.JSON, default=list)
     perfil_completo = db.Column(db.Boolean, default=False, nullable=False)
+    # Foto de perfil (URL al bucket, subida por POST /users/me/foto-perfil)
+    foto_perfil = db.Column(db.String(500), nullable=True)
     # Coordenadas geoespaciales (RF-10 geo fallback)
     latitud = db.Column(db.Float, nullable=True)
     longitud = db.Column(db.Float, nullable=True)

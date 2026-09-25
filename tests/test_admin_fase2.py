@@ -188,30 +188,7 @@ def test_admin_detalle_disputa_200(client):
     assert data["payment"]["id"] == p.id
 
 
-def test_admin_resolver_disputa_release_cambia_pago(client):
-    admin = _make_user("admin@x.com", RolUsuario.ADMIN, "Admin")
-    comprador = _make_user("c@x.com", RolUsuario.SOLICITANTE, "C")
-    vendedor = _make_user("v@x.com", RolUsuario.PDS, "V")
-    s = _make_service(comprador)
-    o = _make_contract(s, comprador, vendedor)
-    p = _make_payment(o, estado=EstadoPago.PENDIENTE)
-    d = _make_dispute(o)
-    r = client.post(
-        f"/api/v1/admin/disputes/{d.id}/resolve",
-        headers=_headers(admin),
-        json={"resolution": "A favor del proveedor", "payment_action": "release"},
-    )
-    assert r.status_code == 200
-    assert r.get_json()["status"] == "resuelta"
-    assert r.get_json()["payment_action"] == "release"
-    db.session.refresh(p)
-    assert p.estado == EstadoPago.COMPLETADO
-    db.session.refresh(d)
-    assert d.status == "resuelta"
-    assert d.resolved_by == admin.id
-
-
-def test_admin_resolver_disputa_refund_reviete_comision(client):
+def test_admin_resolver_disputa_no_toca_pago(client):
     admin = _make_user("admin@x.com", RolUsuario.ADMIN, "Admin")
     comprador = _make_user("c@x.com", RolUsuario.SOLICITANTE, "C")
     vendedor = _make_user("v@x.com", RolUsuario.PDS, "V")
@@ -222,13 +199,17 @@ def test_admin_resolver_disputa_refund_reviete_comision(client):
     r = client.post(
         f"/api/v1/admin/disputes/{d.id}/resolve",
         headers=_headers(admin),
-        json={"resolution": "Reembolso al comprador", "payment_action": "refund"},
+        json={"resolution": "Servicio no conforme"},
     )
     assert r.status_code == 200
+    assert r.get_json()["status"] == "resuelta"
     db.session.refresh(p)
-    assert p.estado == EstadoPago.REEMBOLSADO
-    assert p.comision_pds == 0  # comisión revertida
-    assert p.comision_solicitante == 0  # comisión revertida
+    # La plataforma no retiene ni congela fondos: el pago no cambia.
+    assert p.estado == EstadoPago.COMPLETADO
+    db.session.refresh(d)
+    assert d.status == "resuelta"
+    assert d.resolved_by == admin.id
+    assert d.resolution == "Servicio no conforme"
 
 
 # ---------------- tickets ----------------

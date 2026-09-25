@@ -103,7 +103,7 @@ class FeatureExtractor:
         now = datetime.utcnow()
         hour = now.hour / 24.0
         day = now.weekday() / 7.0
-        urgent = 1.0 if solicitud.urgencia == 'alta' else 0.0
+        urgent = 1.0 if (solicitud.urgencia or '').endswith('hoy') else 0.0
         
         return {
             'distance_km': distance,

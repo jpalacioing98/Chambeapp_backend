@@ -151,21 +151,6 @@ def test_confirmar_pago_directo(client):
     assert r.get_json()["referencia_pasarela"].startswith("MOCK-")
 
 
-def test_liberar_pago_directo(client):
-    emp_h = _user(client, "emp@example.com", rol="solicitante")
-    tr_h = _user(client, "tr@example.com", rol="pds")
-    oid = _contrato_completado(client, emp_h, tr_h, tr_id=2)
-    pid = client.post(
-        "/api/v1/payments/", json={"contract_id": oid, "monto": 100000}, headers=emp_h
-    ).get_json()["id"]
-    client.post(f"/api/v1/payments/{pid}/confirm", headers=emp_h)
-    r = client.post(f"/api/v1/payments/{pid}/release", headers=emp_h)
-    assert r.status_code == 200
-    d = r.get_json()
-    assert d["estado"] == "completado"
-    assert d["liberado_en"] is not None
-
-
 def test_reembolsar_con_motivo(client):
     emp_h = _user(client, "emp@example.com", rol="solicitante")
     tr_h = _user(client, "tr@example.com", rol="pds")
@@ -223,17 +208,3 @@ def test_mine_filtra_por_usuario(client):
     out_h = _user(client, "out@example.com", rol="solicitante")
     r3 = client.get("/api/v1/payments/mine", headers=out_h)
     assert len(r3.get_json()) == 0
-
-
-# ---------------- admin auto-release ----------------
-def test_admin_auto_release_protegido(client):
-    emp_h = _user(client, "emp@example.com", rol="solicitante")
-    _user(client, "admin@example.com", rol="admin")
-    admin_h = _headers(client, "admin@example.com")
-    # no admin -> 403
-    r = client.post("/api/v1/payments/admin/auto-release", headers=emp_h)
-    assert r.status_code == 403
-    # admin -> 200
-    r2 = client.post("/api/v1/payments/admin/auto-release", headers=admin_h)
-    assert r2.status_code == 200
-    assert "liberados" in r2.get_json()

@@ -162,9 +162,10 @@ def test_solicitante_acepta_crea_order_y_rechaza_otras(client):
     assert orders[0]["service_id"] == sid
     assert orders[0]["estado"] == "pendiente"
 
-    # Solicitud queda 'asignada'
+    # La solicitud SIGUE publicada: pasa a "en curso" (asignada) solo cuando
+    # el contrato se firma (PATCH /contracts/<id>/estado → aceptar).
     svc = client.get(f"/api/v1/solicitudes/{sid}").get_json()
-    assert svc["estado"] == "asignada"
+    assert svc["estado"] == "publicado"
 
     # La otra oferta queda 'rechazada'
     lista = client.get(f"/api/v1/solicitudes/{sid}/ofertas", headers=emp_h).get_json()
@@ -203,8 +204,163 @@ def test_contraofertar_y_pds_acepta_contraoferta(client):
     assert r2.status_code == 200
     assert r2.get_json()["estado"] == "aceptada"
 
+    # El monto de la contraoferta se convierte en el nuevo precio de la
+    # solicitud (y por tanto del contrato).
+    sol = client.get(f"/api/v1/solicitudes/{sid}", headers=emp_h).get_json()
+    assert sol["presupuesto"] == 95000
+
     orders = client.get("/api/v1/contracts/mine", headers=emp_h).get_json()
     assert len(orders) == 1
+    assert orders[0]["service"]["presupuesto"] == 95000
+
+
+# ---------------- negociación "a convenir": PDS contra-contraoferta ----------------
+def test_pds_contracontraoferta_y_solicitante_acepta(client):
+    """El PDS ajusta el precio cuando el solicitante contraofertó y el
+    solicitante acepta el nuevo valor (chat de negociación)."""
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
+    pds_h = _user(client, "pds@example.com", rol="pds")
+    sid = _crear_solicitud(client, emp_h)
+
+    # Oferta inicial del PDS: define el precio de una chamba "a convenir".
+    oid = client.post(
+        f"/api/v1/solicitudes/{sid}/ofertas",
+        json={"monto": 120000},
+        headers=pds_h,
+    ).get_json()["id"]
+
+    # Solicitante contraoferta a 90000.
+    r1 = client.post(
+        f"/api/v1/ofertas/{oid}/responder",
+        json={"accion": "contraofertar", "contra_monto": 90000, "contra_mensaje": "muy alto"},
+        headers=emp_h,
+    )
+    assert r1.status_code == 200
+    assert r1.get_json()["estado"] == "contraoferta"
+
+    # PDS contra-contraoferta a 100000 (ajuste en el chat).
+    r2 = client.post(
+        f"/api/v1/ofertas/{oid}/responder",
+        json={"accion": "contraofertar", "contra_monto": 100000, "contra_mensaje": "por materiales"},
+        headers=pds_h,
+    )
+    assert r2.status_code == 200
+    assert r2.get_json()["estado"] == "contraoferta"
+    assert r2.get_json()["contra_monto"] == 100000
+
+    # Solicitante acepta la contra-contraoferta: el acordado es el nuevo monto.
+    r3 = client.post(
+        f"/api/v1/ofertas/{oid}/responder",
+        json={"accion": "aceptar"},
+        headers=emp_h,
+    )
+    assert r3.status_code == 200
+    assert r3.get_json()["estado"] == "aceptada"
+    sol = client.get(f"/api/v1/solicitudes/{sid}", headers=emp_h).get_json()
+    assert sol["presupuesto"] == 100000
+
+
+def test_pds_rechaza_contraoferta_403_otro(client):
+    """El PDS puede rechazar una contraoferta; otro usuario no."""
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
+    pds_h = _user(client, "pds@example.com", rol="pds")
+    otro_h = _user(client, "otro@example.com", rol="pds")
+    sid = _crear_solicitud(client, emp_h)
+    oid = client.post(
+        f"/api/v1/solicitudes/{sid}/ofertas",
+        json={"monto": 100000},
+        headers=pds_h,
+    ).get_json()["id"]
+    client.post(
+        f"/api/v1/ofertas/{oid}/responder",
+        json={"accion": "contraofertar", "contra_monto": 80000},
+        headers=emp_h,
+    )
+    # Un pds ajeno no puede rechazar.
+    r_otro = client.post(
+        f"/api/v1/ofertas/{oid}/responder",
+        json={"accion": "rechazar"},
+        headers=otro_h,
+    )
+    assert r_otro.status_code == 403
+    # El pds dueño de la oferta sí.
+    r_pds = client.post(
+        f"/api/v1/ofertas/{oid}/responder",
+        json={"accion": "rechazar"},
+        headers=pds_h,
+    )
+    assert r_pds.status_code == 200
+    assert r_pds.get_json()["estado"] == "rechazada"
+
+
+# ---------------- oferta concreta los parámetros "a convenir" ----------------
+def test_oferta_concreta_fecha_y_horario(client):
+    """La oferta define fecha y horario cuando la solicitud los dejó "a
+    convenir"; al aceptarla se escriben en la solicitud."""
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
+    pds_h = _user(client, "pds@example.com", rol="pds")
+    sid = _crear_solicitud(client, emp_h)
+
+    oferta = client.post(
+        f"/api/v1/solicitudes/{sid}/ofertas",
+        json={
+            "monto": 150000,
+            "fecha_deseada": "2026-10-05",
+            "horario": "Mañana (6:00 - 12:00)",
+        },
+        headers=pds_h,
+    ).get_json()
+    assert oferta["fecha_deseada"] == "2026-10-05"
+    assert oferta["horario"] == "Mañana (6:00 - 12:00)"
+
+    r = client.post(
+        f"/api/v1/ofertas/{oferta['id']}/responder",
+        json={"accion": "aceptar"},
+        headers=emp_h,
+    )
+    assert r.status_code == 200
+    sol = client.get(f"/api/v1/solicitudes/{sid}", headers=emp_h).get_json()
+    assert sol["fecha_deseada"] == "2026-10-05"
+    assert sol["horario"] == "Mañana (6:00 - 12:00)"
+    assert sol["presupuesto"] == 150000
+
+
+def test_contraoferta_ajusta_fecha_y_horario(client):
+    """La contraoferta del chat puede ajustar fecha/horario; al aceptarla
+    esos valores negociados tienen prioridad sobre la oferta."""
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
+    pds_h = _user(client, "pds@example.com", rol="pds")
+    sid = _crear_solicitud(client, emp_h)
+    oid = client.post(
+        f"/api/v1/solicitudes/{sid}/ofertas",
+        json={"monto": 100000, "fecha_deseada": "2026-10-05"},
+        headers=pds_h,
+    ).get_json()["id"]
+
+    r1 = client.post(
+        f"/api/v1/ofertas/{oid}/responder",
+        json={
+            "accion": "contraofertar",
+            "contra_monto": 95000,
+            "fecha_deseada": "2026-10-08",
+            "horario": "Tarde (12:00 - 18:00)",
+        },
+        headers=emp_h,
+    )
+    assert r1.status_code == 200
+    assert r1.get_json()["contra_fecha_deseada"] == "2026-10-08"
+    assert r1.get_json()["contra_horario"] == "Tarde (12:00 - 18:00)"
+
+    r2 = client.post(
+        f"/api/v1/ofertas/{oid}/responder",
+        json={"accion": "aceptar_contraoferta"},
+        headers=pds_h,
+    )
+    assert r2.status_code == 200
+    sol = client.get(f"/api/v1/solicitudes/{sid}", headers=emp_h).get_json()
+    assert sol["fecha_deseada"] == "2026-10-08"
+    assert sol["horario"] == "Tarde (12:00 - 18:00)"
+    assert sol["presupuesto"] == 95000
 
 
 # ---------------- pds no puede aceptar (solo solicitante) ----------------

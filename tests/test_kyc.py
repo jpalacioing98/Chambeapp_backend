@@ -52,8 +52,8 @@ def _seed_kyc():
         ("pds", "validacion_profesional", "Validacion Profesional", "desc", False, "opcional", 6),
         ("pds", "salud_seguridad", "Salud y Seguridad", "desc", False, "opcional", 7),
         ("solicitante", "doc_identidad", "Documento de Identidad", "desc", True, "identidad", 1),
-        ("solicitante", "verificacion_contacto", "Verificacion Contacto", "desc", True, "identidad", 2),
-        ("solicitante", "validacion_pago", "Validacion Pago", "desc", True, "financiero", 3),
+        ("solicitante", "prueba_vida", "Prueba de Vida", "desc", True, "identidad", 2),
+        ("solicitante", "verificacion_contacto", "Verificacion Contacto", "desc", True, "identidad", 3),
     ]
     for rol, clave, nombre, descripcion, obligatorio, grupo, orden in catalogo:
         if not DocumentoRequerido.query.filter_by(rol=rol, clave=clave).first():
@@ -90,7 +90,7 @@ def test_documentos_requeridos_solicitante(client):
     data = r.get_json()
     assert data["rol"] == "solicitante"
     claves = [d["clave"] for d in data["documentos"]]
-    assert claves == ["doc_identidad", "verificacion_contacto", "validacion_pago"]
+    assert claves == ["doc_identidad", "prueba_vida", "verificacion_contacto"]
 
 
 def test_enviar_documento(client):
@@ -122,7 +122,7 @@ def test_clave_invalida_para_rol(client):
     pds = _make_user("pds4@test.com", RolUsuario.PDS)
     _seed_kyc()
     r = client.post(
-        "/api/v1/kyc/documentos", headers=_headers(pds), json={"clave": "validacion_pago"}
+        "/api/v1/kyc/documentos", headers=_headers(pds), json={"clave": "verificacion_contacto"}
     )
     assert r.status_code == 400
 
@@ -130,3 +130,30 @@ def test_clave_invalida_para_rol(client):
 def test_requiere_jwt(client):
     r = client.get("/api/v1/kyc/documentos-requeridos")
     assert r.status_code == 401
+
+
+def test_sync_poda_documentos_obsoletos(client):
+    """sync_kyc_catalog ELIMINA docs que ya no están en el catálogo
+    (p. ej. 'validacion_pago' del solicitante) y crea los nuevos."""
+    from app.data.seed_kyc import sync_kyc_catalog
+    _seed_kyc()
+
+    # Simula la BD vieja: 'validacion_pago' sigue existiendo
+    if not DocumentoRequerido.query.filter_by(
+        rol="solicitante", clave="validacion_pago"
+    ).first():
+        db.session.add(DocumentoRequerido(
+            rol="solicitante", clave="validacion_pago",
+            nombre="Validacion Pago", descripcion="antiguo",
+            obligatorio=True, grupo="financiero", orden=3,
+        ))
+        db.session.commit()
+
+    sync_kyc_catalog()
+
+    claves = {
+        d.clave for d in DocumentoRequerido.query.filter_by(rol="solicitante").all()
+    }
+    assert "validacion_pago" not in claves
+    # El catálogo canónico del solicitante queda completo:
+    assert claves == {"doc_identidad", "prueba_vida", "verificacion_contacto"}

@@ -100,7 +100,7 @@ def generar_csv_historial(payments: list) -> bytes:
     # Header
     writer.writerow([
         "ID", "Contrato", "Monto", "Comision PDS", "Comision Solicitante",
-        "Estado", "Pasarela", "Referencia", "Creado", "Liberado",
+        "Estado", "Pasarela", "Referencia", "Creado",
     ])
 
     for p in payments:
@@ -115,7 +115,6 @@ def generar_csv_historial(payments: list) -> bytes:
                 p.pasarela,
                 p.referencia_pasarela or "",
                 p.creado_en.isoformat() if p.creado_en else "",
-                p.liberado_en.isoformat() if p.liberado_en else "",
             ])
         else:
             writer.writerow([
@@ -128,7 +127,6 @@ def generar_csv_historial(payments: list) -> bytes:
                 p.get("pasarela", ""),
                 p.get("referencia_pasarela", ""),
                 p.get("creado_en", ""),
-                p.get("liberado_en", ""),
             ])
 
     csv_bytes = output.getvalue().encode("utf-8")

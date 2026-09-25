@@ -64,7 +64,7 @@ class ContractList(MethodView):
 @blp.route("/mine")
 class MyContracts(MethodView):
     @jwt_required()
-    @blp.response(200, ContractSchema(many=True))
+    @blp.response(200)
     def get(self):
         """RF-07: lista contratos donde el usuario es solicitante o proveedor.
         
@@ -86,7 +86,12 @@ class MyContracts(MethodView):
         result = paginate_query(query, page=page, per_page=per_page)
 
         if isinstance(result, list):
-            return result
+            return ContractSchema(many=True).dump(result)
+        # `paginate_query` devuelve un dict cuando hay page/per_page. Hay que
+        # serializar los items AQUÍ: si se devuelve el dict tal cual,
+        # flask-smorest aplica `many=True` al diccionario y marshmallow
+        # serializa sus claves → [{}, {}, ...] (bug que rompía la lista).
+        result["items"] = ContractSchema(many=True).dump(result["items"])
         return result
 
 
@@ -126,10 +131,31 @@ class ContractEstado(MethodView):
                 abort(403, message="Solo el proveedor puede aceptar el contrato.")
             contract.estado = EstadoContrato.EN_PROGRESO
             contract.inicio_en = datetime.now(timezone.utc)
+
+            # Firma completa del contrato: la solicitud pasa a "en curso"
+            # (ASIGNADA) y se genera la chamba del módulo de gestión (hito 1).
+            solicitud = db.session.get(Solicitud, contract.service_id)
+            if solicitud is not None:
+                solicitud.estado = EstadoSolicitud.ASIGNADA
+                from app.models.chamba import Chamba, EstadoChamba
+
+                if Chamba.query.filter_by(contract_id=contract.id).first() is None:
+                    chamba = Chamba(
+                        contract_id=contract.id,
+                        estado=EstadoChamba.PROGRAMADA,
+                        fecha_activacion=datetime.now(timezone.utc),
+                        evidencia_entrada=[],
+                        evidencia_salida=[],
+                        adendas=[],
+                        novedades=[],
+                        habilidades_validadas=[],
+                    )
+                    db.session.add(chamba)
+
             crear_notificacion(
                 contract.solicitante_id,
                 "contrato_aceptado",
-                "Tu contrato de trabajo fue aceptado por el proveedor.",
+                "El prestador firmó el contrato. La solicitud está en curso: gestiona la chamba.",
             )
 
         elif accion == "completar":

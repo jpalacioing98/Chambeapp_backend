@@ -12,6 +12,12 @@ class HorarioSchema(Schema):
     hora_cierre = fields.Time(allow_none=True, format="%H:%M")
 
 
+class ServicioSchema(Schema):
+    """Servicio del negocio: solo título + descripción."""
+    titulo = fields.String(required=True)
+    descripcion = fields.String(allow_none=True)
+
+
 class NegocioCreateSchema(Schema):
     nombre = fields.String(required=True, validate=validate.Length(max=150))
     descripcion = fields.String(allow_none=True)
@@ -25,7 +31,7 @@ class NegocioCreateSchema(Schema):
     radio_cobertura_km = fields.Float(load_default=5.0)
     categoria_principal = fields.String(required=True)
     categorias_secundarias = fields.List(fields.String(), load_default=[])
-    servicios = fields.List(fields.String(), load_default=[])
+    servicios = fields.List(fields.Nested(ServicioSchema), load_default=[])
     palabras_clave = fields.List(fields.String(), load_default=[])
     whatsapp = fields.String(allow_none=True)
     instagram = fields.String(allow_none=True)
@@ -44,12 +50,15 @@ class NegocioUpdateSchema(Schema):
     latitud = fields.Float()
     longitud = fields.Float()
     direccion = fields.String()
+    ciudad = fields.String()
+    departamento = fields.String(allow_none=True)
     radio_cobertura_km = fields.Float()
     categoria_principal = fields.String()
     categorias_secundarias = fields.List(fields.String())
-    servicios = fields.List(fields.String())
+    servicios = fields.List(fields.Nested(ServicioSchema))
     palabras_clave = fields.List(fields.String())
     whatsapp = fields.String(allow_none=True)
+    whatsapp_mensaje_pre = fields.String(allow_none=True)
     instagram = fields.String(allow_none=True)
     facebook = fields.String(allow_none=True)
     tiktok = fields.String(allow_none=True)
@@ -74,9 +83,10 @@ class NegocioResponseSchema(Schema):
     radio_cobertura_km = fields.Float()
     categoria_principal = fields.String()
     categorias_secundarias = fields.List(fields.String())
-    servicios = fields.List(fields.String())
+    servicios = fields.List(fields.Nested(ServicioSchema))
     palabras_clave = fields.List(fields.String())
     whatsapp = fields.String(allow_none=True)
+    whatsapp_mensaje_pre = fields.String(allow_none=True)
     instagram = fields.String(allow_none=True)
     facebook = fields.String(allow_none=True)
     tiktok = fields.String(allow_none=True)

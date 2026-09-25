@@ -52,8 +52,8 @@ class Negocio(db.Model):
     nombre = db.Column(db.String(150), nullable=False)
     slug = db.Column(db.String(170), unique=True, nullable=False, index=True)
     descripcion = db.Column(db.Text, nullable=True)
-    tipo = db.Column(db.Enum(TipoNegocio), nullable=False,
-                     default=TipoNegocio.COMERCIO)
+    tipo = db.Column(db.String(30), nullable=False,
+                     default=TipoNegocio.COMERCIO.value)
 
     # ── Multimedia ──
     logo_url = db.Column(db.String(500), nullable=True)
@@ -89,8 +89,8 @@ class Negocio(db.Model):
     verificado = db.Column(db.Boolean, default=False)
 
     # ── Estado ──
-    estado = db.Column(db.Enum(EstadoNegocio), nullable=False,
-                       default=EstadoNegocio.BORRADOR)
+    estado = db.Column(db.String(30), nullable=False,
+                       default=EstadoNegocio.BORRADOR.value)
     motivo_rechazo = db.Column(db.Text, nullable=True)
 
     # ── Timestamps ──
@@ -171,10 +171,10 @@ class NegocioReporte(db.Model):
                            nullable=False, index=True)
     reporter_id = db.Column(db.Integer, db.ForeignKey("users.id"),
                             nullable=False)
-    tipo = db.Column(db.Enum(TipoReporte), nullable=False)
+    tipo = db.Column(db.String(30), nullable=False)
     descripcion = db.Column(db.Text, nullable=True)
-    estado = db.Column(db.Enum(EstadoReporte), nullable=False,
-                       default=EstadoReporte.ABIERTO)
+    estado = db.Column(db.String(30), nullable=False,
+                       default=EstadoReporte.ABIERTO.value)
     ticket_id = db.Column(db.Integer, db.ForeignKey("tickets.id"),
                           nullable=True)
     creado_en = db.Column(db.DateTime,

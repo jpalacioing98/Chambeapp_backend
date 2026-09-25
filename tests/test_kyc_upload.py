@@ -52,8 +52,8 @@ def _seed_kyc():
         ("pds", "validacion_profesional", "Validacion Profesional", "desc", False, "opcional", 6),
         ("pds", "salud_seguridad", "Salud y Seguridad", "desc", False, "opcional", 7),
         ("solicitante", "doc_identidad", "Documento de Identidad", "desc", True, "identidad", 1),
-        ("solicitante", "verificacion_contacto", "Verificacion Contacto", "desc", True, "identidad", 2),
-        ("solicitante", "validacion_pago", "Validacion Pago", "desc", True, "financiero", 3),
+        ("solicitante", "prueba_vida", "Prueba de Vida", "desc", True, "identidad", 2),
+        ("solicitante", "verificacion_contacto", "Verificacion Contacto", "desc", True, "identidad", 3),
     ]
     for rol, clave, nombre, descripcion, obligatorio, grupo, orden in catalogo:
         if not DocumentoRequerido.query.filter_by(rol=rol, clave=clave).first():

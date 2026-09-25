@@ -8,7 +8,7 @@ Flujo: pago directo — al confirmar, el monto neto se transfiere
 al proveedor inmediatamente.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 import uuid
 
 from app.config import (
@@ -147,7 +147,6 @@ def confirmar_pago(payment_id: int, gateway: PaymentGateway = None) -> Payment:
 
     payment.estado = EstadoPago.COMPLETADO
     payment.referencia_pasarela = ref
-    payment.liberado_en = datetime.now(timezone.utc)
     db.session.commit()
     return payment
 
@@ -164,47 +163,6 @@ def reembolsar(payment_id: int, motivo: str) -> Payment:
     payment.motivo_reembolso = motivo
     db.session.commit()
     return payment
-
-
-def liberar_pago(payment_id: int) -> Payment:
-    """Libera un pago al proveedor (pago directo).
-
-    Si el pago esta pendiente, lo confirma. Si ya esta completado, retorna
-    sin cambios.
-    """
-    payment = db.session.get(Payment, payment_id)
-    if payment is None:
-        raise ValueError("El pago no existe.")
-    if payment.estado == EstadoPago.PENDIENTE:
-        return confirmar_pago(payment_id)
-    if payment.estado in (EstadoPago.COMPLETADO, EstadoPago.REEMBOLSADO):
-        return payment
-    raise ValueError(
-        f"No se puede liberar un pago en estado '{payment.estado.value}'."
-    )
-
-
-def auto_liberar_vencidos() -> int:
-    """Auto-libera pagos pendientes con mas de 48h (RF-08.6 simplificado).
-
-    En el modelo de pago directo, simplemente confirma pagos pendientes
-    vencidos. Retorna el numero de pagos liberados.
-    """
-    from app.config import ESCROW_AUTO_RELEASE_HOURS
-
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=ESCROW_AUTO_RELEASE_HOURS)
-    pendientes = Payment.query.filter(
-        Payment.estado == EstadoPago.PENDIENTE,
-        Payment.creado_en < cutoff,
-    ).all()
-    liberados = 0
-    for p in pendientes:
-        try:
-            confirmar_pago(p.id)
-            liberados += 1
-        except (ValueError, RuntimeError):
-            continue
-    return liberados
 
 
 def reintentar_pago(payment_id: int, gateway: PaymentGateway = None) -> Payment:
@@ -224,6 +182,5 @@ def reintentar_pago(payment_id: int, gateway: PaymentGateway = None) -> Payment:
 
     payment.estado = EstadoPago.COMPLETADO
     payment.referencia_pasarela = ref
-    payment.liberado_en = datetime.now(timezone.utc)
     db.session.commit()
     return payment

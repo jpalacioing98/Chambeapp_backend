@@ -45,6 +45,11 @@ def _emit_oferta(event: str, oferta: Oferta, target_user_id: int) -> None:
     socketio.emit(event, payload, room=f"user:{target_user_id}")
 
 
+def _contraparte_oferta(oferta: Oferta, user_id: int) -> int:
+    """Devuelve el id del otro participante de la negociación."""
+    return oferta.solicitud.solicitante_id if user_id == oferta.pds_id else oferta.pds_id
+
+
 @blp.route("/solicitudes/<int:sid>/ofertas")
 class OfertaList(MethodView):
     @jwt_required()
@@ -88,6 +93,9 @@ class OfertaList(MethodView):
             solicitud_id=sid,
             monto=data.get("monto"),
             mensaje=data.get("mensaje"),
+            # Parámetros "a convenir" concretados por el PDS en su propuesta.
+            fecha_deseada=data.get("fecha_deseada"),
+            horario=data.get("horario"),
             estado=EstadoOferta.PENDIENTE.value,
         )
         db.session.add(oferta)
@@ -199,9 +207,28 @@ class OfertaResponder(MethodView):
         accion = data["accion"]
 
         # Autorización por acción.
-        if accion in ("aceptar", "rechazar", "contraofertar"):
+        if accion in ("aceptar",):
             if solicitud.solicitante_id != user_id:
                 abort(403, message="Solo el solicitante puede responder la oferta.")
+        elif accion == "rechazar":
+            # Solicitante desde pendiente/contraoferta; PDS rechaza una
+            # contraoferta que no le conviene (negociación "a convenir").
+            es_pds_en_contraoferta = (
+                oferta.pds_id == user_id
+                and oferta.estado == EstadoOferta.CONTRAOFERTA.value
+            )
+            if solicitud.solicitante_id != user_id and not es_pds_en_contraoferta:
+                abort(403, message="No tienes permiso para rechazar esta oferta.")
+        elif accion == "contraofertar":
+            # Solicitante contraoferta desde pendiente/contraoferta; el PDS
+            # puede ajustar el precio cuando el solicitante contraofertó
+            # (contra-contraoferta): el valor "a convenir" se negocia en el chat.
+            es_pds_en_contraoferta = (
+                oferta.pds_id == user_id
+                and oferta.estado == EstadoOferta.CONTRAOFERTA.value
+            )
+            if solicitud.solicitante_id != user_id and not es_pds_en_contraoferta:
+                abort(403, message="Solo las partes de la negociación pueden contraofertar.")
         elif accion == "aceptar_contraoferta":
             if oferta.pds_id != user_id:
                 abort(
@@ -213,11 +240,39 @@ class OfertaResponder(MethodView):
 
         # --- Aceptación (solicitante acepta, o pds acepta contraoferta) ---
         if accion in ("aceptar", "aceptar_contraoferta"):
-            monto = (
-                oferta.monto
-                if oferta.monto is not None
-                else solicitud.presupuesto
+            # El precio acordado: si hubo contraoferta en curso (la última
+            # fue del PDS o del solicitante), el acordado es contra_monto;
+            # si no, el de la oferta (o el presupuesto original de la
+            # solicitud).
+            if oferta.contra_monto is not None and (
+                accion == "aceptar_contraoferta"
+                or oferta.estado == EstadoOferta.CONTRAOFERTA.value
+            ):
+                monto = oferta.contra_monto
+            else:
+                monto = (
+                    oferta.monto
+                    if oferta.monto is not None
+                    else solicitud.presupuesto
+                )
+
+            # El monto acordado se convierte en el nuevo precio de la
+            # solicitud (el contrato lee el presupuesto del servicio).
+            if monto is not None:
+                solicitud.presupuesto = monto
+
+            # Parámetros "a convenir" concretados: prioridad a lo negociado
+            # en el chat (contra_*), luego a la oferta del PDS.
+            fecha_convenida = (
+                oferta.contra_fecha_deseada
+                if oferta.contra_fecha_deseada is not None
+                else oferta.fecha_deseada
             )
+            if fecha_convenida is not None:
+                solicitud.fecha_deseada = fecha_convenida
+            horario_convenido = oferta.contra_horario or oferta.horario
+            if horario_convenido:
+                solicitud.horario = horario_convenido
 
             # --- RF-26/27: Validar monedas en Modalidad B (sin comisión) ---
             try:
@@ -240,7 +295,9 @@ class OfertaResponder(MethodView):
             )
             db.session.add(contract)
             oferta.estado = EstadoOferta.ACEPTADA.value
-            solicitud.estado = EstadoSolicitud.ASIGNADA
+            # La solicitud NO pasa a "en curso" todavía: solo cuando ambas
+            # partes firman el contrato (PATCH /contracts/<id>/estado aceptar)
+            # se marca ASIGNADA y se genera la chamba del módulo de gestión.
 
             # Las demás ofertas de la misma solicitud quedan rechazadas.
             otras = Oferta.query.filter(
@@ -256,34 +313,46 @@ class OfertaResponder(MethodView):
             crear_notificacion(
                 oferta.pds_id,
                 "oferta_aceptada",
-                "Tu oferta fue aceptada.",
+                "Tu propuesta fue aceptada. El contrato quedó creado: fírmalo para activar la chamba.",
             )
             db.session.commit()
             _emit_oferta("oferta:actualizada", oferta, oferta.pds_id)
             return oferta
 
-        # --- Rechazo ---
+        # --- Rechazo (solicitante o PDS) ---
         if accion == "rechazar":
             oferta.estado = EstadoOferta.RECHAZADA.value
-            crear_notificacion(
-                oferta.pds_id,
-                "oferta_rechazada",
-                "Tu oferta fue rechazada.",
+            contraparte = _contraparte_oferta(oferta, user_id)
+            mensaje = (
+                "El prestador rechazó la contraoferta."
+                if user_id == oferta.pds_id
+                else "Tu oferta fue rechazada."
             )
+            crear_notificacion(contraparte, "oferta_rechazada", mensaje)
             db.session.commit()
-            _emit_oferta("oferta:actualizada", oferta, oferta.pds_id)
+            _emit_oferta("oferta:actualizada", oferta, contraparte)
             return oferta
 
-        # --- Contraoferta ---
+        # --- Contraoferta (solicitante o PDS ajustan precio/fecha/horario) ---
         if accion == "contraofertar":
             oferta.estado = EstadoOferta.CONTRAOFERTA.value
             oferta.contra_monto = data.get("contra_monto")
             oferta.contra_mensaje = data.get("contra_mensaje")
-            crear_notificacion(
-                oferta.pds_id,
-                "oferta_contraoferta",
-                "El solicitante envió una contraoferta.",
-            )
+            # Ajustes negociados de parámetros "a convenir".
+            oferta.contra_fecha_deseada = data.get("fecha_deseada")
+            oferta.contra_horario = data.get("horario")
+            if user_id == oferta.pds_id:
+                crear_notificacion(
+                    solicitud.solicitante_id,
+                    "oferta_contraoferta",
+                    "El prestador respondió con una contraoferta.",
+                )
+            else:
+                crear_notificacion(
+                    oferta.pds_id,
+                    "oferta_contraoferta",
+                    "El solicitante envió una contraoferta.",
+                )
             db.session.commit()
-            _emit_oferta("oferta:actualizada", oferta, oferta.pds_id)
+            _emit_oferta("oferta:actualizada", oferta, _contraparte_oferta(oferta, user_id))
             return oferta

@@ -19,6 +19,7 @@ from app.models.user import User, RolUsuario
 from app.models.contract import Contract, EstadoContrato
 from app.models.audit import AuditLog, write_audit
 from app.models.config import SystemConfig, FeatureFlag
+from app.models.region import Region
 from app.schemas.superadmin import (
     AdminCreateSchema,
     AdminPatchSchema,
@@ -54,6 +55,16 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _resolve_region_id(region_id) -> int | None:
+    """Valida que la región exista y devuelve su id (o None)."""
+    if region_id is None:
+        return None
+    region = db.session.get(Region, region_id)
+    if region is None:
+        abort(400, message="La región indicada no existe.")
+    return region.id
+
+
 # ==========================================================================
 # GESTIÓN DE ADMINS INTERNOS
 # ==========================================================================
@@ -72,9 +83,15 @@ class SuperAdminAdminList(MethodView):
     @blp.arguments(AdminCreateSchema)
     @blp.response(201, AdminListResponseSchema)
     def post(self, data):
-        """Crea un usuario interno (admin | soporte | verificador)."""
+        """Crea un usuario interno (admin | soporte | verificador).
+
+        `region_id` (opcional): asigna el personal a una región. Los roles
+        regionales (admin/verificador/soporte) deberían llevar región para
+        acotar su operación.
+        """
         if User.query.filter_by(email=data["email"]).first():
             abort(409, message="El email ya está registrado.")
+        region_id = _resolve_region_id(data.get("region_id"))
         user = User(
             email=data["email"],
             rol=RolUsuario(data["rol"]),
@@ -82,13 +99,14 @@ class SuperAdminAdminList(MethodView):
             acepto_tyc=True,
             activo=True,
             status="active",
+            region_id=region_id,
         )
         user.set_password(data["password"])
         db.session.add(user)
         db.session.flush()
         write_audit(
             _actor_id(), "superadmin.admin.create", "user", user.id,
-            None, {"email": user.email, "rol": user.rol.value},
+            None, {"email": user.email, "rol": user.rol.value, "region_id": region_id},
             _client_ip(),
         )
         db.session.commit()
@@ -118,10 +136,18 @@ class SuperAdminAdminDetail(MethodView):
         if "status" in data:
             user.status = data["status"]
             user.role_version += 1  # revoca tokens del afectado
+        if "region_id" in data:
+            user.region_id = _resolve_region_id(data.get("region_id"))
+            user.role_version += 1  # revoca tokens (cambió su alcance)
         write_audit(
             _actor_id(), "superadmin.admin.update", "user", user.id,
             before,
-            {"nombre": user.nombre, "rol": user.rol.value, "status": user.status},
+            {
+                "nombre": user.nombre,
+                "rol": user.rol.value,
+                "status": user.status,
+                "region_id": user.region_id,
+            },
             _client_ip(),
         )
         db.session.commit()
@@ -383,3 +409,47 @@ class SuperAdminFlagToggle(MethodView):
         )
         db.session.commit()
         return {"key": flag.key, "enabled": flag.enabled}
+
+
+# ==========================================================================
+# DIVISIÓN REGIONAL — Reindexación de región desde la ubicación
+# ==========================================================================
+@blp.route("/regions/reindex")
+class SuperAdminRegionsReindex(MethodView):
+    @superadmin_required
+    @blp.response(200)
+    def post(self):
+        """Reasigna la región de los usuarios a partir de su ubicación.
+
+        Recorre los usuarios públicos y deriva su región desde Profile.zona
+        (o la ubicación de su última solicitud). El personal interno no se
+        toca. Idempotente: solo actualiza cuando la región cambia.
+        """
+        from app.services.region import assign_region
+        from app.models.solicitud import Solicitud
+
+        processed = 0
+        updated = 0
+        for user in User.query.all():
+            if user.rol.value not in ("pds", "solicitante", "merchant"):
+                continue
+            processed += 1
+            source = user.profile.zona if user.profile and user.profile.zona else None
+            if not source:
+                ultima = (
+                    Solicitud.query.filter_by(solicitante_id=user.id)
+                    .order_by(Solicitud.creado_en.desc())
+                    .first()
+                )
+                source = ultima.ubicacion if ultima else None
+            if assign_region(user, text=source):
+                updated += 1
+
+        write_audit(
+            _actor_id(), "superadmin.regions.reindex", "system", None,
+            None,
+            {"processed": processed, "updated": updated},
+            _client_ip(),
+        )
+        db.session.commit()
+        return {"processed": processed, "updated": updated}

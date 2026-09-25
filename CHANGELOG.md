@@ -25,4 +25,84 @@ All notable changes to this project will be documented in this file.
 - Various model and schema refinements
 
 ## Unreleased
+
+### Added
+- Módulo de Gestión de Chamba (ciclo de vida de ejecución): tabla `chambas`
+  (1:1 con `contracts`), máquina de estados con 7 estados, geo-validación de
+  inicio de obra (PostGIS `ST_DistanceSphere` / Haversine en tests),
+  evidencias de entrada/salida, adendas y novedades, confirmación dual de
+  pago directo, calificación final con habilidades validadas.
+- `POST /chambas/evidencia/upload` — sube evidencias (base64) a MinIO y
+  devuelve la URL pública (patrón foto-perfil).
+- Flujo de firma: aceptar una propuesta ya NO marca la solicitud como
+  asignada (sigue publicada hasta firmar); al firmar el contrato
+  (PATCH /contracts/<id>/estado → aceptar) la solicitud pasa a "en curso"
+  (asignada) y la chamba se genera automáticamente (hito 1). Notificación
+  al PDS "propuesta aceptada" con indicación de firmar.
+- Negociación simétrica ("a convenir"): el PDS puede contraofertar
+  (contra-contraoferta) y rechazar cuando hay una contraoferta activa del
+  solicitante; al aceptar tras una contraoferta, el precio acordado es el
+  último `contra_monto`. Notificaciones de contraoferta por autor.
+- Oferta concreta los parámetros "a convenir" de la solicitud: `fecha_deseada`
+  y `horario` en la oferta y en la contraoferta del chat
+  (`contra_fecha_deseada`/`contra_horario`); al aceptar se escriben en la
+  solicitud con prioridad a lo negociado. Migración `010_convenir_parametros`.
+- Migración `009_add_chamba_module`.
+- Hito 4 (solicitud de cierre): se exige al menos una evidencia final
+  (foto/360° de la obra entregada) — 400 si no hay `evidencia_salida`.
+- **Módulo Maraña (rebusque)**: adendas de otro perfil se lanzan como
+  micro solicitudes públicas (`POST /chambas/<id>/marana` las deriva y
+  MUEVE el monto_extra fuera de la chamba). Feed `GET /maranas/`,
+  postulaciones y negociación tipo ofertas (contraoferta incluida),
+  asignación, entrega y pago directo dual (como la chamba).
+  Migración `011_marana_module`.
+- Adendas mejoradas: `cubierta_por` (pds_actual/otro_pds) +
+  `categoria_requerida`; el PDS puede SUGERIR trabajo de otro perfil
+  (`sugerida_por_pds`); edición (PATCH) y eliminación (DELETE) de adendas
+  no derivadas por el solicitante; validación monto/tiempo >= 0.
+- Tiempo extra configurable en minutos/horas/días (`tiempo_extra_unidad`).
+- Validación de habilidades en la REVISIÓN (Hito 4): nuevo
+  `POST /chambas/<id>/validacion` (solicitante, estado pendiente_validacion)
+  guarda `habilidades_validadas` + `fecha_validacion`. La liquidación queda
+  solo para la notificación del pago; la calificación final conserva las
+  habilidades ya validadas. Migración `012_fecha_validacion`.
+- **Anuncios Laborales (no vinculantes)**: los negocios publican ofertas
+  de trabajo como banner publicitario visible en el mapa de negocios para
+  todos los roles. Postulaciones de PDS con datos de contacto y gestión
+  del negocio (contactar/descartar); cerrar/reabrir anuncio.
+  Migración `013_anuncios` + tests `test_anuncios.py` (10 casos).
+- Tests `tests/test_chambas.py` (40 casos) + `tests/test_maranas.py` (16 casos)
+  + `tests/test_ofertas.py` (13 casos).
+- **División regional (Fase 4)**: administración por regiones de Colombia.
+  Nueva tabla `regions` + `users.region_id` (Migración `014_regiones`,
+  catálogo sembrado por `app/data/seed_regions.py`). El personal interno
+  (admin/verificador/soporte) se asigna a una región y su operación queda
+  acotada a ella:
+  - `GET /api/v1/regions` — catálogo de regiones (cualquier rol autenticado).
+  - Scope regional en el panel admin: usuarios, verificaciones, solicitudes,
+    contratos, disputas, tickets y contenido se filtran por la región del
+    actor (el superadmin ve todo).
+  - `GET/POST /api/v1/admin/staff` — el admin regional crea y lista su
+    propio personal (verificador/soporte) dentro de su región.
+  - Superadmin: `POST/PATCH /superadmin/admins` aceptan `region_id` para
+    crear/reasignar admins regionales.
+  - `GET /kyc/pendientes` y `POST /kyc/documentos/<id>/verificar` se acotan
+    a la región del verificador/admin.
+  - Soporte puede gestionar tickets (`GET/PATCH /admin/tickets`) acotado a
+    su región.
+  - `/auth/me` y los listados de users/admins incluyen la `region`.
+  - Tests `tests/test_regiones.py` (16 casos).
+- **Mitigación división regional**: región derivada de la ubicación
+  (`app/services/region.py`): al actualizar `zona` en el perfil o al crear
+  una solicitud, la región del usuario se deriva automáticamente desde el
+  departamento de su ubicación (también `GET /regions/detectar?ubicacion=`).
+  Regla de propiedad anti doble-conteo: un contrato/disputa/pago pertenece a
+  la región de su SOLICITANTE, por lo que se lista, modera y contabiliza en
+  una sola región (el proveedor de otra región no lo ve). Nuevo
+  `POST /superadmin/regions/reindex` reasigna la región de los usuarios
+  públicos desde su zona o última solicitud (no toca personal interno).
+  Tests ampliados a 24 casos.
+- **Onboarding asigna región**: `PATCH /onboarding/step` ahora deriva la región
+  del usuario desde su `zona` (`app/services/region.assign_region`), cerrando el
+  punto más temprano de identificación por ubicación. Tests regionales a 25 casos.
 - Pending: RF-02 to RF-16, payments, chat, IA

@@ -10,6 +10,9 @@ from app.routes.auth import blp as auth_blp
 from app.routes.users import blp as users_blp
 from app.routes.solicitudes import blp as solicitudes_blp
 from app.routes.contracts import blp as contracts_blp
+from app.routes.chambas import blp as chambas_blp
+from app.routes.maranas import blp as maranas_blp
+from app.routes.anuncios import blp as anuncios_blp
 from app.routes.notifications import blp as notifications_blp
 from app.routes.payments import blp as payments_blp
 from app.routes.ai import blp as ai_blp
@@ -30,11 +33,18 @@ from app.routes.auth_password import blp as auth_password_blp
 from app.routes.disputes import blp as disputes_blp
 from app.routes.email_verification import blp as email_verification_blp
 from app.routes.otp import blp as otp_blp
+from app.routes.payment_methods import blp as payment_methods_blp
+from app.routes.habilidades import blp as habilidades_blp
 from app.routes.providers import blp as providers_blp
 from app.routes.onboarding import blp as onboarding_blp
 from app.routes.portfolio import blp as portfolio_blp
 from app.routes.ai_metrics import blp as ai_metrics_blp
 from app.routes.negocios import blp as negocios_blp
+from app.routes.merchant import blp as merchant_blp
+from app.routes.trust import blp as trust_blp
+from app.routes.user_preferences import blp as user_preferences_blp
+from app.routes.two_factor import blp as two_factor_blp
+from app.routes.regions import blp as regions_blp
 from app.models.user import User
 
 
@@ -74,6 +84,9 @@ def create_app(config_class: str = "app.config.DevelopmentConfig") -> Flask:
     api.register_blueprint(users_blp, url_prefix="/api/v1/users")
     api.register_blueprint(solicitudes_blp, url_prefix="/api/v1/solicitudes")
     api.register_blueprint(contracts_blp, url_prefix="/api/v1/contracts")
+    api.register_blueprint(chambas_blp, url_prefix="/api/v1/chambas")
+    api.register_blueprint(maranas_blp, url_prefix="/api/v1/maranas")
+    api.register_blueprint(anuncios_blp, url_prefix="/api/v1/anuncios")
     api.register_blueprint(notifications_blp, url_prefix="/api/v1/notifications")
     api.register_blueprint(payments_blp, url_prefix="/api/v1/payments")
     api.register_blueprint(ai_blp, url_prefix="/api/v1/ai")
@@ -86,6 +99,8 @@ def create_app(config_class: str = "app.config.DevelopmentConfig") -> Flask:
     api.register_blueprint(kyc_blp, url_prefix="/api/v1/kyc")
     api.register_blueprint(subscriptions_blp, url_prefix="/api/v1/subscriptions")
     api.register_blueprint(wallet_blp, url_prefix="/api/v1/wallet")
+    api.register_blueprint(payment_methods_blp, url_prefix="/api/v1/metodos-pago")
+    api.register_blueprint(habilidades_blp, url_prefix="/api/v1")
     api.register_blueprint(prices_blp, url_prefix="/api/v1/prices")
     api.register_blueprint(auth_password_blp, url_prefix="/api/v1/auth")
     api.register_blueprint(disputes_blp, url_prefix="/api/v1")
@@ -96,6 +111,11 @@ def create_app(config_class: str = "app.config.DevelopmentConfig") -> Flask:
     api.register_blueprint(portfolio_blp, url_prefix="/api/v1/portfolio")
     api.register_blueprint(ai_metrics_blp, url_prefix="/api/v1/ai")
     api.register_blueprint(negocios_blp, url_prefix="/api/v1/negocios")
+    api.register_blueprint(merchant_blp, url_prefix="/api/v1/merchant")
+    api.register_blueprint(trust_blp, url_prefix="/api/v1/trust")
+    api.register_blueprint(user_preferences_blp, url_prefix="/api/v1/users")
+    api.register_blueprint(two_factor_blp, url_prefix="/api/v1/auth")
+    api.register_blueprint(regions_blp, url_prefix="/api/v1/regions")
 
     # Handlers SocketIO (después de init_app)
     register_chat_socketio(socketio)
@@ -121,6 +141,23 @@ def create_app(config_class: str = "app.config.DevelopmentConfig") -> Flask:
 
     with app.app_context():
         _setup_scheduler()
+
+        # Catálogo KYC alineado con el código: inserta faltantes y PODA
+        # obsoletos (p. ej. "validacion_pago") sin necesidad de re-seed.
+        # No corre en TESTING (los tests siembran su propio catálogo).
+        if not app.config.get("TESTING"):
+            try:
+                from app.data.seed_kyc import sync_kyc_catalog
+                sync_kyc_catalog()
+            except Exception:
+                pass
+
+            # División regional: asegura las regiones base de Colombia.
+            try:
+                from app.data.seed_regions import sync_regions
+                sync_regions()
+            except Exception:
+                pass
 
     # Carga el usuario desde el identity del JWT (current_user / lookup).
     @jwt.user_lookup_loader

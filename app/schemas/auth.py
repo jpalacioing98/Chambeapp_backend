@@ -3,6 +3,7 @@
 from marshmallow import Schema, fields, validate
 
 from app.models.user import RolUsuario
+from app.schemas.region import RegionMinSchema
 
 
 class RegisterSchema(Schema):
@@ -42,17 +43,36 @@ class ProfileSchema(Schema):
     verificado = fields.Boolean()
     badges = fields.Raw()
     perfil_completo = fields.Boolean()
+    foto_perfil = fields.String(allow_none=True)
+    # Datos de cuenta + ubicación (RF-02): viven en User/Profile pero se
+    # exponen junto al perfil para que la app los pueda editar.
+    nombre = fields.String(attribute="user.nombre", allow_none=True)
+    telefono = fields.String(attribute="user.telefono", allow_none=True)
+    latitud = fields.Float(allow_none=True)
+    longitud = fields.Float(allow_none=True)
+    # Campos del User (aditivos) que el frontend necesita en el perfil.
+    # Se leen vía la relación Profile.user (dotted attribute).
+    nombre = fields.String(attribute="user.nombre", allow_none=True)
+    username = fields.String(attribute="user.username", allow_none=True)
+    telefono = fields.String(attribute="user.telefono", allow_none=True)
+    email_verificado = fields.Boolean(attribute="user.email_verificado", allow_none=True)
+    fecha_registro = fields.DateTime(attribute="user.fecha_registro", allow_none=True)
 
 
 class MeSchema(Schema):
     id = fields.Integer()
     email = fields.Email()
     rol = fields.Enum(RolUsuario, by_value=True)
+    nombre = fields.String(allow_none=True)
+    username = fields.String(allow_none=True)
+    telefono = fields.String(allow_none=True)
+    email_verificado = fields.Boolean()
     edad_verificada = fields.Boolean()
     acepto_tyc = fields.Boolean()
     fecha_registro = fields.DateTime()
     activo = fields.Boolean()
     profile = fields.Nested(ProfileSchema)
+    region = fields.Nested(RegionMinSchema, allow_none=True)
 
 
 class RegisterResponseSchema(Schema):
@@ -80,6 +100,15 @@ class ResetPasswordSchema(Schema):
     token = fields.String(required=True)
     new_password = fields.String(required=True, validate=validate.Length(min=8))
     current_password = fields.String(load_only=True)
+
+
+class ChangePasswordSchema(Schema):
+    """Cambio de contraseña de un usuario AUTENTICADO (no usa token).
+
+    Valida la contraseña actual y exige la nueva con mínimo 8 caracteres.
+    """
+    current_password = fields.String(required=True)
+    new_password = fields.String(required=True, validate=validate.Length(min=8))
 
 
 class MessageResponseSchema(Schema):

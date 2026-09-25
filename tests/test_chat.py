@@ -197,3 +197,56 @@ def test_mark_read(client):
         "/api/v1/chat/conversations/1/messages", headers=_auth(client, token_b)
     )
     assert hist.get_json()[0]["leido"] is True
+
+
+def test_conversation_peer_perspectiva(client):
+    """El peer embebido respeta la perspectiva: A ve a B y B ve a A."""
+    _register(client, "a@example.com", nombre="Usuario A", username="usera")
+    _register(client, "b@example.com", nombre="Usuario B", username="userb")
+    token_a = _login(client, "a@example.com")
+    token_b = _login(client, "b@example.com")
+
+    client.post(
+        "/api/v1/chat/conversations",
+        headers=_auth(client, token_a),
+        json={"otro_usuario_id": 2},
+    )
+
+    # A consulta → peer es B (id=2)
+    conv_a = client.get(
+        "/api/v1/chat/conversations", headers=_auth(client, token_a)
+    ).get_json()
+    assert len(conv_a) == 1
+    peer_a = conv_a[0]["otro_participante"]
+    assert peer_a["id"] == 2
+    assert peer_a["nombre"] == "Usuario B"
+    assert peer_a["username"] == "userb"
+    assert "verificado" in peer_a
+    assert "rol" in peer_a
+
+    # B consulta → peer es A (id=1)
+    conv_b = client.get(
+        "/api/v1/chat/conversations", headers=_auth(client, token_b)
+    ).get_json()
+    assert len(conv_b) == 1
+    peer_b = conv_b[0]["otro_participante"]
+    assert peer_b["id"] == 1
+    assert peer_b["nombre"] == "Usuario A"
+    assert peer_b["username"] == "usera"
+
+
+def test_conversation_peer_en_post(client):
+    """POST /conversations también devuelve el peer embebido."""
+    _register(client, "a@example.com", nombre="Usuario A")
+    _register(client, "b@example.com", nombre="Usuario B")
+    token_a = _login(client, "a@example.com")
+
+    resp = client.post(
+        "/api/v1/chat/conversations",
+        headers=_auth(client, token_a),
+        json={"otro_usuario_id": 2},
+    )
+    assert resp.status_code == 201
+    peer = resp.get_json()["otro_participante"]
+    assert peer["id"] == 2
+    assert peer["nombre"] == "Usuario B"

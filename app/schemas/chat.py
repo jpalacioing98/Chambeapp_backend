@@ -26,3 +26,11 @@ class ConversationSchema(Schema):
     user_b_id = fields.Integer()
     creado_en = fields.DateTime()
     last_message = fields.Nested(MessageSchema, dump_only=True, allow_none=True)
+    # Otro participante desde la perspectiva del usuario autenticado.
+    # Lo adjunta la ruta como atributo transitorio `conv.peer`.
+    otro_participante = fields.Method(
+        "get_otro_participante", dump_only=True, allow_none=True
+    )
+
+    def get_otro_participante(self, obj):
+        return getattr(obj, "peer", None)

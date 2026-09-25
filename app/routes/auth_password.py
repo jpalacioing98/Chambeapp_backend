@@ -13,6 +13,7 @@ from app.models.user import User
 from app.schemas.auth import (
     ForgotPasswordSchema,
     ResetPasswordSchema,
+    ChangePasswordSchema,
     MessageResponseSchema,
 )
 
@@ -102,19 +103,23 @@ class ResetPassword(MethodView):
 @blp.route("/change-password")
 class ChangePassword(MethodView):
     @jwt_required()
-    @blp.arguments(ResetPasswordSchema)
+    @blp.arguments(ChangePasswordSchema)
     @blp.response(200, MessageResponseSchema)
     def post(self, data):
-        """Cambia contraseña (usuario autenticado)."""
+        """Cambia contraseña (usuario autenticado).
+
+        Valida la contraseña actual antes de actualizar; NO requiere token
+        de reseteo (esa ruta es /reset-password).
+        """
         user_id = int(get_jwt_identity())
         user = db.session.get(User, user_id)
         
         if user is None:
             abort(404, message="Usuario no encontrado.")
         
-        # Verificar contraseña actual (si se proporciona)
+        # Verificar contraseña actual (obligatoria en el schema)
         current_password = data.get("current_password")
-        if current_password and not bcrypt.check_password_hash(
+        if not current_password or not bcrypt.check_password_hash(
             user.password_hash, current_password
         ):
             abort(400, message="La contraseña actual es incorrecta.")

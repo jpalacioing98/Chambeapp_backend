@@ -3,6 +3,7 @@
 from marshmallow import Schema, fields, validate
 
 from app.models.user import RolUsuario
+from app.schemas.region import RegionMinSchema
 
 # Roles internos que un SUPERADMIN puede gestionar (no superadmin ni roles públicos).
 INTERNAL_ROLES = [RolUsuario.ADMIN.value, RolUsuario.SOPORTE.value, RolUsuario.VERIFICADOR.value]
@@ -13,6 +14,7 @@ class AdminCreateSchema(Schema):
     nombre = fields.String(required=True)
     rol = fields.String(required=True, validate=validate.OneOf(INTERNAL_ROLES))
     password = fields.String(required=True, validate=validate.Length(min=6))
+    region_id = fields.Integer(required=False, allow_none=True)
 
 
 class AdminPatchSchema(Schema):
@@ -21,6 +23,7 @@ class AdminPatchSchema(Schema):
     status = fields.String(
         required=False, validate=validate.OneOf(["active", "suspended", "banned"])
     )
+    region_id = fields.Integer(required=False, allow_none=True)
 
 
 class AdminItemSchema(Schema):
@@ -29,6 +32,7 @@ class AdminItemSchema(Schema):
     nombre = fields.String(allow_none=True)
     rol = fields.Enum(RolUsuario, by_value=True)
     status = fields.String()
+    region = fields.Nested(RegionMinSchema, allow_none=True)
 
 
 class AdminListResponseSchema(Schema):

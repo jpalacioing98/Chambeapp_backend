@@ -53,7 +53,7 @@ class TestFeatureExtractor:
         solicitud.longitud = -73.2495
         solicitud.ubicacion = 'Valledupar'
         solicitud.presupuesto = 100000
-        solicitud.urgencia = 'alta'
+        solicitud.urgencia = 'hoy'
         
         # Mock TrustScore
         trust_mock = MagicMock()
@@ -112,7 +112,7 @@ class TestFeatureExtractor:
         solicitud.longitud = -73.2495
         solicitud.ubicacion = 'Valledupar'
         solicitud.presupuesto = 100000
-        solicitud.urgencia = 'baja'
+        solicitud.urgencia = 'flexible'
         
         with patch('app.ai.features.TrustScore') as mock_trust:
             mock_trust.query.filter_by.return_value.first.return_value = None

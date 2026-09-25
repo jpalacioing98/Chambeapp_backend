@@ -73,7 +73,7 @@ def _contrato_completado(proveedor_id, solicitante_id, fin_en=None):
     return c
 
 
-def _pago_liberado(contract_id, monto, comision, liberado_en=None):
+def _pago_completado(contract_id, monto, comision):
     p = Payment(
         contract_id=contract_id,
         monto=monto,
@@ -81,7 +81,6 @@ def _pago_liberado(contract_id, monto, comision, liberado_en=None):
         comision_solicitante=0,
         estado=EstadoPago.COMPLETADO,
         pasarela="mock",
-        liberado_en=liberado_en or datetime.now(timezone.utc),
     )
     db.session.add(p)
     db.session.commit()
@@ -92,7 +91,7 @@ def test_certificado_ingresos_ok(client, app):
     pds = _make_user("pds@example.com", rol=RolUsuario.PDS, nombre="Juan PDS")
     emp = _make_user("emp@example.com", rol=RolUsuario.SOLICITANTE)
     c = _contrato_completado(pds.id, emp.id)
-    _pago_liberado(c.id, monto=200000, comision=24000)  # comision_pds
+    _pago_completado(c.id, monto=200000, comision=24000)  # comision_pds
 
     resp = client.get(
         "/api/v1/payments/certificado-ingresos", headers=_headers(pds)

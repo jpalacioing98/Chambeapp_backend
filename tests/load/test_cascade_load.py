@@ -50,6 +50,7 @@ class TestCascadeLoad:
 
     def test_cascade_send_phase_performance(self):
         """send_phase debe ser rápido incluso con muchos candidatos."""
+        from app import create_app
         from app.services.cascade import CascadeManager
         from app.models.cascade import NotificationCascade
         
@@ -70,16 +71,22 @@ class TestCascadeLoad:
         # 100 candidatos mock
         candidates = [MagicMock(id=i) for i in range(100)]
         
-        with patch('app.services.cascade.NotificationCascade.query.get', return_value=cascade):
-            with patch('app.services.cascade.Solicitud.query.get', return_value=solicitud):
-                with patch('app.services.cascade.find_nearby_providers', return_value=candidates):
-                    with patch('app.services.cascade.Notification') as mock_notif:
-                        with patch('app.services.cascade.db.session'):
-                            with patch('app.services.cascade.send_phase_task'):
-                                start = time.time()
-                                CascadeManager.send_phase(cascade_id=1)
-                                elapsed = time.time() - start
-                                
-                                # Debe enviar 100 notificaciones rápido
-                                assert mock_notif.call_count == 100
-                                assert elapsed < 2.0  # <2s para 100 notificaciones
+        # Se parchea la clase NotificationCascade completa (no .query.get):
+        # acceder a Model.query requiere app context en Flask-SQLAlchemy 3.x.
+        # El app context también cubre Solicitud.query y socketio.emit.
+        app = create_app("app.config.TestingConfig")
+        with app.app_context():
+            with patch('app.services.cascade.NotificationCascade') as mock_model:
+                mock_model.query.get.return_value = cascade
+                with patch('app.services.cascade.Solicitud.query.get', return_value=solicitud):
+                    with patch('app.services.cascade.find_nearby_providers', return_value=candidates):
+                        with patch('app.services.cascade.Notification') as mock_notif:
+                            with patch('app.services.cascade.db.session'):
+                                with patch('app.services.cascade.send_phase_task'):
+                                    start = time.time()
+                                    CascadeManager.send_phase(cascade_id=1)
+                                    elapsed = time.time() - start
+
+                                    # Debe enviar 100 notificaciones rápido
+                                    assert mock_notif.call_count == 100
+                                    assert elapsed < 2.0  # <2s para 100 notificaciones

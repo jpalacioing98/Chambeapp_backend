@@ -14,17 +14,28 @@ class OfertaSchema(Schema):
     pds_nombre = fields.String(dump_only=True, allow_none=True)
     monto = fields.Float(allow_none=True)
     mensaje = fields.String(allow_none=True)
+    # Parámetros "a convenir" concretados por el PDS en la oferta.
+    fecha_deseada = fields.Date(allow_none=True)
+    horario = fields.String(allow_none=True)
     estado = fields.String()
     contra_monto = fields.Float(allow_none=True)
     contra_mensaje = fields.String(allow_none=True)
+    contra_fecha_deseada = fields.Date(allow_none=True)
+    contra_horario = fields.String(allow_none=True)
     created_at = fields.DateTime()
 
 
 class OfertaCreateSchema(Schema):
-    """Body de creación de oferta (monto/mensaje opcionales)."""
+    """Body de creación de oferta (monto/mensaje opcionales).
+
+    `fecha_deseada` y `horario` concretan los parámetros que la solicitud
+    dejó "a convenir" (ej. "los prestadores propondrán su disponibilidad").
+    """
 
     monto = fields.Float(required=False, allow_none=True)
     mensaje = fields.String(required=False, allow_none=True)
+    fecha_deseada = fields.Date(required=False, allow_none=True)
+    horario = fields.String(required=False, allow_none=True)
 
 
 class OfertaResponderSchema(Schema):
@@ -43,6 +54,9 @@ class OfertaResponderSchema(Schema):
     )
     contra_monto = fields.Float(required=False, allow_none=True)
     contra_mensaje = fields.String(required=False, allow_none=True)
+    # Ajustes negociados en el chat para parámetros "a convenir".
+    fecha_deseada = fields.Date(required=False, allow_none=True)
+    horario = fields.String(required=False, allow_none=True)
 
 
 class MisOfertasSchema(Schema):
@@ -52,8 +66,12 @@ class MisOfertasSchema(Schema):
     solicitud_id = fields.Integer()
     monto = fields.Float(allow_none=True)
     mensaje = fields.String(allow_none=True)
+    fecha_deseada = fields.Date(allow_none=True)
+    horario = fields.String(allow_none=True)
     estado = fields.String()
     contra_monto = fields.Float(allow_none=True)
     contra_mensaje = fields.String(allow_none=True)
+    contra_fecha_deseada = fields.Date(allow_none=True)
+    contra_horario = fields.String(allow_none=True)
     created_at = fields.DateTime()
     solicitud = fields.Dict(allow_none=True)

@@ -4,7 +4,7 @@ Fuente: ChambeApp_Doc/Contexto/ChambeApp_Terminos_y_Condiciones.md
 Versión clickwrap (Ley 527/1999) usada por el endpoint público y el seed.
 """
 
-TYC_VERSION = "1.0"
+TYC_VERSION = "1.1"
 
 TYC_CONTENT = """# Documento Legal Integral - ChambeApp
 
@@ -97,16 +97,16 @@ Los usuarios podrán adquirir servicios adicionales de manera individual, incluy
 Dado que La Plataforma opera como un intermediario tecnológico, la garantía legal sobre la calidad, idoneidad y seguridad del servicio recae exclusivamente sobre el **Trabajador/Prestador**, de conformidad con el Estatuto del Consumidor (Ley 1480 de 2011).
 
 **8.2. Pago Directo y Protecciones al Consumidor**
-Los pagos procesados se transfieren directamente al Proveedor una vez confirmado el servicio. En caso de conflicto, La Plataforma podrá congelar temporalmente los fondos durante el proceso de disputa hasta su resolución definitiva.
+Los pagos procesados se transfieren directamente al Proveedor al confirmarse el servicio. La Plataforma no retiene ni congela fondos; en caso de conflicto, la disputa se resuelve evaluando el reembolso conforme al numeral 8.3.
 
 **8.3. Condiciones para Devoluciones y Reembolsos**
 * **Inasistencia (No-Show):** Reembolso del 100% si el Trabajador no se presenta.
 * **Cancelación Anticipada:** Reembolso aplicable si el Solicitante cancela antes del desplazamiento del Trabajador (sujeto a tarifas de cancelación si el Trabajador ya está en ruta).
-* **Servicio Defectuoso:** Los fondos quedarán congelados para iniciar proceso de disputa.
+* **Servicio Defectuoso:** Se abrirá proceso de disputa para evaluar el reembolso correspondiente.
 
 **8.4. Proceso de Disputas y Quejas**
 1. **Reporte:** El Solicitante debe reportar el problema en las siguientes 48 horas aportando evidencia.
-2. **Notificación y Mediación:** La Plataforma congelará los fondos y notificará al Trabajador para mediar.
+2. **Notificación y Mediación:** La Plataforma notificará al Trabajador para mediar sobre la controversia.
 3. **Decisión de la Plataforma:** Si no hay acuerdo en 5 días hábiles, La Plataforma evaluará las evidencias y tomará una decisión definitiva.
 4. **Exclusiones:** No se reembolsarán costos de materiales por fuera de la app ni indemnizaciones por daños a la propiedad.
 
@@ -133,4 +133,37 @@ En caso de que, por disposición legal y conforme al volumen de operaciones, La 
 
 ### 13. Ley Aplicable y Jurisdicción
 Los presentes Términos y Condiciones se rigen por las leyes de la República de Colombia. Cualquier controversia será sometida a los jueces competentes de Valledupar, Cesar.
+
+---
+
+### 14. Módulo de Habilidades, Certificaciones y Progresión de Oficios
+
+**14.1. Oficios y Competencias.** La Plataforma distingue entre el **Oficio** (especialidad principal, ej. Plomería) y las **Habilidades o Competencias** específicas que el Prestador declara dentro de ese oficio (ej. Termofusión de tuberías). El Prestador garantiza que las competencias registradas son veraces y corresponden a su experiencia real.
+
+**14.2. Mecanismos de Validación.** Las competencias pueden ser validadas por tres vías:
+1. **Quizzes técnicos:** Micro-evaluaciones de opción múltiple calificadas por la Plataforma. Se aprueban con un resultado igual o superior al **80%** de aciertos, otorgando el estado de *"Habilidad Validada por Quiz"*.
+2. **Soportes y certificaciones de estudios:** Documentos de instituciones reconocidas (ej. SENA) que se cargan con su código de verificación. La verificación es **documental e informativa previa**.
+3. **Endoso por clientes:** Al cerrar una orden, el Solicitante puede confirmar las competencias que el Prestador demostró. Un acumulado de confirmaciones (ej. 5 clientes) valida automáticamente esa competencia.
+
+**14.3. Niveles de Progresión.** Los oficios registrados avanzan por **5 niveles** (Novato, Conocedor, Práctico, Maestro y Experto) según criterios objetivos: quizzes aprobados, trabajos completados, calificación promedio, endosos y titulación técnica verificada. Los niveles pueden influir en la priorización del motor de recomendación por IA, sin que ello constituya una garantía de resultado.
+
+**14.4. Alcance de la Verificación y Exención de Responsabilidad.** La verificación de títulos o la asignación de los niveles "Maestro" o "Experto" es **puramente documental e informativa previa**, orientada a mejorar la confianza del sistema. No constituye una garantía, aval o fianza por parte de La Plataforma sobre la ejecución o acabado del trabajo. La responsabilidad del servicio recae de forma exclusiva sobre el Prestador independiente bajo el contrato de prestación de servicios firmado con el cliente dentro de la app. El Prestador es responsable de la autenticidad de los documentos, títulos y códigos de verificación aportados; la falsedad dará lugar a la suspensión de la cuenta.
+
+**14.5. Datos del módulo.** Las competencias, resultados de quizzes, certificaciones, endosos y niveles de progresión constituyen datos personales tratados conforme a la Política de Tratamiento de Datos Personales de la Plataforma.
+
+---
+
+### 15. Contrato de Prestación de Servicios y Firma Electrónica
+
+**15.1. Perfeccionamiento del Contrato.** Cuando el Solicitante acepta una oferta del Prestador, se perfecciona entre ellos un **contrato civil/comercial de prestación de servicios ocasionales e independientes** (Art. 6 del Código Sustantivo del Trabajo), ajeno por completo a La Plataforma, que actúa únicamente como intermediario tecnológico.
+
+**15.2. Firma Electrónica (Ley 527 de 1999).** La aceptación de la oferta y la firma electrónica del contrato dentro de la aplicación constituyen la manifestación libre y voluntaria de las partes de aceptar las condiciones pactadas. El registro de la firma (trazo, nombre y documento) y su fecha quedan almacenados en los logs de la Plataforma con pleno valor probatorio como mensaje de datos.
+
+**15.3. El Chat como Anexo Vinculante.** Toda la negociación realizada en el chat oficial de la app (montos, cotizaciones, acuerdos de horarios e insumos) constituye un **anexo vinculante e inseparable** del contrato, conforme a la Ley 527 de 1999.
+
+**15.4. Condiciones de la Negociación.** Las condiciones agregadas por cualquiera de las partes durante la negociación quedan incorporadas explícitamente en la sección de condiciones del contrato y son de obligatorio cumplimiento para ambas partes.
+
+**15.5. Naturaleza del Contrato.** El contrato no genera ningún vínculo laboral con La Plataforma, ni esta garantiza, avala o responde por el cumplimiento del servicio. Las disputas entre las partes se tramitan directamente entre ellas, con la mediación de reputación de La Plataforma según el numeral 8.4.
+
+**15.6. Firma Requerida.** La firma del SOLICITANTE y del PRESTADOR es requisito para la activación y ejecución del contrato, y su ausencia o falsedad no genera obligaciones para La Plataforma.
 """

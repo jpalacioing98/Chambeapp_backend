@@ -39,7 +39,6 @@ class PaymentSchema(Schema):
     motivo_reembolso = fields.String(allow_none=True)
     creado_en = fields.DateTime()
     actualizado_en = fields.DateTime()
-    liberado_en = fields.DateTime(allow_none=True)
 
 
 class NequiInfoSchema(Schema):

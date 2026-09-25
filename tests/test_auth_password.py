@@ -129,3 +129,58 @@ def test_change_password_requires_auth(client):
         },
     )
     assert resp.status_code in (401, 422)  # JWT required
+
+
+def test_change_password_ok_con_actual(client):
+    """P0: cambio de contraseña válido (actual correcta + nueva >= 8)."""
+    from flask_jwt_extended import create_access_token
+
+    user_id = _create_user(client, "cambio@test.com", "Vieja1234!")
+    token = create_access_token(identity=str(user_id))
+
+    resp = client.post(
+        "/api/v1/auth/change-password",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "current_password": "Vieja1234!",
+            "new_password": "Nueva5678!",
+        },
+    )
+    assert resp.status_code == 200
+
+    with client.application.app_context():
+        user = _db.session.get(User, user_id)
+        assert bcrypt.check_password_hash(user.password_hash, "Nueva5678!")
+
+
+def test_change_password_rechaza_actual_incorrecta(client):
+    """P0: change-password rechaza contraseña actual errónea."""
+    from flask_jwt_extended import create_access_token
+
+    user_id = _create_user(client, "cambio2@test.com", "Vieja1234!")
+    token = create_access_token(identity=str(user_id))
+
+    resp = client.post(
+        "/api/v1/auth/change-password",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "current_password": "Equivocada1!",
+            "new_password": "Nueva5678!",
+        },
+    )
+    assert resp.status_code == 400
+
+
+def test_change_password_sin_actual_es_422(client):
+    """P0: el schema exige current_password (antes era opcional)."""
+    from flask_jwt_extended import create_access_token
+
+    user_id = _create_user(client, "cambio3@test.com", "Vieja1234!")
+    token = create_access_token(identity=str(user_id))
+
+    resp = client.post(
+        "/api/v1/auth/change-password",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"new_password": "Nueva5678!"},
+    )
+    assert resp.status_code == 422

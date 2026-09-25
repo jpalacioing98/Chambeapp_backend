@@ -59,7 +59,11 @@ class Contract(db.Model):
 
 
 class Dispute(db.Model):
-    """Disputa / escalamiento de contrato con resolucion de pago (RBAC Fase 2)."""
+    """Disputa / escalamiento de contrato (RBAC Fase 2).
+
+    La resolución es solo informativa: la plataforma no retiene ni congela
+    fondos, por lo que no aplica una acción de pago.
+    """
 
     __tablename__ = "disputes"
 
@@ -76,9 +80,6 @@ class Dispute(db.Model):
     )
     resolved_at = db.Column(db.DateTime, nullable=True)
     resolution = db.Column(db.Text, nullable=True)
-    payment_action = db.Column(
-        db.String(20), nullable=True
-    )  # release | refund
     created_at = db.Column(
         db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )

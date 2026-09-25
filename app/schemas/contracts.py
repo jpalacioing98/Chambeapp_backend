@@ -30,6 +30,7 @@ class SolicitudResumenSchema(Schema):
     categoria = fields.String()
     descripcion = fields.String()
     ubicacion = fields.String()
+    presupuesto = fields.Integer(allow_none=True)
     estado = fields.Enum(EstadoSolicitud, by_value=True)
 
 
@@ -62,5 +63,4 @@ class DisputeSchema(Schema):
     resolved_by = fields.Integer(allow_none=True)
     resolved_at = fields.DateTime(allow_none=True)
     resolution = fields.String(allow_none=True)
-    payment_action = fields.String(allow_none=True)
     created_at = fields.DateTime()

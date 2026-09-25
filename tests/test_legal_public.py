@@ -56,3 +56,25 @@ def test_tyc_public_ok(client):
 def test_tyc_public_not_found(client):
     r = client.get("/api/v1/legal/tyc")
     assert r.status_code == 404
+
+
+def test_tyc_incluye_modulo_habilidades_y_contrato(client):
+    """Los T&C incorporan el módulo de habilidades y el contrato firmable."""
+    _seed_tyc()
+    r = client.get("/api/v1/legal/tyc")
+    assert r.status_code == 200
+    content = r.get_json()["content"]
+    assert "Módulo de Habilidades, Certificaciones y Progresión de Oficios" in content
+    assert "Contrato de Prestación de Servicios y Firma Electrónica" in content
+    assert "80%" in content
+    assert "Ley 527 de 1999" in content
+
+
+def test_politica_datos_incluye_modulo_y_contratos(client):
+    """La política de datos incorpora habilidades/certificaciones y contratos."""
+    r = client.get("/api/v1/legal/politica-datos")
+    assert r.status_code == 200
+    content = r.get_json()["content"]
+    assert "Datos del Módulo de Habilidades, Certificaciones y Oficios" in content
+    assert "Datos de los Contratos y de la Negociación" in content
+    assert "Ley 527 de 1999" in content

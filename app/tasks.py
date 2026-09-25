@@ -27,11 +27,6 @@ celery_app.conf.update(
 
 # Schedule periodic tasks
 celery_app.conf.beat_schedule = {
-    # Auto-release payments after 48 hours
-    "auto-release-payments": {
-        "task": "app.tasks.auto_release_payments",
-        "schedule": crontab(minute="*/30"),  # Every 30 minutes
-    },
     # Auto-approve milestones after 48 hours
     "auto-approve-milestones": {
         "task": "app.tasks.auto_approve_milestones",
@@ -61,43 +56,6 @@ celery_app.conf.beat_schedule = {
 
 
 # Import tasks after creating app
-@celery_app.task(name="app.tasks.auto_release_payments")
-def auto_release_payments():
-    """Auto-release payments after 48 hours of contract completion."""
-    from app import create_app
-    from app.extensions import db
-    from app.models.contract import Contract, EstadoContrato
-    from app.models.payment import Payment, EstadoPago
-    from datetime import datetime, timedelta, timezone
-    
-    app = create_app()
-    with app.app_context():
-        # Find contracts completed more than 48 hours ago
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
-        
-        contracts = Contract.query.filter(
-            Contract.estado == EstadoContrato.COMPLETADO,
-            Contract.fin_en < cutoff,
-        ).all()
-        
-        released_count = 0
-        for contract in contracts:
-            # Find pending payment for this contract
-            payment = Payment.query.filter_by(
-                contract_id=contract.id,
-                estado=EstadoPago.PENDIENTE,
-            ).first()
-            
-            if payment:
-                # Auto-release the payment
-                payment.estado = EstadoPago.LIBERADO
-                payment.liberado_en = datetime.now(timezone.utc)
-                db.session.commit()
-                released_count += 1
-        
-        return f"Auto-released {released_count} payments"
-
-
 @celery_app.task(name="app.tasks.auto_approve_milestones")
 def auto_approve_milestones():
     """Auto-approve milestones after 48 hours of creation."""
