@@ -7,6 +7,7 @@ from flask_jwt_extended import (
     create_refresh_token,
     jwt_required,
     get_jwt_identity,
+    get_jwt,
 )
 
 from app.extensions import db
@@ -79,7 +80,10 @@ class Register(MethodView):
             identity=str(user.id),
             additional_claims={"role": user.rol.value, "role_v": user.role_version},
         )
-        refresh = create_refresh_token(identity=str(user.id))
+        refresh = create_refresh_token(
+            identity=str(user.id),
+            additional_claims={"role_v": user.role_version},
+        )
         from app.schemas.auth import ProfileSchema
 
         result = {
@@ -118,7 +122,10 @@ class Login(MethodView):
             identity=str(user.id),
             additional_claims={"role": user.rol.value, "role_v": user.role_version},
         )
-        refresh = create_refresh_token(identity=str(user.id))
+        refresh = create_refresh_token(
+            identity=str(user.id),
+            additional_claims={"role_v": user.role_version},
+        )
 
         # Auditoría de último login.
         from datetime import datetime, timezone
@@ -133,16 +140,30 @@ class Login(MethodView):
 class Refresh(MethodView):
     @jwt_required(refresh=True)
     def post(self):
-        """Renueva access_token usando refresh_token (conserva claims de rol)."""
+        """Renueva access_token y ROTATEA el refresh_token.
+
+        El refresh lleva claim `role_v`: si el rol/estado del usuario cambió
+        (revocación), el refresh se invalida. Cada uso emite un nuevo refresh
+        (renovación) y verifica que la cuenta siga activa.
+        """
         user_id = get_jwt_identity()
+        claims = get_jwt()
         user = db.session.get(User, int(user_id))
         if user is None:
             abort(401, message="Usuario no encontrado.")
+        if not user.activo or user.status != "active":
+            abort(401, message="Sesión revocada: cuenta inactiva.")
+        if claims.get("role_v") != user.role_version:
+            abort(401, message="Sesión revocada: el rol o estado cambió.")
         access = create_access_token(
             identity=str(user.id),
             additional_claims={"role": user.rol.value, "role_v": user.role_version},
         )
-        return {"access_token": access}
+        new_refresh = create_refresh_token(
+            identity=str(user.id),
+            additional_claims={"role_v": user.role_version},
+        )
+        return {"access_token": access, "refresh_token": new_refresh}
 
 
 @blp.route("/me")

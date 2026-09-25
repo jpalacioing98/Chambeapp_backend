@@ -26,7 +26,7 @@ from app.schemas.anuncio import (
     AnuncioSchema,
     PostulacionEstadoSchema,
 )
-from app.routes.notifications import crear_notificacion
+from app.controllers.notifications import crear_notificacion
 
 blp = Blueprint("anuncios", __name__, description="Anuncios laborales (no vinculantes)")
 

@@ -12,7 +12,7 @@ from app.models.user import User
 from app.models.solicitud import Solicitud, EstadoSolicitud
 from app.models.contract import Contract, EstadoContrato
 from app.schemas.contracts import ContractCreateSchema, ContractEstadoSchema, ContractSchema
-from app.routes.notifications import (
+from app.controllers.notifications import (
     crear_notificacion,
     disparar_notificaciones_formalizacion,
 )

@@ -214,7 +214,7 @@ class TestPreferences:
 class TestNegocioStats:
 
     def _crear_negocio(self, client, headers):
-        with patch("app.routes.negocios.text", side_effect=lambda sql: None):
+        with patch("app.controllers.negocios.text", side_effect=lambda sql: None):
             return client.post("/api/v1/negocios/", json={
                 "nombre": "Negocio Stats",
                 "latitud": 10.4806,
@@ -453,7 +453,7 @@ class TestKycMerchant:
 class TestNegocioImagenUpload:
 
     def _crear_negocio(self, client, headers):
-        with patch("app.routes.negocios.text", side_effect=lambda sql: None):
+        with patch("app.controllers.negocios.text", side_effect=lambda sql: None):
             return client.post("/api/v1/negocios/", json={
                 "nombre": "Negocio Upload",
                 "latitud": 10.4806,

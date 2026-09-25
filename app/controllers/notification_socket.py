@@ -9,10 +9,10 @@ NOTA: al igual que chat_socket, en producción se recomienda validar el JWT en
 el handshake; aquí decodificamos el token en el evento `join`.
 """
 
-from flask_jwt_extended import decode_token
 from flask_socketio import emit, join_room
 
 from app.extensions import socketio
+from app.auth.socket_auth import decode_socket_user_id
 
 
 def register_notification_socketio(sio) -> None:
@@ -20,13 +20,8 @@ def register_notification_socketio(sio) -> None:
 
     @sio.on("join")
     def on_join(data):
-        token = (data or {}).get("token")
-        if not token:
-            return
-        try:
-            decoded = decode_token(token)
-            user_id = int(decoded["sub"])
-        except Exception:
+        user_id = decode_socket_user_id(data=data)
+        if user_id is None:
             emit("error", {"msg": "Token inválido para notificaciones"})
             return
 

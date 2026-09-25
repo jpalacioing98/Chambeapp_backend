@@ -6,45 +6,45 @@ from flask import Flask
 from flask_smorest import Api
 
 from app.extensions import db, migrate, jwt, cache, bcrypt, socketio, cors
-from app.routes.auth import blp as auth_blp
-from app.routes.users import blp as users_blp
-from app.routes.solicitudes import blp as solicitudes_blp
-from app.routes.contracts import blp as contracts_blp
-from app.routes.chambas import blp as chambas_blp
-from app.routes.maranas import blp as maranas_blp
-from app.routes.anuncios import blp as anuncios_blp
-from app.routes.notifications import blp as notifications_blp
-from app.routes.payments import blp as payments_blp
-from app.routes.ai import blp as ai_blp
-from app.routes.chat import blp as chat_blp
-from app.routes.chat_socket import register_chat_socketio
-from app.routes.admin import blp as admin_blp
-from app.routes.tickets import blp as tickets_blp
-from app.routes.superadmin import blp as superadmin_blp
-from app.routes.ofertas import blp as ofertas_blp
-from app.routes.oferta_socket import register_ofertas_socketio
-from app.routes.notification_socket import register_notification_socketio
-from app.routes.legal import blp as legal_blp
-from app.routes.kyc import blp as kyc_blp
-from app.routes.subscriptions import blp as subscriptions_blp
-from app.routes.wallet import blp as wallet_blp
-from app.routes.prices import blp as prices_blp
-from app.routes.auth_password import blp as auth_password_blp
-from app.routes.disputes import blp as disputes_blp
-from app.routes.email_verification import blp as email_verification_blp
-from app.routes.otp import blp as otp_blp
-from app.routes.payment_methods import blp as payment_methods_blp
-from app.routes.habilidades import blp as habilidades_blp
-from app.routes.providers import blp as providers_blp
-from app.routes.onboarding import blp as onboarding_blp
-from app.routes.portfolio import blp as portfolio_blp
-from app.routes.ai_metrics import blp as ai_metrics_blp
-from app.routes.negocios import blp as negocios_blp
-from app.routes.merchant import blp as merchant_blp
-from app.routes.trust import blp as trust_blp
-from app.routes.user_preferences import blp as user_preferences_blp
-from app.routes.two_factor import blp as two_factor_blp
-from app.routes.regions import blp as regions_blp
+from app.controllers.auth import blp as auth_blp
+from app.controllers.users import blp as users_blp
+from app.controllers.solicitudes import blp as solicitudes_blp
+from app.controllers.contracts import blp as contracts_blp
+from app.controllers.chambas import blp as chambas_blp
+from app.controllers.maranas import blp as maranas_blp
+from app.controllers.anuncios import blp as anuncios_blp
+from app.controllers.notifications import blp as notifications_blp
+from app.controllers.payments import blp as payments_blp
+from app.controllers.ai import blp as ai_blp
+from app.controllers.chat import blp as chat_blp
+from app.controllers.chat_socket import register_chat_socketio
+from app.controllers.admin import blp as admin_blp
+from app.controllers.tickets import blp as tickets_blp
+from app.controllers.superadmin import blp as superadmin_blp
+from app.controllers.ofertas import blp as ofertas_blp
+from app.controllers.oferta_socket import register_ofertas_socketio
+from app.controllers.notification_socket import register_notification_socketio
+from app.controllers.legal import blp as legal_blp
+from app.controllers.kyc import blp as kyc_blp
+from app.controllers.subscriptions import blp as subscriptions_blp
+from app.controllers.wallet import blp as wallet_blp
+from app.controllers.prices import blp as prices_blp
+from app.controllers.auth_password import blp as auth_password_blp
+from app.controllers.disputes import blp as disputes_blp
+from app.controllers.email_verification import blp as email_verification_blp
+from app.controllers.otp import blp as otp_blp
+from app.controllers.payment_methods import blp as payment_methods_blp
+from app.controllers.habilidades import blp as habilidades_blp
+from app.controllers.providers import blp as providers_blp
+from app.controllers.onboarding import blp as onboarding_blp
+from app.controllers.portfolio import blp as portfolio_blp
+from app.controllers.ai_metrics import blp as ai_metrics_blp
+from app.controllers.negocios import blp as negocios_blp
+from app.controllers.merchant import blp as merchant_blp
+from app.controllers.trust import blp as trust_blp
+from app.controllers.user_preferences import blp as user_preferences_blp
+from app.controllers.two_factor import blp as two_factor_blp
+from app.controllers.regions import blp as regions_blp
 from app.models.user import User
 
 

@@ -237,7 +237,8 @@ def test_endoso_por_cliente(client):
 
 
 def test_certificacion_tecnica_verificada(client):
-    """Con código de verificación la certificación queda 'verificada'."""
+    """Con código de verificación la certificación se crea 'en_revision'
+    (el verificador la aprueba después); el código queda almacenado."""
     _seed_hab()
     uid, h = _user(client, "cert@test.com")
     hab = Habilidad.query.filter_by(nombre="Plomería").first()
@@ -256,7 +257,8 @@ def test_certificacion_tecnica_verificada(client):
     )
     assert r.status_code == 201
     data = r.get_json()
-    assert data["estado"] == "verificado"
+    assert data["estado"] == "en_revision"
+    assert data["codigo_verificacion"] == "SENA-2024-123"
     assert data["institucion"] == "SENA"
 
     lista = client.get("/api/v1/habilidades/certificaciones", headers=h).get_json()

@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] - 2026-09-25
+
+### Security
+- **Arreglos de seguridad** sobre el JWT/RBAC existente:
+  - Access token 8h→**30 min**; refresh 30d→**7 días**; algoritmo `HS256` fijado.
+  - `/auth/refresh` **renueva y emite nuevo refresh_token** y verifica cuenta
+    activa + `role_v` (revocación también para refresh).
+  - **Sockets con JWT**: nuevo `app/auth/socket_auth.py`; el **chat ya no confía
+    en `user_id` del cliente** — la identidad se deriva del token (handshake o
+    evento). Ofertas y notificaciones usan el mismo helper.
+  - Auditoría de rutas: 182/217 endpoints exigen autenticación; 35 públicos
+    explícitos (catálogo/lectura/auth). Tests `tests/test_security.py` (20 casos):
+    auditoría de GET públicos, rutas sensibles, RBAC 403, revocación `role_version`,
+    refresh, socket auth.
+- Test de certificación técnica alineado al diseño (siempre `en_revision` hasta
+  verificación por verificador).
+
+### Refactor
+- **Arquitectura MVC**: `app/routes/` → **`app/controllers/`** (capa Controller
+  HTTP/MVC). Capas: `controllers/` (blueprints), `models/`, `views/schemas`,
+  `services/`, `auth/`, `tasks/`. Imports actualizados en factory, controladores
+  y tests. Suite completa: **544 passed, 1 skipped**.
+
 ## [1.0.0] - 2026-09-01
 
 ### Added

@@ -25,8 +25,8 @@ from app.schemas.oferta import (
     OfertaResponderSchema,
     MisOfertasSchema,
 )
-from app.routes.notifications import crear_notificacion
-from app.routes.subscriptions import PLANES_LIMITE_POSTULACIONES
+from app.controllers.notifications import crear_notificacion
+from app.controllers.subscriptions import PLANES_LIMITE_POSTULACIONES
 
 blp = Blueprint("ofertas", __name__, description="Ofertas pds/solicitante")
 

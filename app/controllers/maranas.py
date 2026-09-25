@@ -30,7 +30,7 @@ from app.schemas.marana import (
     MaranaResponderSchema,
     MaranaSchema,
 )
-from app.routes.notifications import crear_notificacion
+from app.controllers.notifications import crear_notificacion
 from app.services.pagination import paginate_query
 
 blp = Blueprint("maranas", __name__, description="Marañas (rebusques): adendas derivadas")

@@ -6,9 +6,9 @@ del socket, de modo que los emits dirigidos (`oferta:nueva`,
 """
 
 from flask_socketio import join_room, emit
-from flask_jwt_extended import decode_token
 
 from app.extensions import socketio
+from app.auth.socket_auth import decode_socket_user_id
 
 
 def register_ofertas_socketio(sio) -> None:
@@ -16,16 +16,7 @@ def register_ofertas_socketio(sio) -> None:
 
     @sio.on("connect")
     def on_connect(auth=None):
-        user_id = None
-        try:
-            if isinstance(auth, dict):
-                token = auth.get("token") or auth.get("access_token")
-                if token:
-                    decoded = decode_token(token)
-                    user_id = int(decoded["sub"])
-        except Exception:
-            user_id = None
-
+        user_id = decode_socket_user_id(auth=auth)
         if user_id is not None:
             join_room(f"user:{user_id}")
             emit("status", {"msg": f"Conectado a sala user:{user_id}"})

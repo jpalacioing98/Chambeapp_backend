@@ -15,7 +15,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from app.extensions import db
 from app.models.chamba import Chamba, EstadoChamba
 from app.models.contract import Contract
-from app.routes.notifications import crear_notificacion
+from app.controllers.notifications import crear_notificacion
 from app.schemas.chambas import (
     AdendaSchema,
     AdendaUpdateSchema,

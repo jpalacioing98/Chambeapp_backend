@@ -27,7 +27,7 @@ def app():
         db.create_all()
         # Mock text() in negocios routes to skip PostGIS raw SQL (ST_SetSRID, ST_MakePoint)
         # that doesn't work on SQLite. The geom column is nullable so we just skip it.
-        with patch("app.routes.negocios.text", side_effect=lambda sql: None):
+        with patch("app.controllers.negocios.text", side_effect=lambda sql: None):
             yield app
         db.session.remove()
         db.drop_all()

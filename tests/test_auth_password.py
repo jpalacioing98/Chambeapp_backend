@@ -75,7 +75,7 @@ def test_reset_password_invalid_token(client):
 
 def test_reset_password_valid_token(client):
     """P0: Reset password funciona con token válido."""
-    from app.routes.auth_password import _generate_reset_token
+    from app.controllers.auth_password import _generate_reset_token
     
     user_id = _create_user(client, "reset@test.com")
     token = _generate_reset_token(user_id)
@@ -99,7 +99,7 @@ def test_reset_password_valid_token(client):
 
 def test_reset_password_expired_token(client):
     """P0: Reset password rechaza token expirado."""
-    from app.routes.auth_password import _reset_tokens
+    from app.controllers.auth_password import _reset_tokens
     from datetime import datetime, timedelta, timezone
     
     user_id = _create_user(client, "expired@test.com")

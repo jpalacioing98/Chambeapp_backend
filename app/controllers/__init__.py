@@ -1,0 +1,1 @@
+"""Capa Controller (HTTP/MVC) — blueprints Flask-Smorest."""
