@@ -2,9 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased] - 2026-09-25
+## [Unreleased] - 2026-09-26
 
 ### Security
+- **Registro público restringido**: `POST /auth/register` solo acepta los roles
+  públicos `pds|solicitante|merchant`; cualquier rol de administración
+  (`verificador|soporte|admin|superadmin`) → **422**. El personal de
+  administración lo crea el superadmin vía `/superadmin/admins` (o el admin
+  regional crea `verificador|soporte` de su región vía `/admin/staff`); el
+  panel admin solo expone login. Tests de regresión en `test_auth.py` (4 casos).
 - **2FA efectiva en login**: el toggle ya no es decorativo. Si
   `user.two_factor_enabled`, `/auth/login` NO entrega tokens → responde
   `{ requires_2fa: true, dev_code?, expires_in }` (desafío de 6 dígitos con

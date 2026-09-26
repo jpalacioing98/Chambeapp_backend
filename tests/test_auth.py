@@ -57,6 +57,16 @@ def test_register_duplicate_email(client):
     assert resp.status_code == 409
 
 
+@pytest.mark.parametrize("rol", ["verificador", "soporte", "admin", "superadmin"])
+def test_register_no_acepta_roles_de_administracion(client, rol):
+    """El personal de administración lo crea el superadmin (/superadmin/admins)
+    o el admin regional crea verificador/soporte (/admin/staff); el registro
+    público jamás puede crear cuentas de administración."""
+    resp = _register(client, email=f"{rol}@example.com", rol=rol)
+    assert resp.status_code == 422
+    assert "rol" in resp.get_json()["errors"]["json"]
+
+
 def test_login_success(client):
     _register(client)
     resp = client.post(

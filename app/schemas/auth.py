@@ -5,6 +5,16 @@ from marshmallow import Schema, fields, validate
 from app.models.user import RolUsuario
 from app.schemas.region import RegionMinSchema
 
+# Roles que pueden autoregistrarse públicamente. El personal de
+# administración (verificador/soporte/admin/superadmin) NO se autoregistra:
+# lo crea el superadmin vía /superadmin/admins (o el admin regional crea
+# verificador/soporte vía /admin/staff). El panel admin solo tiene login.
+PUBLIC_ROLES = [
+    RolUsuario.PDS.value,
+    RolUsuario.SOLICITANTE.value,
+    RolUsuario.MERCHANT.value,
+]
+
 
 class RegisterSchema(Schema):
     email = fields.Email(required=True)
@@ -13,7 +23,7 @@ class RegisterSchema(Schema):
         load_only=True,
     )
     rol = fields.String(
-        required=True, validate=validate.OneOf(RolUsuario.values())
+        required=True, validate=validate.OneOf(PUBLIC_ROLES)
     )
     acepto_tyc = fields.Boolean(required=True)
     nombre = fields.String(required=False, load_default=None)
