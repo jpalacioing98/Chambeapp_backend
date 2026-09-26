@@ -1,13 +1,14 @@
 """Seed script for ChambeApp backend (AUP Implementation)."""
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from app import create_app
 from app.extensions import db
 from app.models.user import User, Profile, LegalAcceptance, RolUsuario
-from app.models.solicitud import Solicitud, EstadoSolicitud
+from app.models.solicitud import Solicitud, EstadoSolicitud, UrgenciaSolicitud
 from app.models.oferta import Oferta, EstadoOferta
 from app.models.contract import Dispute, Contract, EstadoContrato
+from app.models.negocio import Negocio, NegocioHorario
 from app.models.config import SystemConfig, FeatureFlag
 from app.models.kyc import DocumentoRequerido
 from app.models.merchant import MerchantPreference
@@ -24,6 +25,7 @@ SEED_USERS = [
     {"email": "verificador@chambeapp.com", "rol": RolUsuario.VERIFICADOR, "nombre": "Verificador Demo"},
     {"email": "soporte@chambeapp.com", "rol": RolUsuario.SOPORTE, "nombre": "Soporte Demo"},
     {"email": "admin@chambeapp.com", "rol": RolUsuario.ADMIN, "nombre": "Admin Demo"},
+    {"email": "superadmin@chambeapp.com", "rol": RolUsuario.SUPERADMIN, "nombre": "Super Admin Demo"},
 ]
 
 def _build_profile(rol: RolUsuario) -> Profile:
@@ -253,6 +255,29 @@ def seed_merchant_business() -> bool:
     return True
 
 
+def seed_user_regions() -> int:
+    """Asigna la región 'caribe' (Valledupar/Cesar) a los usuarios semilla.
+
+    Los usuarios semilla tienen `zona='Valledupar'`; se les fija la región
+    Caribe explícitamente (assign_region no reasigna personal interno).
+    """
+    from app.models.region import Region
+    caribe = Region.query.filter_by(clave="caribe").first()
+    if caribe is None:
+        print("  SKIP regiones (catálogo no sembrado)")
+        return 0
+    count = 0
+    for spec in SEED_USERS:
+        user = User.query.filter_by(email=spec["email"]).first()
+        if user and user.region_id is None:
+            user.region_id = caribe.id
+            count += 1
+            print(f"  REGIÓN caribe → {user.email}")
+    if count:
+        db.session.commit()
+    return count
+
+
 def seed_config() -> int:
     """Crea SystemConfig y FeatureFlag por defecto si no existen. Devuelve nº creados."""
     created = 0
@@ -442,6 +467,7 @@ if __name__ == "__main__":
 
         print("Sembrando usuarios...")
         created = seed_users()
+        seed_user_regions()
         seed_sample_service()
         seed_sample_oferta()
         seed_sample_contract()
