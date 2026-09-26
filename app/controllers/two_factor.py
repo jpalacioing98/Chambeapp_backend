@@ -1,18 +1,23 @@
-"""Autenticación en dos pasos (2FA) — perfil unificado.
+"""Autenticación en dos pasos (2FA) — perfil unificado y login.
 
-Endpoints (JWT requerido):
-  GET    /api/v1/auth/2fa  → estado actual { enabled: bool }.
-  PUT    /api/v1/auth/2fa  → activar/desactivar { enabled: bool }.
-
-MVP: el toggle persiste la preferencia del usuario. La verificación
-efectiva del segundo factor (TOTP/SMS) se integrará con el flujo de
-login en una iteración posterior.
+Endpoints:
+  GET    /api/v1/auth/2fa        → estado actual { enabled: bool } (JWT).
+  PUT    /api/v1/auth/2fa        → activar/desactivar { enabled: bool } (JWT).
+  POST   /api/v1/auth/2fa/verify → completa el login con el código 2FA
+                                   (público: se llama tras recibir requires_2fa).
 """
+
+from datetime import datetime, timezone
 
 from flask.views import MethodView
 from flask_smorest import Blueprint, abort
-from flask_jwt_extended import jwt_required, get_jwt_identity
-from marshmallow import Schema, fields
+from flask_jwt_extended import (
+    jwt_required,
+    get_jwt_identity,
+    create_access_token,
+    create_refresh_token,
+)
+from marshmallow import Schema, fields, validate
 
 from app.extensions import db
 from app.models.user import User
@@ -26,6 +31,11 @@ class TwoFactorStatusSchema(Schema):
 
 class TwoFactorUpdateSchema(Schema):
     enabled = fields.Boolean(required=True)
+
+
+class TwoFactorVerifySchema(Schema):
+    email = fields.Email(required=True)
+    code = fields.String(required=True, validate=validate.Length(min=6, max=6))
 
 
 @blp.route("/2fa")
@@ -52,3 +62,44 @@ class TwoFactor(MethodView):
         user.two_factor_enabled = bool(data["enabled"])
         db.session.commit()
         return {"enabled": user.two_factor_enabled}
+
+
+@blp.route("/2fa/verify")
+class TwoFactorVerify(MethodView):
+    @blp.arguments(TwoFactorVerifySchema)
+    def post(self, data):
+        """Valida el código 2FA del desafío de login y emite los tokens.
+
+        Se llama después de que `/auth/login` devuelva `requires_2fa: true`.
+        En dev/test el código llega en `dev_code` de la respuesta del login.
+        """
+        from app.services.two_factor import verify_challenge
+
+        user = User.query.filter_by(email=data["email"]).first()
+        if user is None:
+            abort(401, message="Credenciales inválidas.")
+        if not user.activo or user.status != "active":
+            abort(403, message="Cuenta suspendida o inactiva.")
+
+        result = verify_challenge(user.id, data["code"])
+        if result is True:
+            pass
+        elif result == "expired":
+            abort(400, message="El código expiró. Vuelve a iniciar sesión.")
+        elif result == "too_many":
+            abort(429, message="Demasiados intentos. Vuelve a iniciar sesión.")
+        else:
+            abort(400, message="Código incorrecto. Verifica e inténtalo de nuevo.")
+
+        access = create_access_token(
+            identity=str(user.id),
+            additional_claims={"role": user.rol.value, "role_v": user.role_version},
+        )
+        refresh = create_refresh_token(
+            identity=str(user.id),
+            additional_claims={"role_v": user.role_version},
+        )
+        user.last_login = datetime.now(timezone.utc)
+        db.session.commit()
+
+        return {"access_token": access, "refresh_token": refresh}

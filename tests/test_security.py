@@ -195,6 +195,78 @@ def test_refresh_invalid_without_token(client):
     assert resp.status_code == 401
 
 
+# ---------------- 2FA: desafío en login + verificación ----------------
+
+def test_login_requires_2fa_when_enabled(client):
+    user = _make_user("2fa@x.com", RolUsuario.PDS)
+    user.two_factor_enabled = True
+    db.session.commit()
+    resp = client.post(
+        "/api/v1/auth/login", json={"email": "2fa@x.com", "password": "ChambeApp123!"}
+    )
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body.get("requires_2fa") is True
+    assert "access_token" not in body
+    assert "refresh_token" not in body
+    assert "dev_code" in body
+
+
+def test_login_without_2fa_returns_tokens(client):
+    _make_user("nof2fa@x.com", RolUsuario.PDS)
+    resp = client.post(
+        "/api/v1/auth/login", json={"email": "nof2fa@x.com", "password": "ChambeApp123!"}
+    )
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body.get("requires_2fa") is None
+    assert "access_token" in body
+
+
+def test_verify_2fa_issues_tokens(client):
+    user = _make_user("2fab@x.com", RolUsuario.ADMIN)
+    user.two_factor_enabled = True
+    db.session.commit()
+
+    login = client.post(
+        "/api/v1/auth/login", json={"email": "2fab@x.com", "password": "ChambeApp123!"}
+    ).get_json()
+    assert login["requires_2fa"] is True
+
+    verify = client.post(
+        "/api/v1/auth/2fa/verify", json={"email": "2fab@x.com", "code": login["dev_code"]}
+    )
+    assert verify.status_code == 200
+    tokens = verify.get_json()
+    assert "access_token" in tokens
+    assert "refresh_token" in tokens
+
+    me = client.get(
+        "/api/v1/auth/me", headers={"Authorization": f"Bearer {tokens['access_token']}"}
+    )
+    assert me.status_code == 200
+    assert me.get_json()["email"] == "2fab@x.com"
+
+
+def test_verify_2fa_wrong_code(client):
+    user = _make_user("2fac@x.com", RolUsuario.PDS)
+    user.two_factor_enabled = True
+    db.session.commit()
+    client.post("/api/v1/auth/login", json={"email": "2fac@x.com", "password": "ChambeApp123!"})
+    resp = client.post(
+        "/api/v1/auth/2fa/verify", json={"email": "2fac@x.com", "code": "000000"}
+    )
+    assert resp.status_code == 400
+
+
+def test_verify_2fa_without_challenge(client):
+    _make_user("2fad@x.com", RolUsuario.PDS)
+    resp = client.post(
+        "/api/v1/auth/2fa/verify", json={"email": "2fad@x.com", "code": "123456"}
+    )
+    assert resp.status_code == 400
+
+
 # ---------------- Sockets: identidad desde el JWT ----------------
 
 def test_socket_auth_from_handshake(app):

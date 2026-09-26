@@ -118,6 +118,14 @@ class Login(MethodView):
         if user.status != "active":
             abort(403, message="Cuenta suspendida o bloqueada. Contacta soporte.")
 
+        # 2FA: si está activado, el login NO entrega tokens; emite un desafío.
+        if user.two_factor_enabled:
+            from app.services.two_factor import create_challenge
+
+            payload = create_challenge(user)
+            payload["requires_2fa"] = True
+            return payload
+
         access = create_access_token(
             identity=str(user.id),
             additional_claims={"role": user.rol.value, "role_v": user.role_version},

@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased] - 2026-09-25
 
 ### Security
+- **2FA efectiva en login**: el toggle ya no es decorativo. Si
+  `user.two_factor_enabled`, `/auth/login` NO entrega tokens → responde
+  `{ requires_2fa: true, dev_code?, expires_in }` (desafío de 6 dígitos con
+  expiración/reintentos en `app/services/two_factor.py`, SMS vía Onurix en prod).
+  Nuevo `POST /auth/2fa/verify` valida el código y emite access+refresh.
+  Tests 2FA en `test_security.py` (6 casos).
+
+### Security
 - **Arreglos de seguridad** sobre el JWT/RBAC existente:
   - Access token 8h→**30 min**; refresh 30d→**7 días**; algoritmo `HS256` fijado.
   - `/auth/refresh` **renueva y emite nuevo refresh_token** y verifica cuenta
