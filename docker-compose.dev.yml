@@ -41,7 +41,9 @@ services:
       retries: 5
 
   minio:
-    image: minio/minio:latest
+    # minio/minio fue retirado de Docker Hub (MinIO es source-only desde 2026);
+    # coollabsio/minio es la build comunitaria automática de los releases oficiales.
+    image: coollabsio/minio:latest
     container_name: chambeapp_minio_dev
     restart: unless-stopped
     command: server /data --console-address ":9001"
@@ -54,7 +56,8 @@ services:
     volumes:
       - minio_data_dev:/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      # La imagen no incluye curl/wget/grep: chequeo HTTP vía /dev/tcp de bash.
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /minio/health/live HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && IFS= read -r line <&3 && case \"$$line\" in *200*) exit 0;; *) exit 1;; esac"]
       interval: 10s
       timeout: 5s
       retries: 5
