@@ -210,13 +210,13 @@ class TestFactory:
             assert isinstance(rec, HybridRecommender)
 
     def test_returns_shadow_when_shadow_mode(self):
-        """Debe retornar ShadowRecommender si shadow_mode=True."""
+        """Debe retornar ShadowRecommender si ML y shadow_mode están activos."""
         from app.ai.recommender import get_recommender
         
         with patch('app.models.config.FeatureFlag') as mock_flag:
             def side_effect(key, enabled):
                 mock = MagicMock()
-                if key == 'ml_shadow_mode':
+                if key in ('ml_ranking_enabled', 'ml_shadow_mode'):
                     mock.first.return_value = MagicMock()
                 else:
                     mock.first.return_value = None
@@ -227,3 +227,21 @@ class TestFactory:
             rec = get_recommender()
             from app.ai.recommender import ShadowRecommender
             assert isinstance(rec, ShadowRecommender)
+
+    def test_shadow_flag_ignored_when_ml_disabled(self):
+        """Con ML apagado, shadow_mode no debe forzar el doble trabajo."""
+        from app.ai.recommender import get_recommender, HeuristicRecommender
+
+        with patch('app.models.config.FeatureFlag') as mock_flag:
+            def side_effect(key, enabled):
+                mock = MagicMock()
+                if key == 'ml_shadow_mode':
+                    mock.first.return_value = MagicMock()
+                else:
+                    mock.first.return_value = None
+                return mock
+
+            mock_flag.query.filter_by.side_effect = side_effect
+
+            rec = get_recommender()
+            assert isinstance(rec, HeuristicRecommender)

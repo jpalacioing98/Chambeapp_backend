@@ -194,35 +194,76 @@ class FeatureExtractor:
     
     def _calc_tiempo_respuesta(self, user_id):
         """Calcula tiempo promedio de respuesta (segundos)."""
-        # Placeholder — usar created_at de ofertas
-        return 3600.0  # 1 hora default
-    
+        from app.models.oferta import Oferta
+
+        rows = (
+            db.session.query(Oferta.created_at, Solicitud.creado_en)
+            .join(Solicitud, Oferta.solicitud_id == Solicitud.id)
+            .filter(Oferta.pds_id == user_id)
+            .order_by(Oferta.created_at.desc())
+            .limit(100)
+            .all()
+        )
+
+        deltas = []
+        for oferta_creada, solicitud_creada in rows:
+            if not oferta_creada or not solicitud_creada:
+                continue
+            try:
+                segundos = (oferta_creada - solicitud_creada).total_seconds()
+            except TypeError:
+                continue
+            if segundos >= 0:
+                deltas.append(segundos)
+
+        if not deltas:
+            return 86400.0
+
+        return min(float(np.mean(deltas)), 604800.0)
+
     def _dias_desde_ultima_actividad(self, user_id):
         """Días desde última actividad."""
         user = User.query.get(user_id)
         if user and user.last_login:
             return (datetime.utcnow() - user.last_login).days
         return 30  # Default
-    
+
     def _calc_price_match(self, solicitud, profile):
-        """Calcula match de precio (0-1)."""
+        """Calcula match de precio (0-1) contra la banda de la categoría."""
         if not solicitud.presupuesto:
             return 0.5
-        # Placeholder — comparar con precio sugerido
-        return 0.5
-    
+
+        from app.controllers.prices import PRECIOS_BASE
+
+        categoria = (solicitud.categoria or "").strip().lower()
+        base = PRECIOS_BASE.get(categoria) or PRECIOS_BASE["otros"]
+        minimo = float(base["min"])
+        promedio = float(base["promedio"])
+        presupuesto = float(solicitud.presupuesto)
+
+        if presupuesto >= promedio:
+            return 1.0
+        if presupuesto <= minimo:
+            return 0.1
+        return 0.1 + 0.9 * (presupuesto - minimo) / (promedio - minimo)
+
     def _calc_saturacion(self, user_id):
         """Calcula penalización por saturación (0-1)."""
-        from app.models.contract import Contract
+        from app.models.contract import Contract, EstadoContrato
+
         activos = Contract.query.filter_by(
-            proveedor_id=user_id, estado='activo'
+            proveedor_id=user_id, estado=EstadoContrato.EN_PROGRESO
         ).count()
         return min(activos / 10, 1.0)  # Tope 10
-    
+
     def _check_disponibilidad(self, user_id):
-        """Verifica disponibilidad (0-1)."""
-        # Placeholder — verificar horarios
-        return 1.0
+        """Verifica disponibilidad (0-1) según carga de contratos activos."""
+        from app.models.contract import Contract, EstadoContrato
+
+        activos = Contract.query.filter_by(
+            proveedor_id=user_id, estado=EstadoContrato.EN_PROGRESO
+        ).count()
+        return max(0.2, 1.0 - activos / 5)
     
     def _get_bandit_value(self, user_id, categoria):
         """Obtiene valor del bandit para la categoría."""

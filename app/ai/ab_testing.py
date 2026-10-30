@@ -46,15 +46,16 @@ class ABTest:
         Returns:
             'A' o 'B'
         """
-        groups = SystemConfig.get_value('ab_test_groups', {})
-        if user_id in groups:
-            return groups[user_id]
-        
+        groups = SystemConfig.get_value('ab_test_groups', {}) or {}
+        key = str(user_id)
+        if key in groups:
+            return groups[key]
+
         # Asignación aleatoria según porcentaje de tráfico
         group = 'A' if random.random() < ABTest.TRAFFIC_PERCENT else 'B'
-        groups[user_id] = group
+        groups[key] = group
         SystemConfig.set_value('ab_test_groups', groups)
-        
+
         return group
     
     @staticmethod

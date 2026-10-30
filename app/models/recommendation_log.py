@@ -86,11 +86,35 @@ class RecommendationLog(db.Model):
             features_snapshot=features,
             modelo_nombre=model,
             modelo_version=version,
-            experiment_group=group
+            experiment_group=group,
+            notificado=True
         )
         db.session.add(log)
         db.session.commit()
         return log
+
+    @classmethod
+    def mark_response(cls, solicitud_id, pds_id):
+        """Marca que el PDS respondió (envió oferta) a una recomendación."""
+        updated = cls.query.filter_by(
+            solicitud_id=solicitud_id, pds_id=pds_id, respondio=False
+        ).update({"respondio": True}, synchronize_session=False)
+        if updated:
+            db.session.commit()
+        return updated
+
+    @classmethod
+    def mark_accepted(cls, solicitud_id, pds_id):
+        """Marca como aceptada la recomendación que terminó en contrato."""
+        updated = cls.query.filter_by(
+            solicitud_id=solicitud_id, pds_id=pds_id
+        ).update(
+            {"respondio": True, "aceptado": True},
+            synchronize_session=False,
+        )
+        if updated:
+            db.session.commit()
+        return updated
     
     @classmethod
     def get_metrics_by_group(cls):

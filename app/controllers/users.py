@@ -105,6 +105,16 @@ class MyProfile(MethodView):
         if "longitud" in data:
             profile.longitud = data["longitud"]
 
+        # Mantiene Profile.geom sincronizado: el retrieval PostGIS solo ve
+        # proveedores cuya geometría está poblada (y no solo lat/lng).
+        if "latitud" in data or "longitud" in data:
+            if profile.latitud is not None and profile.longitud is not None:
+                profile.geom = (
+                    f"SRID=4326;POINT({profile.longitud} {profile.latitud})"
+                )
+            else:
+                profile.geom = None
+
         cats = profile.categorias or []
         habs = profile.habilidades or []
         if (isinstance(cats, list) and len(cats) > 0) or (

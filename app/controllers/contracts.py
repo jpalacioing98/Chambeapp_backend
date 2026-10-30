@@ -58,6 +58,13 @@ class ContractList(MethodView):
             "Tienes un contrato pendiente de un servicio que publicaste.",
         )
         db.session.commit()
+
+        # Feedback loop: el contrato confirma la recomendación aceptada.
+        try:
+            from app.models.recommendation_log import RecommendationLog
+            RecommendationLog.mark_accepted(solicitud.id, proveedor.id)
+        except Exception:
+            db.session.rollback()
         return contract
 
 

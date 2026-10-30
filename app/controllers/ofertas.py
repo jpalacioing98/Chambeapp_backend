@@ -101,6 +101,13 @@ class OfertaList(MethodView):
         db.session.add(oferta)
         db.session.commit()
 
+        # Feedback loop: el PDS respondió a una recomendación del motor.
+        try:
+            from app.models.recommendation_log import RecommendationLog
+            RecommendationLog.mark_response(solicitud.id, user_id)
+        except Exception:
+            db.session.rollback()
+
         # Notifica al solicitante (dueño) y emite socket a su sala.
         crear_notificacion(
             solicitud.solicitante_id,
@@ -317,6 +324,13 @@ class OfertaResponder(MethodView):
             )
             db.session.commit()
             _emit_oferta("oferta:actualizada", oferta, oferta.pds_id)
+
+            # Feedback loop: la recomendación terminó en contrato aceptado.
+            try:
+                from app.models.recommendation_log import RecommendationLog
+                RecommendationLog.mark_accepted(solicitud.id, oferta.pds_id)
+            except Exception:
+                db.session.rollback()
             return oferta
 
         # --- Rechazo (solicitante o PDS) ---

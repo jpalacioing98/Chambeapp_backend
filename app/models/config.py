@@ -58,6 +58,50 @@ class SystemConfig(db.Model):
             return "true" if bool(value) else "false"
         return str(value)
 
+    @staticmethod
+    def infer_value_type(value):
+        """Infiere el value_type a partir del valor nativo recibido."""
+        if isinstance(value, bool):
+            return "bool"
+        if isinstance(value, int):
+            return "int"
+        if isinstance(value, float):
+            return "float"
+        if isinstance(value, (dict, list, tuple)):
+            return "json"
+        return "string"
+
+    @classmethod
+    def get_value(cls, key, default=None):
+        """Lee y deserializa un parámetro; retorna `default` si no existe."""
+        cfg = cls.query.filter_by(key=key).first()
+        if cfg is None:
+            return default
+        try:
+            return cls.parse_value(cfg.value, cfg.value_type)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return default
+
+    @classmethod
+    def set_value(cls, key, value, value_type=None, description=None, commit=True):
+        """Crea o actualiza un parámetro global con su tipo nativo."""
+        cfg = cls.query.filter_by(key=key).first()
+        if value_type is None:
+            value_type = cfg.value_type if cfg is not None else cls.infer_value_type(value)
+
+        if cfg is None:
+            cfg = cls(key=key, value_type=value_type, description=description)
+            db.session.add(cfg)
+        elif description is not None:
+            cfg.description = description
+
+        cfg.value = cls.serialize_value(value, value_type)
+        if commit:
+            db.session.commit()
+        else:
+            db.session.flush()
+        return cfg
+
     def to_dict(self):
         return {
             "key": self.key,

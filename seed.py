@@ -359,6 +359,8 @@ def seed_config() -> int:
         ("certificados", False, "Certificados de verificación avanzada"),
         ("cobertura_valledupar", True, "Cobertura habilitada en Valledupar"),
         ("mantenimiento", False, "Modo mantenimiento de la plataforma"),
+        ("ml_ranking_enabled", False, "Activa el ranking ML (LightGBM)"),
+        ("ml_shadow_mode", True, "Log ML pero usa heurístico"),
     ]
     for key, enabled, desc in flag_defaults:
         if FeatureFlag.query.filter_by(key=key).first():

@@ -99,10 +99,16 @@ class HeuristicRecommender(Recommender):
             results.append(
                 {
                     "id": s.id,
+                    "titulo": s.titulo,
                     "categoria": s.categoria,
                     "descripcion": s.descripcion,
                     "ubicacion": s.ubicacion,
                     "presupuesto": s.presupuesto,
+                    "radio_km": s.radio_km,
+                    "urgencia": s.urgencia.value if s.urgencia else None,
+                    "fecha_deseada": (
+                        s.fecha_deseada.isoformat() if s.fecha_deseada else None
+                    ),
                     "estado": s.estado.value,
                     "score": score,
                     "explicacion": (
@@ -156,11 +162,19 @@ class HybridRecommender(Recommender):
 
     def rank_providers_for_service(self, service: Solicitud, top_n: int = 10) -> list[dict]:
         """Retrieval geoespacial + Ranking ML."""
-        # 1. Retrieval: encontrar candidatos cercanos
+        if service.latitud is None or service.longitud is None:
+            logger.warning(
+                "HybridRecommender: solicitud sin coordenadas, fallback to heuristic"
+            )
+            return self.heuristic.rank_providers_for_service(service, top_n)
+
+        # 1. Retrieval: encontrar candidatos cercanos (respeta el radio de la solicitud)
+        radius_km = service.radio_km or 15.0
+        radius_km = max(1.0, min(float(radius_km), 100.0))
         candidates = self.find_nearby(
-            lat=service.latitud or 0,
-            lng=service.longitud or 0,
-            radius_km=15.0,
+            lat=service.latitud,
+            lng=service.longitud,
+            radius_km=radius_km,
             top_k=50
         )
 
@@ -180,20 +194,22 @@ class HybridRecommender(Recommender):
 
         # 4. Construir resultados
         results = []
-        for i, (provider, score) in enumerate(zip(candidates, scores)):
+        for provider, score in zip(candidates, scores):
             features = self.extractor.extract_for_provider(provider, service)
             results.append({
                 "user_id": provider.id,
                 "email": provider.email,
                 "score": float(score),
-                "ranking": i + 1,
                 "explicacion": self.ranker.explain(features),
                 "features": features,
                 "model_version": self.ranker.version
             })
 
         results.sort(key=lambda r: r["score"], reverse=True)
-        return results[:top_n]
+        results = results[:top_n]
+        for i, result in enumerate(results):
+            result["ranking"] = i + 1
+        return results
 
     def rank_services_for_provider(self, profile: Profile, top_n: int = 10) -> list[dict]:
         """Ranking de servicios para un proveedor."""
@@ -217,10 +233,16 @@ class HybridRecommender(Recommender):
 
             results.append({
                 "id": s.id,
+                "titulo": s.titulo,
                 "categoria": s.categoria,
                 "descripcion": s.descripcion,
                 "ubicacion": s.ubicacion,
                 "presupuesto": s.presupuesto,
+                "radio_km": s.radio_km,
+                "urgencia": s.urgencia.value if s.urgencia else None,
+                "fecha_deseada": (
+                    s.fecha_deseada.isoformat() if s.fecha_deseada else None
+                ),
                 "estado": s.estado.value,
                 "score": float(score),
                 "explicacion": self.ranker.explain(features),
@@ -265,7 +287,8 @@ class ShadowRecommender(Recommender):
         """Log para comparación A/B."""
         logger.info(f"Shadow mode - solicitud {solicitud_id}")
         for r in ml_results[:3]:
-            logger.info(f"  ML: {r['email']} score={r['score']:.4f}")
+            ident = r.get('email') or f"user {r.get('user_id') or r.get('id')}"
+            logger.info(f"  ML: {ident} score={r['score']:.4f}")
 
 
 def get_recommender() -> Recommender:
@@ -273,8 +296,8 @@ def get_recommender() -> Recommender:
 
     Lógica:
         1. Si ml_ranking_enabled y no shadow_mode → HybridRecommender
-        2. Si shadow_mode → ShadowRecommender (log ML, usa heurístico)
-        3. Si nada → HeuristicRecommender
+        2. Si ml_ranking_enabled y shadow_mode → ShadowRecommender
+        3. Si ML está apagado → HeuristicRecommender (shadow no aplica)
     """
     from app.models.config import FeatureFlag
 
@@ -286,9 +309,8 @@ def get_recommender() -> Recommender:
         key='ml_shadow_mode', enabled=True
     ).first() is not None
 
-    if ml_enabled and not shadow_mode:
-        return HybridRecommender()
-    elif shadow_mode:
-        return ShadowRecommender()
-    else:
+    if not ml_enabled:
         return HeuristicRecommender()
+    if shadow_mode:
+        return ShadowRecommender()
+    return HybridRecommender()

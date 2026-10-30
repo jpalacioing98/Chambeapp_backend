@@ -99,6 +99,10 @@ def find_nearby_providers(lat: float, lng: float, radius_km: float, top_k: int =
     """
     from app.models.user import User, Profile, RolUsuario
     
+    if lat is None or lng is None:
+        logger.warning("find_nearby_providers: lat/lng nulos, sin búsqueda geoespacial")
+        return []
+
     if is_postgis():
         return _find_nearby_postgis(lat, lng, radius_km, top_k)
     else:
@@ -107,20 +111,18 @@ def find_nearby_providers(lat: float, lng: float, radius_km: float, top_k: int =
 
 def _find_nearby_postgis(lat: float, lng: float, radius_km: float, top_k: int):
     """Busca providers cercanos usando PostGIS ST_DWithin."""
-    from app.models.user import User, Profile, RolUsuario
+    from sqlalchemy import cast
+    from geoalchemy2 import Geography
     from geoalchemy2.functions import ST_DWithin, ST_SetSRID, ST_MakePoint
-    
+
     logger.debug(f"PostGIS search: lat={lat}, lng={lng}, radius={radius_km}km")
-    
+
+    point = cast(ST_SetSRID(ST_MakePoint(lng, lat), 4326), Geography)
     providers = db.session.query(User).join(Profile).filter(
         User.rol == RolUsuario.PDS,
         Profile.perfil_completo.is_(True),
         Profile.geom.isnot(None),
-        ST_DWithin(
-            Profile.geom,
-            ST_SetSRID(ST_MakePoint(lng, lat), 4326),
-            radius_km * 1000  # ST_DWithin usa metros para Geography
-        )
+        ST_DWithin(cast(Profile.geom, Geography), point, radius_km * 1000)
     ).limit(top_k).all()
     
     logger.debug(f"PostGIS found {len(providers)} providers within {radius_km}km")
