@@ -156,6 +156,59 @@ class TestCrearNegocio:
 
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║  GET /negocios/mapa — Pines del mapa (Valledupar)                             ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
+
+@pytest.mark.integration
+class TestMapaNegocios:
+    """El mapa público debe devolver los negocios activos cercanos al centro
+    de operación (Valledupar). En SQLite no hay PostGIS → el endpoint cae al
+    fallback Haversine (antes devolvía 500 con lat/lng)."""
+
+    def _negocio_activo(self, client, **overrides):
+        from app.models.negocio import Negocio, EstadoNegocio
+        h = _create_merchant(client, overrides.pop("_email", "m_mapa@test.com"))
+        resp = _crear_negocio(client, h, overrides=overrides)
+        nid = resp.get_json()["id"]
+        n = db.session.get(Negocio, nid)
+        n.estado = EstadoNegocio.ACTIVO
+        db.session.commit()
+        return nid
+
+    def test_mapa_sin_filtro_devuelve_todos_los_activos(self, client):
+        """Sin lat/lng → todos los negocios activos (clusters + pins)."""
+        self._negocio_activo(client)
+        resp = client.get(f"{NEGOCIOS_URL}/mapa")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert set(data.keys()) == {"clusters", "pins"}
+        assert len(data["pins"]) == 1
+        assert data["pins"][0]["lat"] == 10.4806
+        assert data["pins"][0]["lng"] == -73.2495
+
+    def test_mapa_con_radio_incluye_negocio_de_valledupar(self, client):
+        """Negocio en el centro de Valledupar aparece al filtrar por radio."""
+        self._negocio_activo(client)
+        resp = client.get(f"{NEGOCIOS_URL}/mapa?lat=10.4806&lng=-73.2495&radio=10")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert len(data["pins"]) == 1
+        assert data["pins"][0]["nombre"] == "Mi Negocio Test"
+
+    def test_mapa_con_radio_excluye_negocio_lejano(self, client):
+        """Un negocio a ~420 km (Medellín) queda fuera del radio de Valledupar."""
+        self._negocio_activo(
+            client,
+            _email="m_lejano@test.com",
+            latitud=6.2138,
+            longitud=-75.5689,
+        )
+        resp = client.get(f"{NEGOCIOS_URL}/mapa?lat=10.4806&lng=-73.2495&radio=10")
+        assert resp.status_code == 200
+        assert resp.get_json()["pins"] == []
+
+
+# ╔══════════════════════════════════════════════════════════════════════════════╗
 # ║  GET /negocios — Listar negocios                                            ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 

@@ -56,7 +56,7 @@ def _crear_solicitud(client, headers, **extra):
         "titulo": "Chamba de prueba",
         "categoria": "gastronomia",
         "descripcion": "Necesito apoyo en el local",
-        "ubicacion": "Medellin",
+        "ubicacion": "Valledupar",
     }
     payload.update(extra)
     return client.post("/api/v1/solicitudes/", json=payload, headers=headers)
@@ -147,11 +147,11 @@ def test_detalle_merchant_ve_coords_de_su_chamba(client):
     """El merchant dueño ve las coordenadas de su propia chamba."""
     h = _headers(client, "m_coord@test.com", rol="merchant")
     resp = _crear_solicitud(
-        client, h, latitud=6.2138, longitud=-75.5689, direccion="El Poblado"
+        client, h, latitud=10.4772, longitud=-73.2508, direccion="Barrio Centro"
     )
     sid = resp.get_json()["id"]
 
     det = client.get(f"/api/v1/solicitudes/{sid}", headers=h).get_json()
-    assert det["latitud"] == 6.2138
-    assert det["longitud"] == -75.5689
-    assert det["direccion"] == "El Poblado"
+    assert det["latitud"] == 10.4772
+    assert det["longitud"] == -73.2508
+    assert det["direccion"] == "Barrio Centro"

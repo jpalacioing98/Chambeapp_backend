@@ -20,12 +20,12 @@ from app.schemas.rating import RatingCreateSchema, RatingSchema
 blp = Blueprint("solicitudes", __name__, description="Solicitudes y calificaciones")
 
 # Ciudad base de operación (geofence de solicitudes). Configurable vía
-# SystemConfig key="ciudad_base"; Medellin es el valor por defecto del producto.
-CIUDAD_BASE_DEFAULT = "Medellin"
+# SystemConfig key="ciudad_base"; Valledupar es el valor por defecto del producto.
+CIUDAD_BASE_DEFAULT = "Valledupar"
 
 
 def _ciudad_base() -> str:
-    """Devuelve la ciudad base configurada (o Medellin por defecto)."""
+    """Devuelve la ciudad base configurada (o Valledupar por defecto)."""
     cfg = SystemConfig.query.filter_by(key="ciudad_base").first()
     if cfg and cfg.value:
         return cfg.value

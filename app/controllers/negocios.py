@@ -11,6 +11,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy import text
 
 from app.extensions import db
+from app.ai.geo import haversine_km, is_postgis
 from app.models.user import User, RolUsuario
 from app.models.negocio import (
     Negocio, NegocioHorario, NegocioRating, NegocioReporte,
@@ -226,19 +227,34 @@ class NegociosMapa(MethodView):
 
         query = Negocio.query.filter(Negocio.estado == EstadoNegocio.ACTIVO.value)
 
-        if lat and lng:
+        if lat is not None and lng is not None:
             radio_metros = radio * 1000
-            query = query.filter(
-                text("""
-                    ST_DWithin(
-                        geom::geography,
-                        ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography,
-                        :radio_metros
-                    )
-                """)
-            ).params(lng=lng, lat=lat, radio_metros=radio_metros)
-
-        negocios = query.all()
+            if is_postgis():
+                # COALESCE: la geometría puede venir NULL (negocios sembrados
+                # antes de existir la columna o importados); se reconstruye
+                # desde latitud/longitud para no excluirlos del radio.
+                query = query.filter(
+                    text("""
+                        ST_DWithin(
+                            COALESCE(
+                                geom::geography,
+                                ST_SetSRID(ST_MakePoint(longitud, latitud), 4326)::geography
+                            ),
+                            ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography,
+                            :radio_metros
+                        )
+                    """)
+                ).params(lng=lng, lat=lat, radio_metros=radio_metros)
+                negocios = query.all()
+            else:
+                # Sin PostGIS (SQLite en dev/test): Haversine en Python.
+                negocios = [
+                    n for n in query.all()
+                    if n.latitud is not None and n.longitud is not None
+                    and haversine_km(lat, lng, n.latitud, n.longitud) <= radio
+                ]
+        else:
+            negocios = query.all()
 
         pins = []
         for n in negocios:

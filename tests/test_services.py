@@ -59,7 +59,7 @@ def test_create_service_ok(client):
             "titulo": "Reparar grifo",
             "categoria": "plomeria",
             "descripcion": "arreglar tuberia",
-            "ubicacion": "Medellin",
+            "ubicacion": "Valledupar",
         },
         headers=h,
     )
@@ -105,7 +105,7 @@ def test_create_service_sin_presupuesto(client):
 
 
 def test_create_service_fuera_ciudad_base(client):
-    """Ubicación distinta a la ciudad base (Medellin) → advertencia."""
+    """Ubicación distinta a la ciudad base (Valledupar) → advertencia."""
     h = _user(client, "emp5@example.com", rol="solicitante")
     resp = client.post(
         "/api/v1/solicitudes/",
@@ -116,12 +116,12 @@ def test_create_service_fuera_ciudad_base(client):
     assert resp.get_json()["advertencia"] is not None
 
 
-def test_create_service_en_medellin_sin_advertencia(client):
-    """Ciudad base (Medellin) → sin advertencia de cobertura."""
+def test_create_service_en_valledupar_sin_advertencia(client):
+    """Ciudad base (Valledupar) → sin advertencia de cobertura."""
     h = _user(client, "emp5b@example.com", rol="solicitante")
     resp = client.post(
         "/api/v1/solicitudes/",
-        json={"titulo": "Reparar grifo", "categoria": "x", "descripcion": "d", "ubicacion": "Medellin"},
+        json={"titulo": "Reparar grifo", "categoria": "x", "descripcion": "d", "ubicacion": "Valledupar"},
         headers=h,
     )
     assert resp.status_code == 201

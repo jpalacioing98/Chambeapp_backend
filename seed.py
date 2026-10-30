@@ -18,6 +18,10 @@ from app.data.seed_kyc_merchant import seed_kyc_merchant
 PASSWORD = "ChambeApp123!"
 TYC_IP = "127.0.0.1"
 
+# Centro de operación de la plataforma: Valledupar (Cesar, Colombia).
+VALLEDUPAR_LAT = 10.4806
+VALLEDUPAR_LNG = -73.2495
+
 SEED_USERS = [
     {"email": "pds@chambeapp.com", "rol": RolUsuario.PDS, "nombre": "Trabajador Demo"},
     {"email": "solicitante@chambeapp.com", "rol": RolUsuario.SOLICITANTE, "nombre": "Empleador Demo"},
@@ -107,9 +111,13 @@ def seed_sample_service() -> bool:
         categoria="plomería",
         descripcion="Reparación de fuga de agua en tubería principal.",
         ubicacion="Valledupar",
+        direccion="Cra 7 #14-20, Barrio Centro, Valledupar",
+        latitud=10.4772,
+        longitud=-73.2508,
         presupuesto=120000,
         fecha_deseada=date.today() + timedelta(days=2),
         urgencia=UrgenciaSolicitud.SEMANA,
+        radio_km=6.0,
         estado=EstadoSolicitud.PUBLICADO,
     )
     db.session.add(solicitud)
@@ -135,7 +143,11 @@ def seed_sample_oferta() -> bool:
             categoria="carpintería",
             descripcion="Instalación de mueble de cocina.",
             ubicacion="Valledupar",
+            direccion="Calle 15 #9-30, Barrio La Esperanza, Valledupar",
+            latitud=10.4835,
+            longitud=-73.2459,
             presupuesto=150000,
+            radio_km=8.0,
             estado=EstadoSolicitud.PUBLICADO,
         )
         db.session.add(solicitud)
@@ -200,6 +212,8 @@ def seed_merchant_business() -> bool:
     """Crea un negocio demo para el merchant semilla (idempotente).
 
     Crea un negocio 'Restaurante El Sazón' con horarios e imágenes de ejemplo.
+    Ubicado en Valledupar (Cesar) — centro de operación de la plataforma —
+    para que el pin caiga dentro del viewport del mapa público.
     """
     merchant = User.query.filter_by(email="merchant@chambeapp.com").first()
     if not merchant:
@@ -215,20 +229,20 @@ def seed_merchant_business() -> bool:
         owner_id=merchant.id,
         slug=slug,
         nombre="Restaurante El Sazón",
-        descripcion="Restaurante tradicional colombiano en El Poblado, Medellín.",
+        descripcion="Restaurante tradicional colombiano en el centro de Valledupar, Cesar.",
         tipo="comercio",
-        latitud=6.2138,
-        longitud=-75.5689,
-        direccion="Calle 10 #43-14, El Poblado, Medellín",
-        ciudad="Medellin",
-        departamento="Antioquia",
+        latitud=VALLEDUPAR_LAT,
+        longitud=VALLEDUPAR_LNG,
+        direccion="Calle 16 #6-30, Barrio Centro",
+        ciudad="Valledupar",
+        departamento="Cesar",
         categoria_principal="gastronomia",
         categorias_secundarias=["bebidas", "postres"],
         servicios=[
-            {"titulo": "Comida a la mesa", "descripcion": "Platos típicos colombianos en el local."},
+            {"titulo": "Comida a la mesa", "descripcion": "Platos típicos colombianes en el local."},
             {"titulo": "Para llevar", "descripcion": "Empaque y pedidos por mostrador."},
         ],
-        palabras_clave=["comida colombiana", "restaurante", "medellin"],
+        palabras_clave=["comida colombiana", "restaurante", "valledupar"],
         estado="activo",
         verificado=True,
     )
@@ -251,8 +265,36 @@ def seed_merchant_business() -> bool:
     prefs = MerchantPreference(user_id=merchant.id)
     db.session.add(prefs)
 
-    print("  CREADO negocio demo: Restaurante El Sazón (merchant@chambeapp.com)")
+    print("  CREADO negocio demo: Restaurante El Sazón (merchant@chambeapp.com) en Valledupar")
     return True
+
+
+def seed_negocios_geom() -> int:
+    """Rellena la columna PostGIS `negocios.geom` a partir de latitud/longitud.
+
+    El seed escribe el Negocio directamente (no pasa por el controller POST),
+    así que la geometría espacial queda NULL y las búsquedas de proximidad
+    (ST_DWithin) no lo encuentran. Solo corre en PostgreSQL/PostGIS: en
+    SQLite la función ST_MakePoint no existe.
+    """
+    if db.engine.dialect.name != "postgresql":
+        return 0
+
+    from sqlalchemy import text
+
+    resultado = db.session.execute(
+        text(
+            """
+            UPDATE negocios
+            SET geom = ST_SetSRID(ST_MakePoint(longitud, latitud), 4326)
+            WHERE geom IS NULL
+              AND latitud IS NOT NULL
+              AND longitud IS NOT NULL
+            """
+        )
+    )
+    db.session.commit()
+    return resultado.rowcount or 0
 
 
 def seed_user_regions() -> int:
@@ -317,7 +359,7 @@ def seed_config() -> int:
         ),
         (
             "ciudad_base",
-            "Medellin",
+            "Valledupar",
             "string",
             "Ciudad base de operación (geofence de solicitudes)",
         ),
@@ -475,6 +517,9 @@ if __name__ == "__main__":
         seed_sample_contract()
         print("Sembrando negocio y preferencias del merchant demo...")
         seed_merchant_business()
+        print("Sembrando geometría PostGIS de los negocios...")
+        geom_count = seed_negocios_geom()
+        print(f"  {geom_count} negocio(s) con geom actualizado")
         print("Sembrando configuración global y feature flags...")
         seed_config()
         print("Sembrando catálogo de documentos KYC por rol (incluye merchant)...")
