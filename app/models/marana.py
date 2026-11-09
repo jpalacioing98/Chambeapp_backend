@@ -41,6 +41,15 @@ class EstadoMaranaOferta(str, Enum):
 
 class Marana(db.Model):
     __tablename__ = "maranas"
+    __table_args__ = (
+        db.Index("ix_maranas_estado_creado", "estado", "creado_en"),
+        db.Index(
+            "ix_maranas_solicitante_creado", "solicitante_id", "creado_en"
+        ),
+        db.Index(
+            "ix_maranas_pds_creado", "pds_asignado_id", "creado_en"
+        ),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
     # Origen: la chamba y la adenda (índice en chamba.adendas) que la originó.
@@ -50,7 +59,7 @@ class Marana(db.Model):
     )
     adenda_idx = db.Column(db.Integer, nullable=True)
     solicitante_id = db.Column(
-        db.Integer, db.ForeignKey("users.id"), nullable=False, index=True
+        db.Integer, db.ForeignKey("users.id"), nullable=False
     )
 
     titulo = db.Column(db.String(200), nullable=False)
@@ -78,7 +87,7 @@ class Marana(db.Model):
 
     # PDS asignado (al aceptar una oferta).
     pds_asignado_id = db.Column(
-        db.Integer, db.ForeignKey("users.id"), nullable=True, index=True
+        db.Integer, db.ForeignKey("users.id"), nullable=True
     )
     fecha_asignacion = db.Column(db.DateTime, nullable=True)
     fecha_entrega = db.Column(db.DateTime, nullable=True)

@@ -131,39 +131,77 @@ class ContractEstado(MethodView):
         accion = data["estado"]
 
         if accion == "aceptar":
+            # Firma bilateral y paralela: cada parte firma por su cuenta, sin
+            # esperar a la contraparte. El contrato se activa cuando ambos
+            # han firmado.
             if contract.estado != EstadoContrato.PENDIENTE:
-                abort(400, message="Solo se acepta un contrato desde 'pendiente'.")
-            # check-in: solo el pds (proveedor) ejecuta el trabajo.
-            if user_id != contract.proveedor_id:
-                abort(403, message="Solo el proveedor puede aceptar el contrato.")
-            contract.estado = EstadoContrato.EN_PROGRESO
-            contract.inicio_en = datetime.now(timezone.utc)
+                abort(400, message="Solo se firma un contrato desde 'pendiente'.")
+            if contract.firma_solicitante and contract.firma_proveedor:
+                abort(400, message="El contrato ya fue firmado por ambas partes.")
 
-            # Firma completa del contrato: la solicitud pasa a "en curso"
-            # (ASIGNADA) y se genera la chamba del módulo de gestión (hito 1).
-            solicitud = db.session.get(Solicitud, contract.service_id)
-            if solicitud is not None:
-                solicitud.estado = EstadoSolicitud.ASIGNADA
-                from app.models.chamba import Chamba, EstadoChamba
+            es_solicitante = user_id == contract.solicitante_id
+            firma = data.get("firma") or {}
+            ahora = datetime.now(timezone.utc)
 
-                if Chamba.query.filter_by(contract_id=contract.id).first() is None:
-                    chamba = Chamba(
-                        contract_id=contract.id,
-                        estado=EstadoChamba.PROGRAMADA,
-                        fecha_activacion=datetime.now(timezone.utc),
-                        evidencia_entrada=[],
-                        evidencia_salida=[],
-                        adendas=[],
-                        novedades=[],
-                        habilidades_validadas=[],
-                    )
-                    db.session.add(chamba)
+            if es_solicitante:
+                contract.firma_solicitante = True
+                contract.firmado_solicitante_en = ahora
+                contract.datos_firma_solicitante = firma
+                contraparte = contract.proveedor_id
+                rol = "solicitante"
+            else:
+                contract.firma_proveedor = True
+                contract.firmado_proveedor_en = ahora
+                contract.datos_firma_proveedor = firma
+                contraparte = contract.solicitante_id
+                rol = "proveedor"
 
-            crear_notificacion(
-                contract.solicitante_id,
-                "contrato_aceptado",
-                "El prestador firmó el contrato. La solicitud está en curso: gestiona la chamba.",
-            )
+            if contract.firma_solicitante and contract.firma_proveedor:
+                # Contrato firmado por ambas partes: se activa el trabajo.
+                contract.estado = EstadoContrato.EN_PROGRESO
+                contract.inicio_en = ahora
+
+                # Firma completa del contrato: la solicitud pasa a "en curso"
+                # (ASIGNADA) y se genera la chamba del módulo de gestión (hito 1).
+                solicitud = db.session.get(Solicitud, contract.service_id)
+                if solicitud is not None:
+                    solicitud.estado = EstadoSolicitud.ASIGNADA
+                    from app.models.chamba import Chamba, EstadoChamba
+
+                    if Chamba.query.filter_by(contract_id=contract.id).first() is None:
+                        chamba = Chamba(
+                            contract_id=contract.id,
+                            estado=EstadoChamba.PROGRAMADA,
+                            fecha_activacion=datetime.now(timezone.utc),
+                            evidencia_entrada=[],
+                            evidencia_salida=[],
+                            adendas=[],
+                            novedades=[],
+                            habilidades_validadas=[],
+                        )
+                        db.session.add(chamba)
+
+                crear_notificacion(
+                    contract.solicitante_id,
+                    "contrato_aceptado",
+                    "Ambas partes firmaron el contrato. La solicitud está en curso: gestiona la chamba.",
+                )
+                crear_notificacion(
+                    contract.proveedor_id,
+                    "contrato_aceptado",
+                    "Ambas partes firmaron el contrato. La solicitud está en curso: gestiona la chamba.",
+                )
+            else:
+                # Solo una parte firmó: se espera a la contraparte.
+                crear_notificacion(
+                    contraparte,
+                    "contrato_firma_pendiente",
+                    (
+                        "El solicitante firmó el contrato. Falta tu firma para activarlo."
+                        if rol == "solicitante"
+                        else "El prestador firmó el contrato. Falta tu firma para activarlo."
+                    ),
+                )
 
         elif accion == "completar":
             if contract.estado != EstadoContrato.EN_PROGRESO:
@@ -207,7 +245,13 @@ class ContractEstado(MethodView):
                 from app.config import COMMISSION_EXEMPT_THRESHOLD
 
                 modalidad = get_modalidad(solicitud.id)
-                monto_total = solicitud.presupuesto or 0
+                # El valor final acordado manda sobre el presupuesto de
+                # la solicitud (puede venir de una contraoferta).
+                monto_total = (
+                    contract.monto
+                    if contract.monto is not None
+                    else (solicitud.presupuesto or 0)
+                )
 
                 if monto_total > 0:
                     # Determinar si hay comisión (Modalidad A, monto >= umbral)

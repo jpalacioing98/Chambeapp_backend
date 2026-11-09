@@ -70,6 +70,26 @@ with app.app_context():
     # la migración 003 sin re-ejecutar create_table).
     run("ALTER TABLE solicitudes ADD COLUMN IF NOT EXISTS horario VARCHAR(80)")
     run("ALTER TABLE solicitudes ADD COLUMN IF NOT EXISTS imagenes JSON")
+    # Negociaci�n bilateral (migraci�n 018): aceptaci�n por ambas partes,
+    # valor final, condiciones y firmas paralelas del contrato.
+    run("ALTER TABLE ofertas ADD COLUMN IF NOT EXISTS contra_autor VARCHAR(20)")
+    run("ALTER TABLE ofertas ADD COLUMN IF NOT EXISTS aceptada_por_solicitante BOOLEAN NOT NULL DEFAULT FALSE")
+    run("ALTER TABLE ofertas ADD COLUMN IF NOT EXISTS aceptada_por_pds BOOLEAN NOT NULL DEFAULT FALSE")
+    run("ALTER TABLE ofertas ADD COLUMN IF NOT EXISTS monto_final DOUBLE PRECISION")
+    run("ALTER TABLE ofertas ADD COLUMN IF NOT EXISTS condiciones JSON")
+    run("ALTER TABLE ofertas ADD COLUMN IF NOT EXISTS fecha_aceptacion TIMESTAMP WITH TIME ZONE")
+    run("ALTER TABLE contracts ADD COLUMN IF NOT EXISTS oferta_id INTEGER")
+    run("ALTER TABLE contracts ADD COLUMN IF NOT EXISTS monto DOUBLE PRECISION")
+    run("ALTER TABLE contracts ADD COLUMN IF NOT EXISTS condiciones JSON")
+    run("ALTER TABLE contracts ADD COLUMN IF NOT EXISTS fecha_deseada DATE")
+    run("ALTER TABLE contracts ADD COLUMN IF NOT EXISTS horario VARCHAR(80)")
+    run("ALTER TABLE contracts ADD COLUMN IF NOT EXISTS firma_solicitante BOOLEAN NOT NULL DEFAULT FALSE")
+    run("ALTER TABLE contracts ADD COLUMN IF NOT EXISTS firma_proveedor BOOLEAN NOT NULL DEFAULT FALSE")
+    run("ALTER TABLE contracts ADD COLUMN IF NOT EXISTS firmado_solicitante_en TIMESTAMP WITH TIME ZONE")
+    run("ALTER TABLE contracts ADD COLUMN IF NOT EXISTS firmado_proveedor_en TIMESTAMP WITH TIME ZONE")
+    run("ALTER TABLE contracts ADD COLUMN IF NOT EXISTS datos_firma_solicitante JSON")
+    run("ALTER TABLE contracts ADD COLUMN IF NOT EXISTS datos_firma_proveedor JSON")
+    run("CREATE INDEX IF NOT EXISTS ix_contracts_oferta_id ON contracts (oferta_id)")
     # Barrido 360: la equirectangular va como data URL (cientos de KB) → TEXT
     run("ALTER TABLE solicitudes ALTER COLUMN imagen_360 TYPE TEXT")
     # Pago directo: sin retencion de fondos. Drop idempotente de columnas.

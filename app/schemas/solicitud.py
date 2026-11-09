@@ -35,6 +35,31 @@ class SolicitudEstadoSchema(Schema):
     )
 
 
+class SolicitudListSchema(Schema):
+    """Payload liviano para listados públicos.
+
+    Excluye a propósito `ratings` (N+1), imágenes/especificaciones pesadas y
+    las coordenadas exactas (privacidad). Economiza ~80% del JSON.
+    """
+
+    id = fields.Integer()
+    solicitante_id = fields.Integer()
+    titulo = fields.String()
+    categoria = fields.String()
+    descripcion = fields.String()
+    ubicacion = fields.String()
+    presupuesto = fields.Integer(allow_none=True)
+    fecha_deseada = fields.Date(allow_none=True)
+    urgencia = fields.Enum(UrgenciaSolicitud, by_value=True, allow_none=True)
+    estado = fields.Enum(EstadoSolicitud, by_value=True)
+    horario = fields.String(allow_none=True)
+    radio_km = fields.Float(allow_none=True, dump_default=5.0)
+    creado_en = fields.DateTime()
+    actualizado_en = fields.DateTime()
+    advertencia = fields.String(dump_only=True, allow_none=True)
+    ofertas_count = fields.Integer(dump_default=0)
+
+
 class SolicitudSchema(Schema):
     id = fields.Integer()
     solicitante_id = fields.Integer()

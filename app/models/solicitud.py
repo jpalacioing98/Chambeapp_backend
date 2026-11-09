@@ -42,10 +42,22 @@ class EstadoSolicitud(str, Enum):
 
 class Solicitud(db.Model):
     __tablename__ = "solicitudes"
+    __table_args__ = (
+        db.Index("ix_solicitudes_estado_creado", "estado", "creado_en"),
+        db.Index(
+            "ix_solicitudes_estado_categoria_creado",
+            "estado",
+            "categoria",
+            "creado_en",
+        ),
+        db.Index(
+            "ix_solicitudes_solicitante_creado", "solicitante_id", "creado_en"
+        ),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
     solicitante_id = db.Column(
-        db.Integer, db.ForeignKey("users.id"), nullable=False, index=True
+        db.Integer, db.ForeignKey("users.id"), nullable=False
     )
     titulo = db.Column(db.String(200), nullable=False)
     categoria = db.Column(db.String(120), nullable=False)

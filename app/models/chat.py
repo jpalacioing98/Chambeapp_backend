@@ -12,10 +12,10 @@ class Conversation(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     user_a_id = db.Column(
-        db.Integer, db.ForeignKey("users.id"), nullable=False, index=True
+        db.Integer, db.ForeignKey("users.id"), nullable=False
     )
     user_b_id = db.Column(
-        db.Integer, db.ForeignKey("users.id"), nullable=False, index=True
+        db.Integer, db.ForeignKey("users.id"), nullable=False
     )
     creado_en = db.Column(
         db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
@@ -23,6 +23,8 @@ class Conversation(db.Model):
 
     __table_args__ = (
         db.UniqueConstraint("user_a_id", "user_b_id", name="uq_conversation_pair"),
+        db.Index("ix_conversations_user_a_creado", "user_a_id", "creado_en"),
+        db.Index("ix_conversations_user_b_creado", "user_b_id", "creado_en"),
     )
 
     messages = db.relationship(
@@ -42,13 +44,20 @@ class Conversation(db.Model):
 
 
 class Message(db.Model):
-    """Mensaje dentro de una conversación."""
+    """Mensaje dentro de una conversaci�n."""
 
     __tablename__ = "messages"
+    __table_args__ = (
+        db.Index(
+            "ix_messages_conversation_creado",
+            "conversation_id",
+            "creado_en",
+        ),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
     conversation_id = db.Column(
-        db.Integer, db.ForeignKey("conversations.id"), nullable=False, index=True
+        db.Integer, db.ForeignKey("conversations.id"), nullable=False
     )
     sender_id = db.Column(
         db.Integer, db.ForeignKey("users.id"), nullable=False, index=True

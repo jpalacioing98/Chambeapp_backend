@@ -9,15 +9,19 @@ class Ticket(db.Model):
     """Ticket de soporte creado por cualquier usuario autenticado."""
 
     __tablename__ = "tickets"
+    __table_args__ = (
+        db.Index("ix_tickets_user_creado", "user_id", "created_at"),
+        db.Index("ix_tickets_status_creado", "status", "created_at"),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(
-        db.Integer, db.ForeignKey("users.id"), nullable=False, index=True
+        db.Integer, db.ForeignKey("users.id"), nullable=False
     )
     subject = db.Column(db.String(200), nullable=False)
     body = db.Column(db.Text, nullable=False)
     status = db.Column(
-        db.String(20), default="open", nullable=False, index=True
+        db.String(20), default="open", nullable=False
     )  # open | pending | closed
     priority = db.Column(
         db.String(20), default="normal", nullable=False

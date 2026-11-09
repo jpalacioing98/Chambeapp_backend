@@ -74,6 +74,10 @@ def _contrato_completado(client, emp_h, tr_h, tr_id):
     client.patch(
         f"/api/v1/contracts/{oid}/estado", json={"estado": "aceptar"}, headers=tr_h
     )
+    # Firma bilateral: ambas partes firman para que el contrato se active.
+    client.patch(
+        f"/api/v1/contracts/{oid}/estado", json={"estado": "aceptar"}, headers=emp_h
+    )
     client.patch(
         f"/api/v1/contracts/{oid}/estado", json={"estado": "completar"}, headers=tr_h
     )

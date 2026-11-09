@@ -102,7 +102,7 @@ def check_kyc_sla():
     """Check KYC verification SLA (48 hours)."""
     from app import create_app
     from app.extensions import db
-    from app.models.kyc import KycDocument, KycStatus
+    from app.models.kyc import DocumentoUsuario
     from datetime import datetime, timedelta, timezone
     
     app = create_app()
@@ -110,9 +110,10 @@ def check_kyc_sla():
         # Find documents pending for more than 48 hours
         cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
         
-        pending_docs = KycDocument.query.filter(
-            KycDocument.estado == KycStatus.PENDIENTE,
-            KycDocument.created_at < cutoff,
+        pending_docs = DocumentoUsuario.query.filter(
+            DocumentoUsuario.estado == "enviado",
+            DocumentoUsuario.fecha_envio.isnot(None),
+            DocumentoUsuario.fecha_envio < cutoff,
         ).all()
         
         if pending_docs:

@@ -49,7 +49,9 @@ class MyFotoPerfil(MethodView):
         if storage_svc is None:
             abort(502, message="Servicio de almacenamiento no disponible.")
         try:
-            url = storage_svc.upload_avatar(file_bytes, str(user.id), filename)
+            # Bucket PÚBLICO de avatares: la foto se muestra en perfiles
+            # públicos, así que la URL debe resolver en el navegador.
+            url = storage_svc.upload_public_avatar(file_bytes, str(user.id), filename)
         except ValueError as e:
             abort(400, message=str(e))
         except Exception:

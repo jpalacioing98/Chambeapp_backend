@@ -7,10 +7,21 @@ from app.extensions import db
 
 class Notification(db.Model):
     __tablename__ = "notifications"
+    __table_args__ = (
+        db.Index(
+            "ix_notifications_user_creado", "user_id", "creado_en"
+        ),
+        db.Index(
+            "ix_notifications_user_leida_creado",
+            "user_id",
+            "leida",
+            "creado_en",
+        ),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(
-        db.Integer, db.ForeignKey("users.id"), nullable=False, index=True
+        db.Integer, db.ForeignKey("users.id"), nullable=False
     )
     tipo = db.Column(db.String(40), nullable=False)
     titulo = db.Column(db.String(200), nullable=True)

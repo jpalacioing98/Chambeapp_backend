@@ -102,7 +102,16 @@ class Negocio(db.Model):
         onupdate=lambda: datetime.now(timezone.utc),
     )
 
-    # ── Relaciones ──
+    __table_args__ = (
+        db.Index(
+            "ix_negocios_estado_calificacion",
+            "estado",
+            "calificacion_promedio",
+        ),
+        db.Index("ix_negocios_estado_categoria", "estado", "categoria_principal"),
+    )
+
+    # Relaciones
     owner = db.relationship("User", backref="negocios")
     horarios = db.relationship(
         "NegocioHorario", back_populates="negocio",

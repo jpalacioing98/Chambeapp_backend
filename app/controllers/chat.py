@@ -1,5 +1,10 @@
 """Chat blueprint: conversaciones y mensajes 1:1 (RF-16 — mensajería)."""
 
+import json
+import os
+import uuid
+
+from flask import request
 from flask.views import MethodView
 from flask_smorest import Blueprint, abort
 from flask_jwt_extended import jwt_required, get_jwt_identity
@@ -15,6 +20,25 @@ from app.schemas.chat import (
 )
 
 blp = Blueprint("chat", __name__, description="Chat y mensajería en tiempo real")
+
+# Tipos de archivo permitidos en los adjuntos del chat.
+TIPOS_ADJUNTO = {
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/gif",
+    "application/pdf",
+    "text/plain",
+}
+EXTENSIONES = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+    "application/pdf": ".pdf",
+    "text/plain": ".txt",
+}
+MAX_ADJUNTO_BYTES = 10 * 1024 * 1024
 
 
 def _get_conversation_or_404(conversation_id: int) -> Conversation:
@@ -132,6 +156,78 @@ class ConversationMessages(MethodView):
         payload = MessageSchema().dump(msg)
         socketio.emit("message", payload, room=f"conversation_{conversation_id}")
 
+        return msg, 201
+
+
+@blp.route("/conversations/<int:conversation_id>/attachments")
+class ConversationAttachments(MethodView):
+    @jwt_required()
+    @blp.response(201, MessageSchema)
+    def post(self, conversation_id):
+        """Sube un adjunto al chat y lo publica como mensaje.
+
+        Multipart con el campo `file`. El archivo se guarda en el bucket
+        público de chat (MinIO) y el hilo recibe un mensaje estructurado
+        `⟦c:adjunto⟧` con la URL, el nombre, el tipo y el tamaño.
+        """
+        current = int(get_jwt_identity())
+        conv = _get_conversation_or_404(conversation_id)
+        _ensure_participant(conv, current)
+
+        archivo = request.files.get("file")
+        if archivo is None or not archivo.filename:
+            abort(400, message="No se recibió el archivo.")
+
+        content_type = (archivo.mimetype or "").lower()
+        if content_type not in TIPOS_ADJUNTO:
+            abort(
+                400,
+                message="Tipo de archivo no permitido (imágenes, PDF o texto plano).",
+            )
+
+        data = archivo.read()
+        if not data:
+            abort(400, message="El archivo está vacío.")
+        if len(data) > MAX_ADJUNTO_BYTES:
+            abort(400, message="El archivo supera el límite de 10 MB.")
+
+        from app.services.storage import storage as storage_svc
+        if storage_svc is None:
+            abort(503, message="El almacenamiento de archivos no está disponible.")
+
+        nombre_original = archivo.filename or "archivo"
+        extension = EXTENSIONES.get(content_type, os.path.splitext(nombre_original)[1] or ".bin")
+        clave = f"{uuid.uuid4().hex}{extension}"
+        try:
+            url = storage_svc.upload_chat_file(
+                data, str(conversation_id), clave, content_type
+            )
+        except Exception:
+            abort(502, message="No se pudo subir el archivo.")
+
+        contenido = (
+            "⟦c:adjunto⟧"
+            + json.dumps(
+                {
+                    "url": url,
+                    "nombre": nombre_original,
+                    "tipo": content_type,
+                    "tamano": len(data),
+                },
+                ensure_ascii=False,
+            )
+        )
+        msg = Message(
+            conversation_id=conversation_id,
+            sender_id=current,
+            contenido=contenido,
+            leido=False,
+        )
+        db.session.add(msg)
+        db.session.commit()
+
+        payload = MessageSchema().dump(msg)
+        socketio.emit("message", payload, room=f"conversation_{conversation_id}")
         return msg, 201
 
 

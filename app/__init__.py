@@ -78,6 +78,11 @@ def create_app(config_class: str = "app.config.DevelopmentConfig") -> Flask:
         message_queue=app.config.get("SOCKETIO_MESSAGE_QUEUE"),
     )
 
+    # gzip para JSON/texto (listados de 300 registros bajan ~80% en móvil).
+    from app.middleware import init_compression
+
+    init_compression(app)
+
     # API + blueprints (Flask-Smorest)
     api = Api(app)
     api.register_blueprint(auth_blp, url_prefix="/api/v1/auth")

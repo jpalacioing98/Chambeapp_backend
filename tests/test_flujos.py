@@ -489,9 +489,13 @@ class TestFlujo6ContratoChat:
         """Full lifecycle: create → accept → complete → confirm, plus chat."""
         sol_hdrs, pds_hdrs, cid, sol_id = self._setup_solicitud_and_contract(client)
 
-        # 1. PDS accepts contract
+        # 1. Ambas partes firman el contrato (firma paralela)
         resp = client.patch(f"/api/v1/contracts/{cid}/estado",
                             headers=pds_hdrs, json={"estado": "aceptar"})
+        assert resp.status_code == 200
+        assert resp.get_json()["estado"] == "pendiente"
+        resp = client.patch(f"/api/v1/contracts/{cid}/estado",
+                            headers=sol_hdrs, json={"estado": "aceptar"})
         assert resp.status_code == 200
         assert resp.get_json()["estado"] == "en_progreso"
 
@@ -599,6 +603,8 @@ class TestFlujo7PagoNequi:
         cid = c_resp.get_json()["id"]
         client.patch(f"/api/v1/contracts/{cid}/estado",
                      headers=pds_hdrs, json={"estado": "aceptar"})
+        client.patch(f"/api/v1/contracts/{cid}/estado",
+                     headers=sol_hdrs, json={"estado": "aceptar"})
         client.patch(f"/api/v1/contracts/{cid}/estado",
                      headers=pds_hdrs, json={"estado": "completar"})
         client.patch(f"/api/v1/contracts/{cid}/estado",

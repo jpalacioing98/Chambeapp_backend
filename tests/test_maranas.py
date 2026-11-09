@@ -71,6 +71,8 @@ def _chamba_activa(client, app):
         headers=sol_h,
     ).get_json()["id"]
     client.patch(f"/api/v1/contracts/{cid}/estado", json={"estado": "aceptar"}, headers=pds_h)
+    # Firma bilateral: ambas partes firman para que el contrato se active.
+    client.patch(f"/api/v1/contracts/{cid}/estado", json={"estado": "aceptar"}, headers=sol_h)
 
     with app.app_context():
         chamba = Chamba.query.filter_by(contract_id=cid).first()

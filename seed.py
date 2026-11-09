@@ -14,6 +14,7 @@ from app.models.kyc import DocumentoRequerido
 from app.models.merchant import MerchantPreference
 from app.data.tyc import TYC_CONTENT, TYC_VERSION
 from app.data.seed_kyc_merchant import seed_kyc_merchant
+from app.services.avatar_seed import upload_seed_avatar
 
 PASSWORD = "ChambeApp123!"
 TYC_IP = "127.0.0.1"
@@ -58,13 +59,30 @@ def _build_profile(rol: RolUsuario) -> Profile:
     )
 
 
+def _assign_demo_avatar(profile: Profile, email: str, index: int) -> None:
+    """Asigna (o repara) la foto de perfil de una cuenta demo.
+
+    Se usa la franja final del catálogo de i.pravatar.cc (64..70) para no
+    repetir las caras que toma la simulación masiva.
+    """
+    if profile.foto_perfil and "sim.chambeapp.co" not in profile.foto_perfil:
+        return
+    url = upload_seed_avatar(f"demo/{email}", index)
+    if url:
+        profile.foto_perfil = url
+
+
 def seed_users() -> list[str]:
     """Crea los 6 usuarios semilla si no existen. Devuelve emails creados."""
     created = []
-    for spec in SEED_USERS:
+    for i, spec in enumerate(SEED_USERS):
         email = spec["email"]
-        if User.query.filter_by(email=email).first():
+        existing = User.query.filter_by(email=email).first()
+        if existing:
             print(f"  SKIP (ya existe): {email}")
+            # Respalda la foto si el usuario ya existía sin ella.
+            if existing.profile is not None:
+                _assign_demo_avatar(existing.profile, email, 63 + i)
             continue
 
         user = User(
@@ -79,6 +97,7 @@ def seed_users() -> list[str]:
         user.set_password(PASSWORD)
 
         profile = _build_profile(spec["rol"])
+        _assign_demo_avatar(profile, email, 63 + i)
         user.profile = profile
 
         db.session.add(user)

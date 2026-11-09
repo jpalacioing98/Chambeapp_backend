@@ -135,7 +135,7 @@ def test_crear_chamba_contrato_inexistente(client, app):
 
 # ---------------- Firma del contrato: solicitud en curso + chamba automática ----------------
 def test_firma_contrato_activa_solicitud_y_genera_chamba(client, app):
-    """Al aceptar el contrato (PDS firma), la solicitud pasa a 'asignada'
+    """Cuando ambas partes firman el contrato, la solicitud pasa a 'asignada'
     (en curso) y la chamba se genera automáticamente (hito 1)."""
     sol_h = _user(client, "sol@example.com", rol="solicitante")
     pds_h = _user(client, "pds@example.com", rol="pds")
@@ -154,14 +154,26 @@ def test_firma_contrato_activa_solicitud_y_genera_chamba(client, app):
     assert resp_lista.status_code == 200
     assert len(resp_lista.get_json()) == 0
 
-    # El PDS firma el contrato.
+    # El PDS firma el contrato: queda pendiente la firma del solicitante.
     resp = client.patch(
         f"/api/v1/contracts/{cid}/estado",
         json={"estado": "aceptar"},
         headers=pds_h,
     )
     assert resp.status_code == 200
-    assert resp.get_json()["estado"] == "en_progreso"
+    assert resp.get_json()["estado"] == "pendiente"
+    assert resp.get_json()["firma_proveedor"] is True
+    svc = client.get(f"/api/v1/solicitudes/{sid}").get_json()
+    assert svc["estado"] == "publicado"
+
+    # El solicitante firma: el contrato se activa.
+    resp2 = client.patch(
+        f"/api/v1/contracts/{cid}/estado",
+        json={"estado": "aceptar"},
+        headers=sol_h,
+    )
+    assert resp2.status_code == 200
+    assert resp2.get_json()["estado"] == "en_progreso"
 
     # La solicitud pasa a "en curso" (asignada).
     svc = client.get(f"/api/v1/solicitudes/{sid}").get_json()

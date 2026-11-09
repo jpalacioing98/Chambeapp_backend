@@ -70,6 +70,8 @@ services:
       - S3_ACCESS_KEY=${MINIO_USER:-chambeapp}
       - S3_SECRET_KEY=${MINIO_PASSWORD:-chambeapp_dev}
       - S3_BUCKET=chambeapp-portfolio
+      - S3_PUBLIC_BUCKET=chambeapp-avatars
+      - S3_PUBLIC_ENDPOINT=${S3_PUBLIC_ENDPOINT:-http://localhost:9000}
       - ONURIX_CLIENT=${ONURIX_CLIENT:-}
       - ONURIX_KEY=${ONURIX_KEY:-}
       - ONURIX_APP_NAME=${ONURIX_APP_NAME:-ChambeApp}
@@ -88,7 +90,13 @@ services:
     build: .
     container_name: chambeapp_celery
     restart: unless-stopped
-    command: celery -A app.celery_app worker --loglevel=info --concurrency=2
+    command: celery -A app.tasks:celery_app worker --loglevel=info --concurrency=2
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.tasks:celery_app inspect ping -d celery@$$HOSTNAME --timeout 5 || exit 1"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 20s
     environment:
       - FLASK_ENV=${FLASK_ENV:-production}
       - DATABASE_URL=postgresql://chambeapp:${DB_PASSWORD:-chambeapp_dev}@db:5432/chambeapp
@@ -111,7 +119,9 @@ services:
     build: .
     container_name: chambeapp_celery_beat
     restart: unless-stopped
-    command: celery -A app.celery_app beat --loglevel=info
+    command: celery -A app.tasks:celery_app beat --loglevel=info
+    healthcheck:
+      disable: true
     environment:
       - FLASK_ENV=${FLASK_ENV:-production}
       - DATABASE_URL=postgresql://chambeapp:${DB_PASSWORD:-chambeapp_dev}@db:5432/chambeapp

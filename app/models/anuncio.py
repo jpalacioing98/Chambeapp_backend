@@ -32,10 +32,14 @@ class EstadoPostulacionAnuncio(str, Enum):
 
 class AnuncioLaboral(db.Model):
     __tablename__ = "anuncios_laborales"
+    __table_args__ = (
+        db.Index("ix_anuncios_estado_creado", "estado", "creado_en"),
+        db.Index("ix_anuncios_negocio_creado", "negocio_id", "creado_en"),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
     negocio_id = db.Column(
-        db.Integer, db.ForeignKey("users.id"), nullable=False, index=True
+        db.Integer, db.ForeignKey("users.id"), nullable=False
     )
     titulo = db.Column(db.String(200), nullable=False)
     descripcion = db.Column(db.Text, nullable=False)

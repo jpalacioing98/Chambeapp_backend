@@ -125,15 +125,17 @@ class Verification(db.Model):
     """
 
     __tablename__ = "verifications"
+    __table_args__ = (
+        db.Index("ix_verifications_status_creado", "status", "created_at"),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(
         db.Integer, db.ForeignKey("users.id"), nullable=False, index=True
     )
-    document_type = db.Column(db.String(50), nullable=True)  # cédula, pasaporte...
+    document_type = db.Column(db.String(50), nullable=True)  # c�dula, pasaporte...
     document_number = db.Column(db.String(100), nullable=True)
-    status = db.Column(db.String(20), default="pending", nullable=False,
-                       index=True)  # pending | approved | rejected
+    status = db.Column(db.String(20), default="pending", nullable=False)  # pending | approved | rejected
     reviewed_by = db.Column(
         db.Integer, db.ForeignKey("users.id"), nullable=True
     )

@@ -86,6 +86,39 @@ def test_pds_crea_oferta_ajena_201(client):
     assert d["solicitud_id"] == sid
 
 
+# ---------------- la oferta queda en el hilo de chat ----------------
+def test_oferta_crea_conversacion_con_mensaje_estructurado(client):
+    """La oferta del PDS aparece en el chat con el solicitante."""
+    import json
+
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
+    pds_h = _user(client, "pds@example.com", rol="pds")
+    sid = _crear_solicitud(client, emp_h)
+
+    resp = client.post(
+        f"/api/v1/solicitudes/{sid}/ofertas",
+        json={"monto": 120000, "mensaje": "lo hago hoy"},
+        headers=pds_h,
+    )
+    assert resp.status_code == 201
+    oferta = resp.get_json()
+
+    convs = client.get("/api/v1/chat/conversations", headers=emp_h).get_json()
+    assert len(convs) == 1
+    conv_id = convs[0]["id"]
+
+    mensajes = client.get(
+        f"/api/v1/chat/conversations/{conv_id}/messages", headers=emp_h
+    ).get_json()
+    assert len(mensajes) == 1
+    contenido = mensajes[0]["contenido"]
+    assert contenido.startswith("⟦c:oferta⟧")
+    payload = json.loads(contenido.split("⟧", 1)[1])
+    assert payload["ofertaId"] == oferta["id"]
+    assert payload["monto"] == 120000
+    assert payload["mensaje"] == "lo hago hoy"
+
+
 # ---------------- dueño (solicitante) NO oferta en su propia solicitud ----------------
 def test_dueno_no_oferta_propia_403(client):
     emp_h = _user(client, "emp@example.com", rol="solicitante")
@@ -363,8 +396,10 @@ def test_contraoferta_ajusta_fecha_y_horario(client):
     assert sol["presupuesto"] == 95000
 
 
-# ---------------- pds no puede aceptar (solo solicitante) ----------------
-def test_pds_no_acepta_403(client):
+# ---------------- aceptación bilateral: cada parte acepta ----------------
+def test_pds_acepta_su_oferta_queda_pendiente_el_solicitante(client):
+    """El pds puede aceptar su propia propuesta, pero el acuerdo (y el
+    contrato) queda pendiente hasta que el solicitante acepte también."""
     emp_h = _user(client, "emp@example.com", rol="solicitante")
     pds_h = _user(client, "pds@example.com", rol="pds")
     sid = _crear_solicitud(client, emp_h)
@@ -373,9 +408,129 @@ def test_pds_no_acepta_403(client):
         json={"monto": 100000},
         headers=pds_h,
     ).get_json()["id"]
+
     resp = client.post(
         f"/api/v1/ofertas/{oid}/responder",
         json={"accion": "aceptar"},
         headers=pds_h,
+    )
+    assert resp.status_code == 200
+    d = resp.get_json()
+    assert d["estado"] == "pendiente"
+    assert d["aceptada_por_pds"] is True
+    assert d["aceptada_por_solicitante"] is False
+    # Todavía no hay contrato: falta la aceptación del solicitante.
+    orders = client.get("/api/v1/contracts/mine", headers=pds_h).get_json()
+    assert len(orders) == 0
+
+    # El solicitante acepta: ahora sí hay acuerdo y contrato.
+    resp2 = client.post(
+        f"/api/v1/ofertas/{oid}/responder",
+        json={"accion": "aceptar"},
+        headers=emp_h,
+    )
+    assert resp2.status_code == 200
+    d2 = resp2.get_json()
+    assert d2["estado"] == "aceptada"
+    assert d2["aceptada_por_solicitante"] is True
+    assert d2["monto_final"] == 100000
+
+    orders = client.get("/api/v1/contracts/mine", headers=emp_h).get_json()
+    assert len(orders) == 1
+    assert orders[0]["monto"] == 100000
+    assert orders[0]["estado"] == "pendiente"
+
+
+def test_contraoferta_actualiza_solicitud_y_contrato(client):
+    """La contraoferta del solicitante queda registrada y, al aceptar el pds,
+    el valor final viaja a la solicitud y al contrato."""
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
+    pds_h = _user(client, "pds@example.com", rol="pds")
+    sid = _crear_solicitud(client, emp_h)
+    oid = client.post(
+        f"/api/v1/solicitudes/{sid}/ofertas",
+        json={"monto": 100000},
+        headers=pds_h,
+    ).get_json()["id"]
+
+    r1 = client.post(
+        f"/api/v1/ofertas/{oid}/responder",
+        json={"accion": "contraofertar", "contra_monto": 80000},
+        headers=emp_h,
+    )
+    assert r1.status_code == 200
+    d1 = r1.get_json()
+    assert d1["contra_autor"] == "solicitante"
+    assert d1["aceptada_por_solicitante"] is True
+    assert d1["aceptada_por_pds"] is False
+    # La solicitud todavía NO cambia de precio: el valor final se fija al
+    # cerrar el acuerdo.
+    sol = client.get(f"/api/v1/solicitudes/{sid}", headers=emp_h).get_json()
+    assert sol["presupuesto"] is None
+
+    r2 = client.post(
+        f"/api/v1/ofertas/{oid}/responder",
+        json={"accion": "aceptar"},
+        headers=pds_h,
+    )
+    assert r2.status_code == 200
+    d2 = r2.get_json()
+    assert d2["estado"] == "aceptada"
+    assert d2["monto_final"] == 80000
+
+    sol = client.get(f"/api/v1/solicitudes/{sid}", headers=emp_h).get_json()
+    assert sol["presupuesto"] == 80000
+
+    orders = client.get("/api/v1/contracts/mine", headers=emp_h).get_json()
+    assert len(orders) == 1
+    assert orders[0]["monto"] == 80000
+
+
+def test_condiciones_se_guandan_y_pasan_al_contrato(client):
+    """Las condiciones acordadas se guardan en la oferta y llegan al contrato."""
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
+    pds_h = _user(client, "pds@example.com", rol="pds")
+    sid = _crear_solicitud(client, emp_h)
+    oid = client.post(
+        f"/api/v1/solicitudes/{sid}/ofertas",
+        json={"monto": 100000},
+        headers=pds_h,
+    ).get_json()["id"]
+
+    r = client.post(
+        f"/api/v1/ofertas/{oid}/condiciones",
+        json={"texto": "Incluye materiales", "autor": "solicitante"},
+        headers=emp_h,
+    )
+    assert r.status_code == 200
+    condiciones = r.get_json()["condiciones"]
+    assert len(condiciones) == 1
+    assert condiciones[0]["texto"] == "Incluye materiales"
+
+    client.post(
+        f"/api/v1/ofertas/{oid}/responder",
+        json={"accion": "aceptar"},
+        headers=emp_h,
+    )
+    orders = client.get("/api/v1/contracts/mine", headers=emp_h).get_json()
+    assert len(orders) == 1
+    assert len(orders[0]["condiciones"]) == 1
+    assert orders[0]["condiciones"][0]["texto"] == "Incluye materiales"
+
+
+def test_usuario_ajeno_no_agrega_condiciones_403(client):
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
+    pds_h = _user(client, "pds@example.com", rol="pds")
+    otro_h = _user(client, "otro@example.com", rol="solicitante")
+    sid = _crear_solicitud(client, emp_h)
+    oid = client.post(
+        f"/api/v1/solicitudes/{sid}/ofertas",
+        json={"monto": 100000},
+        headers=pds_h,
+    ).get_json()["id"]
+    resp = client.post(
+        f"/api/v1/ofertas/{oid}/condiciones",
+        json={"texto": "No soy parte"},
+        headers=otro_h,
     )
     assert resp.status_code == 403

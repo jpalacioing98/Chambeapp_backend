@@ -5,9 +5,14 @@ Endpoints (prefijo /api/v1):
   GET    /solicitudes/<sid>/ofertas   -> dueño o pds con oferta
   GET    /mis-ofertas                 -> ofertas del pds actual
   POST   /ofertas/<oid>/responder     -> aceptar/rechazar/contraofertar
+  POST   /ofertas/<oid>/condiciones   -> agrega una condición al acuerdo
+
+La negociación es bilateral: cada parte acepta el valor vigente y el
+acuerdo (con su contrato) se cierra cuando ambas aceptan.
 """
 
 from datetime import datetime, timezone
+import json
 
 from flask import request
 from flask.views import MethodView
@@ -23,15 +28,71 @@ from app.schemas.oferta import (
     OfertaSchema,
     OfertaCreateSchema,
     OfertaResponderSchema,
+    OfertaCondicionesSchema,
     MisOfertasSchema,
 )
 from app.controllers.notifications import crear_notificacion
 from app.controllers.subscriptions import PLANES_LIMITE_POSTULACIONES
+from app.models.chat import Conversation, Message
 
 blp = Blueprint("ofertas", __name__, description="Ofertas pds/solicitante")
 
 # Rol que actúa como pds (valor "pds" en el enum RolUsuario).
 ROL_PDS = RolUsuario.PDS.value  # "pds"
+
+# Marcador de mensajes estructurados del chat (mismo formato que el
+# frontend: ⟦c:<tipo>⟧<json>).
+MARCA_CHAT = "⟦c:"
+MARCA_CHAT_FIN = "⟧"
+
+
+def _publicar_en_chat(
+    emisor_id: int,
+    destinatario_id: int,
+    tipo: str,
+    payload: dict,
+) -> None:
+    """Crea (o reutiliza) la conversación 1:1 y deja un mensaje estructurado.
+
+    Así la negociación vive en el hilo de chat: la oferta del PDS aparece
+    en la conversación con el solicitante sin que este tenga que abrir la
+    card de chambas. No falla la operación si el chat no puede escribirse.
+    """
+    try:
+        a, b = Conversation.normalize(emisor_id, destinatario_id)
+        conv = Conversation.query.filter_by(user_a_id=a, user_b_id=b).first()
+        if conv is None:
+            conv = Conversation(user_a_id=a, user_b_id=b)
+            db.session.add(conv)
+            db.session.flush()
+
+        contenido = (
+            f"{MARCA_CHAT}{tipo}{MARCA_CHAT_FIN}"
+            f"{json.dumps(payload, ensure_ascii=False)}"
+        )
+        msg = Message(
+            conversation_id=conv.id,
+            sender_id=emisor_id,
+            contenido=contenido,
+            leido=False,
+        )
+        db.session.add(msg)
+        db.session.commit()
+
+        socketio.emit(
+            "message",
+            {
+                "id": msg.id,
+                "conversation_id": conv.id,
+                "sender_id": emisor_id,
+                "contenido": contenido,
+                "leido": False,
+                "creado_en": msg.creado_en.isoformat() if msg.creado_en else None,
+            },
+            room=f"conversation_{conv.id}",
+        )
+    except Exception:
+        db.session.rollback()
 
 
 def _emit_oferta(event: str, oferta: Oferta, target_user_id: int) -> None:
@@ -41,13 +102,109 @@ def _emit_oferta(event: str, oferta: Oferta, target_user_id: int) -> None:
         "solicitud_id": oferta.solicitud_id,
         "estado": oferta.estado,
         "pds_id": oferta.pds_id,
+        "aceptada_por_solicitante": oferta.aceptada_por_solicitante,
+        "aceptada_por_pds": oferta.aceptada_por_pds,
+        "monto_final": oferta.monto_final,
     }
     socketio.emit(event, payload, room=f"user:{target_user_id}")
+
+
+def _emit_contrato_creado(contract: Contract, target_user_id: int) -> None:
+    """Avisa a una parte que el contrato de la negociación está listo."""
+    socketio.emit(
+        "contrato:creado",
+        {
+            "contract_id": contract.id,
+            "service_id": contract.service_id,
+            "proveedor_id": contract.proveedor_id,
+            "solicitante_id": contract.solicitante_id,
+            "estado": contract.estado.value,
+            "monto": contract.monto,
+        },
+        room=f"user:{target_user_id}",
+    )
 
 
 def _contraparte_oferta(oferta: Oferta, user_id: int) -> int:
     """Devuelve el id del otro participante de la negociación."""
     return oferta.solicitud.solicitante_id if user_id == oferta.pds_id else oferta.pds_id
+
+
+def _valor_vigente(oferta: Oferta, solicitud: Solicitud):
+    """Valor, fecha y horario actualmente en negociación.
+
+    Si hay una contraoferta en curso manda el contravalor (contra_monto /
+    contra_fecha / contra_horario); si no, la propuesta original. Los huecos
+    se completan con la oferta original o con lo que tuviera la solicitud.
+    """
+    if oferta.contra_autor is not None and oferta.estado == EstadoOferta.CONTRAOFERTA.value:
+        monto = oferta.contra_monto
+        fecha = oferta.contra_fecha_deseada
+        horario = oferta.contra_horario
+    else:
+        monto = oferta.monto
+        fecha = oferta.fecha_deseada
+        horario = oferta.horario
+
+    if monto is None:
+        monto = solicitud.presupuesto
+    if fecha is None:
+        fecha = (
+            oferta.contra_fecha_deseada
+            if oferta.contra_autor is not None
+            else oferta.fecha_deseada
+        )
+    if not horario:
+        horario = oferta.contra_horario or oferta.horario
+    return monto, fecha, horario
+
+
+def _contrato_de_oferta(oferta: Oferta, solicitud: Solicitud) -> Contract | None:
+    """Contrato ya generado por esta oferta (evita duplicados)."""
+    contract = Contract.query.filter_by(oferta_id=oferta.id).first()
+    if contract is None:
+        contract = (
+            Contract.query.filter_by(
+                service_id=solicitud.id,
+                proveedor_id=oferta.pds_id,
+            )
+            .filter(
+                Contract.estado.in_(
+                    [
+                        EstadoContrato.PENDIENTE.value,
+                        EstadoContrato.EN_PROGRESO.value,
+                    ]
+                )
+            )
+            .first()
+        )
+    return contract
+
+
+def _crear_contrato_por_oferta(
+    oferta: Oferta,
+    solicitud: Solicitud,
+    monto,
+    fecha_deseada,
+    horario,
+) -> Contract:
+    """Crea (o completa) el contrato con los datos de la negociación."""
+    contract = _contrato_de_oferta(oferta, solicitud)
+    if contract is None:
+        contract = Contract(
+            service_id=solicitud.id,
+            proveedor_id=oferta.pds_id,
+            solicitante_id=solicitud.solicitante_id,
+            estado=EstadoContrato.PENDIENTE.value,
+        )
+        db.session.add(contract)
+    contract.oferta_id = oferta.id
+    contract.monto = monto
+    contract.condiciones = list(oferta.condiciones or [])
+    contract.fecha_deseada = fecha_deseada
+    contract.horario = horario
+    db.session.flush()
+    return contract
 
 
 @blp.route("/solicitudes/<int:sid>/ofertas")
@@ -97,6 +254,9 @@ class OfertaList(MethodView):
             fecha_deseada=data.get("fecha_deseada"),
             horario=data.get("horario"),
             estado=EstadoOferta.PENDIENTE.value,
+            # Quien propone acepta su propia propuesta: el acuerdo se cierra
+            # cuando la otra parte acepta el valor vigente.
+            aceptada_por_pds=True,
         )
         db.session.add(oferta)
         db.session.commit()
@@ -116,6 +276,22 @@ class OfertaList(MethodView):
         )
         db.session.commit()
         _emit_oferta("oferta:nueva", oferta, solicitud.solicitante_id)
+
+        # La oferta también queda en el hilo de chat con el solicitante:
+        # la negociación se ve y se continúa desde el chat.
+        _publicar_en_chat(
+            user_id,
+            solicitud.solicitante_id,
+            "oferta",
+            {
+                "ofertaId": oferta.id,
+                "solicitudId": sid,
+                "monto": oferta.monto,
+                "mensaje": oferta.mensaje,
+                "fecha": oferta.fecha_deseada,
+                "horario": oferta.horario,
+            },
+        )
         return oferta
 
     @jwt_required()
@@ -176,6 +352,11 @@ class MisOfertas(MethodView):
                     "estado": o.estado,
                     "contra_monto": o.contra_monto,
                     "contra_mensaje": o.contra_mensaje,
+                    "contra_autor": o.contra_autor,
+                    "aceptada_por_solicitante": o.aceptada_por_solicitante,
+                    "aceptada_por_pds": o.aceptada_por_pds,
+                    "monto_final": o.monto_final,
+                    "condiciones": o.condiciones or [],
                     "created_at": o.created_at,
                     "solicitud": (
                         {
@@ -214,9 +395,12 @@ class OfertaResponder(MethodView):
         accion = data["accion"]
 
         # Autorización por acción.
-        if accion in ("aceptar",):
-            if solicitud.solicitante_id != user_id:
-                abort(403, message="Solo el solicitante puede responder la oferta.")
+        if accion in ("aceptar", "aceptar_contraoferta"):
+            # Aceptación bilateral: tanto el solicitante como el pds pueden
+            # aceptar el valor vigente. "aceptar_contraoferta" es el alias
+            # histórico del pds.
+            if user_id not in (solicitud.solicitante_id, oferta.pds_id):
+                abort(403, message="Solo las partes de la negociación pueden aceptar.")
         elif accion == "rechazar":
             # Solicitante desde pendiente/contraoferta; PDS rechaza una
             # contraoferta que no le conviene (negociación "a convenir").
@@ -236,72 +420,81 @@ class OfertaResponder(MethodView):
             )
             if solicitud.solicitante_id != user_id and not es_pds_en_contraoferta:
                 abort(403, message="Solo las partes de la negociación pueden contraofertar.")
-        elif accion == "aceptar_contraoferta":
-            if oferta.pds_id != user_id:
-                abort(
-                    403,
-                    message="Solo el pds puede aceptar la contraoferta.",
-                )
         else:
             abort(400, message="Acción inválida.")
 
-        # --- Aceptación (solicitante acepta, o pds acepta contraoferta) ---
+        # --- Aceptación bilateral: cada parte acepta el valor vigente ---
         if accion in ("aceptar", "aceptar_contraoferta"):
-            # El precio acordado: si hubo contraoferta en curso (la última
-            # fue del PDS o del solicitante), el acordado es contra_monto;
-            # si no, el de la oferta (o el presupuesto original de la
-            # solicitud).
-            if oferta.contra_monto is not None and (
-                accion == "aceptar_contraoferta"
-                or oferta.estado == EstadoOferta.CONTRAOFERTA.value
-            ):
-                monto = oferta.contra_monto
-            else:
-                monto = (
-                    oferta.monto
-                    if oferta.monto is not None
-                    else solicitud.presupuesto
-                )
+            # Idempotencia: si la oferta ya está aceptada no se duplica el
+            # contrato ni se vuelven a cobrar monedas.
+            if oferta.estado == EstadoOferta.ACEPTADA.value:
+                db.session.commit()
+                return oferta
 
-            # El monto acordado se convierte en el nuevo precio de la
-            # solicitud (el contrato lee el presupuesto del servicio).
-            if monto is not None:
-                solicitud.presupuesto = monto
-
-            # Parámetros "a convenir" concretados: prioridad a lo negociado
-            # en el chat (contra_*), luego a la oferta del PDS.
-            fecha_convenida = (
-                oferta.contra_fecha_deseada
-                if oferta.contra_fecha_deseada is not None
-                else oferta.fecha_deseada
+            es_pds = user_id == oferta.pds_id
+            monto, fecha_convenida, horario_convenido = _valor_vigente(
+                oferta, solicitud
             )
-            if fecha_convenida is not None:
-                solicitud.fecha_deseada = fecha_convenida
-            horario_convenido = oferta.contra_horario or oferta.horario
-            if horario_convenido:
-                solicitud.horario = horario_convenido
+
+            if es_pds:
+                oferta.aceptada_por_pds = True
+            else:
+                oferta.aceptada_por_solicitante = True
+
+            if not (oferta.aceptada_por_pds and oferta.aceptada_por_solicitante):
+                #-Acceptación parcial: el valor queda proposes pero falta la
+                # otra parte. La solicitud y el contrato se cierran cuando
+                # ambos aceptan.
+                contraparte = _contraparte_oferta(oferta, user_id)
+                crear_notificacion(
+                    contraparte,
+                    "oferta_aceptacion_pendiente",
+                    (
+                        "Aceptaste el valor propuesto. Falta tu contraparte para "
+                        "cerrar el acuerdo."
+                        if user_id == solicitud.solicitante_id
+                        else "El solicitante aceptó el valor propuesto. Falta tu "
+                        "confirmación para cerrar el acuerdo."
+                    ),
+                )
+                db.session.commit()
+                _emit_oferta("oferta:actualizada", oferta, contraparte)
+                return oferta
+
+            # --- Acuerdo bilateral ---
+            oferta.estado = EstadoOferta.ACEPTADA.value
+            oferta.monto_final = monto
+            oferta.fecha_aceptacion = datetime.now(timezone.utc)
 
             # --- RF-26/27: Validar monedas en Modalidad B (sin comisión) ---
+            # El cobro ocurre UNA vez, al cerrarse el acuerdo.
             try:
                 from app.services.wallet import get_modalidad, usar_monedas
 
                 modalidad = get_modalidad(solicitud.id)
                 if modalidad.tipo.value == "B_sin_comision":
                     # Descontar 50 monedas al PDS por usar modalidad B
-                    usar_monedas(oferta.pds_id, 50, f"MODALIDAD-B-SOLICITUD-{solicitud.id}")
+                    usar_monedas(
+                        oferta.pds_id, 50, f"MODALIDAD-B-SOLICITUD-{solicitud.id}"
+                    )
             except ValueError as e:
                 abort(400, message=str(e))
             except Exception:
                 pass  # Si no existe modalidad, continuar
 
-            contract = Contract(
-                service_id=solicitud.id,
-                proveedor_id=oferta.pds_id,
-                solicitante_id=solicitud.solicitante_id,
-                estado=EstadoContrato.PENDIENTE,
+            # El monto acordado se convierte en el nuevo precio de la
+            # solicitud (el contrato lleva el valor final en `monto`).
+            if monto is not None:
+                solicitud.presupuesto = monto
+            if fecha_convenida is not None:
+                solicitud.fecha_deseada = fecha_convenida
+            if horario_convenido:
+                solicitud.horario = horario_convenido
+
+            contract = _crear_contrato_por_oferta(
+                oferta, solicitud, monto, fecha_convenida, horario_convenido
             )
-            db.session.add(contract)
-            oferta.estado = EstadoOferta.ACEPTADA.value
+
             # La solicitud NO pasa a "en curso" todavía: solo cuando ambas
             # partes firman el contrato (PATCH /contracts/<id>/estado aceptar)
             # se marca ASIGNADA y se genera la chamba del módulo de gestión.
@@ -320,10 +513,18 @@ class OfertaResponder(MethodView):
             crear_notificacion(
                 oferta.pds_id,
                 "oferta_aceptada",
-                "Tu propuesta fue aceptada. El contrato quedó creado: fírmalo para activar la chamba.",
+                "Acordaron el valor: el contrato quedó creado. Fírmalo para activar la chamba.",
+            )
+            crear_notificacion(
+                solicitud.solicitante_id,
+                "oferta_aceptada",
+                "Acordaron el valor: el contrato quedó creado. Fírmalo para activar la chamba.",
             )
             db.session.commit()
             _emit_oferta("oferta:actualizada", oferta, oferta.pds_id)
+            _emit_oferta("oferta:actualizada", oferta, solicitud.solicitante_id)
+            _emit_contrato_creado(contract, oferta.pds_id)
+            _emit_contrato_creado(contract, solicitud.solicitante_id)
 
             # Feedback loop: la recomendación terminó en contrato aceptado.
             try:
@@ -355,6 +556,14 @@ class OfertaResponder(MethodView):
             # Ajustes negociados de parámetros "a convenir".
             oferta.contra_fecha_deseada = data.get("fecha_deseada")
             oferta.contra_horario = data.get("horario")
+            # Quién propone la contraoferta y a quién le queda aceptar.
+            oferta.contra_autor = "pds" if user_id == oferta.pds_id else "solicitante"
+            if user_id == oferta.pds_id:
+                oferta.aceptada_por_pds = True
+                oferta.aceptada_por_solicitante = False
+            else:
+                oferta.aceptada_por_solicitante = True
+                oferta.aceptada_por_pds = False
             if user_id == oferta.pds_id:
                 crear_notificacion(
                     solicitud.solicitante_id,
@@ -370,3 +579,47 @@ class OfertaResponder(MethodView):
             db.session.commit()
             _emit_oferta("oferta:actualizada", oferta, _contraparte_oferta(oferta, user_id))
             return oferta
+
+
+@blp.route("/ofertas/<int:oid>/condiciones")
+class OfertaCondiciones(MethodView):
+    @jwt_required()
+    @blp.arguments(OfertaCondicionesSchema)
+    @blp.response(200, OfertaSchema)
+    def post(self, data, oid):
+        """Agrega una condición acordada a la negociación.
+
+        Las condiciones quedan guardadas en la oferta y se trasladan al
+        contrato cuando ambas partes aceptan el valor.
+        """
+        user_id = int(get_jwt_identity())
+        oferta = db.get_or_404(Oferta, oid)
+        solicitud = db.session.get(Solicitud, oferta.solicitud_id)
+        if solicitud is None:
+            abort(404, message="La solicitud asociada no existe.")
+        if user_id not in (solicitud.solicitante_id, oferta.pds_id):
+            abort(403, message="Solo las partes de la negociación pueden agregar condiciones.")
+
+        texto = (data.get("texto") or "").strip()
+        if not texto:
+            abort(400, message="La condición no puede estar vacía.")
+
+        condiciones = list(oferta.condiciones or [])
+        condiciones.append(
+            {
+                "texto": texto,
+                "autor": data.get("autor")
+                or ("solicitante" if user_id == solicitud.solicitante_id else "pds"),
+                "fecha": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        oferta.condiciones = condiciones
+
+        # Si el contrato ya existe, la condición también se incorpora.
+        contract = _contrato_de_oferta(oferta, solicitud)
+        if contract is not None:
+            contract.condiciones = condiciones
+
+        db.session.commit()
+        _emit_oferta("oferta:actualizada", oferta, _contraparte_oferta(oferta, user_id))
+        return oferta

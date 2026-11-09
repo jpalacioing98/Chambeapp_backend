@@ -89,6 +89,7 @@ from app.models.region import Region
 from app.models.trust import TrustScore
 from app.data.seed_kyc import sync_kyc_catalog
 from app.data.seed_regions import sync_regions
+from app.services.avatar_seed import upload_seed_avatar
 
 SIM_DOMAIN = "sim.chambeapp.co"
 PASSWORD = "ChambeApp123!"
@@ -718,6 +719,10 @@ def create_users(rng: random.Random, sizes: Sizes) -> dict[str, list[User]]:
     merchants: list[User] = []
     staff: list[User] = []
 
+    # Contador global para que cada usuario reciba una cara distinta de
+    # i.pravatar.cc (el índice por rol se reinicia en cada grupo).
+    avatar_counter = 0
+
     def add_user(
         role: RolUsuario,
         index: int,
@@ -730,6 +735,8 @@ def create_users(rng: random.Random, sizes: Sizes) -> dict[str, list[User]]:
         lng: float,
         status: str = "active",
     ) -> User:
+        nonlocal avatar_counter
+        avatar_counter += 1
         registered_at = clamp_dt(NOW - timedelta(days=registered_days), NOW)
         last_login = clamp_dt(
             NOW - timedelta(days=rng.randint(0, 25), hours=rng.randint(0, 23)),
@@ -766,7 +773,9 @@ def create_users(rng: random.Random, sizes: Sizes) -> dict[str, list[User]]:
             portafolio=[],
             categorias=[],
             perfil_completo=False,
-            foto_perfil=f"https://{SIM_DOMAIN}/avatars/{role.value}/{index:03d}.jpg",
+            foto_perfil=upload_seed_avatar(
+                f"sim/{role.value}/{index:03d}", avatar_counter
+            ),
             latitud=lat,
             longitud=lng,
             geom=geom_value(lat, lng),

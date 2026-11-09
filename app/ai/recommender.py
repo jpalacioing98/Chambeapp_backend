@@ -43,9 +43,14 @@ class HeuristicRecommender(Recommender):
     W_VERIFICADO = 0.1
 
     def _categoria_match(self, categoria: str, profile: Profile) -> int:
+        from app.services.categorias import normalizar_categoria
+
         cats = list(profile.categorias or [])
         habs = list(profile.habilidades or [])
-        return 1 if categoria in cats or categoria in habs else 0
+        objetivo = normalizar_categoria(categoria)
+        return 1 if any(
+            normalizar_categoria(c) == objetivo for c in cats + habs
+        ) else 0
 
     def _score(self, categoria_match: int, reputacion: float, verificado: bool) -> float:
         return round(

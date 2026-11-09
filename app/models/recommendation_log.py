@@ -41,6 +41,13 @@ class RecommendationLog(db.Model):
     """
     
     __tablename__ = 'recommendation_logs'
+    __table_args__ = (
+        db.Index(
+            'ix_recommendation_logs_solicitud_pds',
+            'solicitud_id',
+            'pds_id',
+        ),
+    )
     
     id = db.Column(db.Integer, primary_key=True)
     solicitud_id = db.Column(db.Integer, db.ForeignKey('solicitudes.id'))

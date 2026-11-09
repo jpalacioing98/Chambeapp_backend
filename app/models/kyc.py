@@ -78,4 +78,7 @@ class DocumentoUsuario(db.Model):
             "user_id", "documento_clave", "instancia",
             name="uq_documento_usuario_user_clave_instancia",
         ),
+        db.Index(
+            "ix_documentos_usuario_estado_user", "estado", "user_id"
+        ),
     )

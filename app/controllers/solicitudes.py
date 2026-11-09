@@ -13,6 +13,7 @@ from app.models.config import SystemConfig
 from app.schemas.solicitud import (
     SolicitudCreateSchema,
     SolicitudEstadoSchema,
+    SolicitudListSchema,
     SolicitudSchema,
 )
 from app.schemas.rating import RatingCreateSchema, RatingSchema
@@ -108,6 +109,7 @@ class SolicitudList(MethodView):
         db.session.commit()
         return solicitud
 
+    @jwt_required(optional=True)
     @blp.response(200)
     def get(self):
         """RF-04: lista solicitudes con filtros opcionales.
@@ -119,6 +121,45 @@ class SolicitudList(MethodView):
         If no params, returns all items (backward compatible).
         """
         query = Solicitud.query
+        # Solo lo publicado es visible en el listado público. `?estado=todos`
+        # conserva el comportamiento histórico (útil para admin/debug).
+        estado = request.args.get("estado", EstadoSolicitud.PUBLICADO.value)
+        if estado and estado != "todos":
+            try:
+                query = query.filter(Solicitud.estado == EstadoSolicitud(estado))
+            except ValueError:
+                abort(400, message=f"Estado inválido: {estado}")
+        # P2: elegibilidad del PDS. Con `?elegibles=1` solo se listan las
+        # chambas cuya categoria coincide con las habilidades/categorias del
+        # perfil del PDS autenticado (evita mostrar chambas no postulables).
+        # Sin habilidades registradas no se filtra: el panel no queda vacio.
+        elegibles = request.args.get("elegibles", "").lower() in (
+            "1", "true", "yes", "si", "sí",
+        )
+        if elegibles:
+            uid = get_jwt_identity()
+            if uid is not None:
+                prof = db.session.get(Profile, int(uid))
+                if prof is not None:
+                    from app.services.categorias import (
+                        categoria_norm_expr,
+                        normalizar_categoria,
+                    )
+
+                    allowed = {
+                        normalizar_categoria(c)
+                        for c in (
+                            list(prof.categorias or [])
+                            + list(prof.habilidades or [])
+                        )
+                        if c and normalizar_categoria(c)
+                    }
+                    if allowed:
+                        query = query.filter(
+                            categoria_norm_expr(Solicitud.categoria).in_(
+                                sorted(allowed)
+                            )
+                        )
         categoria = request.args.get("categoria")
         ubicacion = request.args.get("ubicacion")
         q = request.args.get("q")
@@ -135,15 +176,25 @@ class SolicitudList(MethodView):
         per_page = request.args.get("per_page")
         result = paginate_query(query, page=page, per_page=per_page)
 
-        if isinstance(result, list):
-            items = SolicitudSchema(many=True).dump(result)
-        else:
-            items = SolicitudSchema(many=True).dump(result["items"])
+        model_items = result if isinstance(result, list) else result["items"]
+        items = SolicitudListSchema(many=True).dump(model_items)
 
+        # Conteo de ofertas en UNA query (las tarjetas ya no piden /ofertas).
+        from sqlalchemy import func as _func
+        from app.models.oferta import Oferta
+
+        ids = [s.id for s in model_items]
+        conteos = {}
+        if ids:
+            filas = (
+                db.session.query(Oferta.solicitud_id, _func.count(Oferta.id))
+                .filter(Oferta.solicitud_id.in_(ids))
+                .group_by(Oferta.solicitud_id)
+                .all()
+            )
+            conteos = {sid: n for sid, n in filas}
         for item in items:
-            item.pop("latitud", None)
-            item.pop("longitud", None)
-            item.pop("direccion", None)
+            item["ofertas_count"] = conteos.get(item["id"], 0)
 
         if isinstance(result, list):
             return items

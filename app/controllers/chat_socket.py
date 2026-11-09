@@ -35,12 +35,26 @@ def register_chat_socketio(sio) -> None:
 
     @sio.on("join")
     def on_join(data):
-        conversation_id = data.get("conversation_id")
+        """Une al usuario a su sala y (opcionalmente) a una conversación.
+
+        Es el ÚNICO handler del evento `join`: Flask-SocketIO guarda un
+        handler por evento, así que registrarlo en otro módulo (p.ej.
+        notificaciones) pisaba este y los mensajes en vivo no llegaban.
+        """
+        data = data or {}
         user_id = _authed_user_id(data)
         if user_id is None:
             emit("error", {"msg": "No autenticado"})
             return
-        conv = db.session.get(Conversation, conversation_id) if conversation_id else None
+
+        room = f"user:{user_id}"
+        join_room(room)
+        emit("joined", {"room": room})
+
+        conversation_id = data.get("conversation_id")
+        if not conversation_id:
+            return
+        conv = db.session.get(Conversation, conversation_id)
         if conv and conv.involves(int(user_id)):
             join_room(f"conversation_{conversation_id}")
             emit(

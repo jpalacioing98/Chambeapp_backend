@@ -31,6 +31,18 @@ from app.models.negocio import (
     Negocio, NegocioHorario, NegocioRating, NegocioReporte,
     TipoNegocio, EstadoNegocio, EstadoReporte, TipoReporte,
 )
+# Modelos que antes solo se importaban desde su submódulo: sin registrarlos
+# aquí, db.create_all() NO creaba sus tablas (p.ej. notification_cascades)
+# y el esquema quedaba incompleto tras un seed desde cero.
+from app.models.cascade import NotificationCascade
+from app.models.habilidad import Habilidad, HabilidadNivel, CertificacionTecnica
+from app.models.merchant import MerchantPreference, MerchantPaymentMethod
+from app.models.payment import Payment, EstadoPago
+from app.models.payment_method import MetodoPago
+from app.models.portfolio import PortfolioItem
+from app.models.recommendation_log import RecommendationLog
+from app.models.region import Region
+from app.models.trust import TrustScore
 
 __all__ = [
     "RolUsuario",
@@ -87,4 +99,18 @@ __all__ = [
     "EstadoNegocio",
     "EstadoReporte",
     "TipoReporte",
+    # Modelos registrados para que create_all() cubra todo el esquema
+    "NotificationCascade",
+    "Habilidad",
+    "HabilidadNivel",
+    "CertificacionTecnica",
+    "MerchantPreference",
+    "MerchantPaymentMethod",
+    "Payment",
+    "EstadoPago",
+    "MetodoPago",
+    "PortfolioItem",
+    "RecommendationLog",
+    "Region",
+    "TrustScore",
 ]

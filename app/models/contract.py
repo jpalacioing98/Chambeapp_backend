@@ -24,20 +24,47 @@ class EstadoContrato(str, Enum):
 
 class Contract(db.Model):
     __tablename__ = "contracts"
+    __table_args__ = (
+        db.Index("ix_contracts_proveedor_creado", "proveedor_id", "creado_en"),
+        db.Index(
+            "ix_contracts_solicitante_creado", "solicitante_id", "creado_en"
+        ),
+        db.Index("ix_contracts_estado_creado", "estado", "creado_en"),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
     service_id = db.Column(
         db.Integer, db.ForeignKey("solicitudes.id"), nullable=False, index=True
     )
     proveedor_id = db.Column(
-        db.Integer, db.ForeignKey("users.id"), nullable=False, index=True
+        db.Integer, db.ForeignKey("users.id"), nullable=False
     )
     solicitante_id = db.Column(
-        db.Integer, db.ForeignKey("users.id"), nullable=False, index=True
+        db.Integer, db.ForeignKey("users.id"), nullable=False
     )
     estado = db.Column(
         db.Enum(EstadoContrato), nullable=False, default=EstadoContrato.PENDIENTE
     )
+    # Oferta que originó el contrato (la negociación bilateral que lo dejó
+    # sin efecto). Sin FK para no atar el contrato a la fila de oferta.
+    oferta_id = db.Column(db.Integer, nullable=True, index=True)
+    # Valor final acordado: el monto de la oferta o contraoferta aceptada
+    # por ambas partes. Es la fuente de verdad del contrato (la solicitud
+    # se actualiza con el mismo valor).
+    monto = db.Column(db.Float, nullable=True)
+    # Condiciones de la negociación que forman parte integral del contrato.
+    condiciones = db.Column(db.JSON, nullable=True)
+    # Parámetros "a convenir" concretados en la negociación.
+    fecha_deseada = db.Column(db.Date, nullable=True)
+    horario = db.Column(db.String(80), nullable=True)
+    # Firmas bilaterales y paralelas: cada parte firma cuando quiere, sin
+    # esperar a la otra. El contrato se activa cuando ambos han firmado.
+    firma_solicitante = db.Column(db.Boolean, nullable=False, default=False)
+    firma_proveedor = db.Column(db.Boolean, nullable=False, default=False)
+    firmado_solicitante_en = db.Column(db.DateTime, nullable=True)
+    firmado_proveedor_en = db.Column(db.DateTime, nullable=True)
+    datos_firma_solicitante = db.Column(db.JSON, nullable=True)
+    datos_firma_proveedor = db.Column(db.JSON, nullable=True)
     motivo_cancelacion = db.Column(db.String(500), nullable=True)
     # Ciclo de vida "capeta": check-in (inicio) / check-out (fin) del pds.
     inicio_en = db.Column(db.DateTime, nullable=True)
@@ -66,14 +93,18 @@ class Dispute(db.Model):
     """
 
     __tablename__ = "disputes"
+    __table_args__ = (
+        db.Index("ix_disputes_contract_creado", "contract_id", "created_at"),
+        db.Index("ix_disputes_status_creado", "status", "created_at"),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
     contract_id = db.Column(
-        db.Integer, db.ForeignKey("contracts.id"), nullable=False, index=True
+        db.Integer, db.ForeignKey("contracts.id"), nullable=False
     )
     reason = db.Column(db.Text, nullable=False)
     status = db.Column(
-        db.String(20), default="abierta", nullable=False, index=True
+        db.String(20), default="abierta", nullable=False
     )  # abierta | resuelta
     resolved_by = db.Column(
         db.Integer, db.ForeignKey("users.id"), nullable=True

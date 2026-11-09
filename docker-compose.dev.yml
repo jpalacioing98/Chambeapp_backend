@@ -85,6 +85,10 @@ services:
       - S3_SECRET_KEY=${MINIO_PASSWORD:-chambeapp_dev}
       - S3_BUCKET=chambeapp-portfolio
       - S3_REGION=us-east-1
+      # Bucket público de avatares. S3_PUBLIC_ENDPOINT es la URL que
+      # resuelve en el NAVEGADOR (dentro del contenedor el host es `minio`).
+      - S3_PUBLIC_BUCKET=chambeapp-avatars
+      - S3_PUBLIC_ENDPOINT=${S3_PUBLIC_ENDPOINT:-http://localhost:9000}
       - ONURIX_CLIENT=${ONURIX_CLIENT:-}
       - ONURIX_KEY=${ONURIX_KEY:-}
       - ONURIX_APP_NAME=${ONURIX_APP_NAME:-ChambeApp}

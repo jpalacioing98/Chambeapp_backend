@@ -1,5 +1,7 @@
 """pytest suite — chat/mensajería (RF-16). Solo REST (sin WS)."""
 
+import io
+
 import pytest
 
 from app import create_app
@@ -250,3 +252,55 @@ def test_conversation_peer_en_post(client):
     peer = resp.get_json()["otro_participante"]
     assert peer["id"] == 2
     assert peer["nombre"] == "Usuario B"
+
+
+# ---------------- adjuntos del chat ----------------
+def test_adjunto_sin_archivo_400(client):
+    token_a, token_b, _ = _make_users(client)
+    conv = client.post(
+        "/api/v1/chat/conversations",
+        headers=_auth(client, token_a),
+        json={"otro_usuario_id": 2},
+    ).get_json()
+
+    resp = client.post(
+        f"/api/v1/chat/conversations/{conv['id']}/attachments",
+        headers=_auth(client, token_a),
+        data={},
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 400
+
+
+def test_adjunto_tipo_no_permitido_400(client):
+    token_a, token_b, _ = _make_users(client)
+    conv = client.post(
+        "/api/v1/chat/conversations",
+        headers=_auth(client, token_a),
+        json={"otro_usuario_id": 2},
+    ).get_json()
+
+    resp = client.post(
+        f"/api/v1/chat/conversations/{conv['id']}/attachments",
+        headers=_auth(client, token_a),
+        data={"file": (io.BytesIO(b"MZ\x00\x00"), "virus.exe", "application/x-msdownload")},
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 400
+
+
+def test_adjunto_no_participante_403(client):
+    token_a, token_b, token_c = _make_users(client)
+    conv = client.post(
+        "/api/v1/chat/conversations",
+        headers=_auth(client, token_a),
+        json={"otro_usuario_id": 2},
+    ).get_json()
+
+    resp = client.post(
+        f"/api/v1/chat/conversations/{conv['id']}/attachments",
+        headers=_auth(client, token_c),
+        data={"file": (io.BytesIO(b"hola"), "nota.txt", "text/plain")},
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 403

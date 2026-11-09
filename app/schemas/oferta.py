@@ -22,6 +22,12 @@ class OfertaSchema(Schema):
     contra_mensaje = fields.String(allow_none=True)
     contra_fecha_deseada = fields.Date(allow_none=True)
     contra_horario = fields.String(allow_none=True)
+    contra_autor = fields.String(allow_none=True)
+    aceptada_por_solicitante = fields.Boolean()
+    aceptada_por_pds = fields.Boolean()
+    monto_final = fields.Float(allow_none=True)
+    condiciones = fields.List(fields.Dict(), allow_none=True)
+    fecha_aceptacion = fields.DateTime(allow_none=True)
     created_at = fields.DateTime()
 
 
@@ -59,6 +65,17 @@ class OfertaResponderSchema(Schema):
     horario = fields.String(required=False, allow_none=True)
 
 
+class OfertaCondicionesSchema(Schema):
+    """Body para agregar una condición acordada a la negociación.
+
+    Las condiciones se acumulan en la oferta (JSON) y se trasladan al
+    contrato cuando ambas partes aceptan.
+    """
+
+    texto = fields.String(required=True, validate=validate.Length(min=1, max=500))
+    autor = fields.String(required=False, allow_none=True)
+
+
 class MisOfertasSchema(Schema):
     """Oferta del pds con resumen de su solicitud."""
 
@@ -73,5 +90,11 @@ class MisOfertasSchema(Schema):
     contra_mensaje = fields.String(allow_none=True)
     contra_fecha_deseada = fields.Date(allow_none=True)
     contra_horario = fields.String(allow_none=True)
+    contra_autor = fields.String(allow_none=True)
+    aceptada_por_solicitante = fields.Boolean()
+    aceptada_por_pds = fields.Boolean()
+    monto_final = fields.Float(allow_none=True)
+    condiciones = fields.List(fields.Dict(), allow_none=True)
+    fecha_aceptacion = fields.DateTime(allow_none=True)
     created_at = fields.DateTime()
     solicitud = fields.Dict(allow_none=True)

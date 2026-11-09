@@ -15,6 +15,7 @@ Uso:
 
 import os
 import io
+import json
 import logging
 from typing import Optional
 
@@ -40,6 +41,19 @@ class StorageService:
     S3_SECRET_KEY = os.environ.get("S3_SECRET_KEY", "chambeapp_dev")
     S3_BUCKET = os.environ.get("S3_BUCKET", "chambeapp-portfolio")
     S3_REGION = os.environ.get("S3_REGION", "us-east-1")
+
+    # Bucket PÚBLICO de avatares. Las fotos de perfil se muestran en
+    # perfiles públicos, así que van en un bucket aparte con permiso de
+    # SOLO lectura: el bucket principal guarda KYC y portafolios, que no
+    # deben quedar expuestos. `S3_PUBLIC_ENDPOINT` es la URL que resuelve
+    # en el NAVEGADOR (dentro del contenedor el host es `minio`).
+    S3_PUBLIC_BUCKET = os.environ.get("S3_PUBLIC_BUCKET", "chambeapp-avatars")
+    S3_PUBLIC_ENDPOINT = os.environ.get("S3_PUBLIC_ENDPOINT", "http://localhost:9000")
+
+    # Bucket PÚBLICO de adjuntos del chat. Los archivos que comparten las
+    # partes (fotos de la chamba, cotizaciones en PDF) se sirven desde aquí
+    # con permiso de SOLO lectura; la URL usa el endpoint público.
+    S3_CHAT_BUCKET = os.environ.get("S3_CHAT_BUCKET", "chambeapp-chat")
     
     # Límites de archivo
     MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10MB
@@ -61,6 +75,8 @@ class StorageService:
             region_name=self.S3_REGION
         )
         self._ensure_bucket()
+        self._ensure_public_bucket()
+        self._ensure_chat_bucket()
     
     def _ensure_bucket(self):
         """Crea el bucket si no existe."""
@@ -72,7 +88,96 @@ class StorageService:
                 logger.info(f"Bucket '{self.S3_BUCKET}' creado")
             except (ClientError, BotoCoreError) as e:
                 logger.error(f"Error creando bucket: {e}")
+
+    def _ensure_public_bucket(self):
+        """Crea el bucket público de avatares con permiso de SOLO lectura.
+
+        El bucket principal sigue siendo privado (KYC, portafolios y
+        documentos técnicos). Aquí solo viven las fotos de perfil, que por
+        definición son públicas.
+        """
+        try:
+            self.client.head_bucket(Bucket=self.S3_PUBLIC_BUCKET)
+        except (ClientError, BotoCoreError):
+            try:
+                self.client.create_bucket(Bucket=self.S3_PUBLIC_BUCKET)
+                logger.info(f"Bucket público '{self.S3_PUBLIC_BUCKET}' creado")
+            except (ClientError, BotoCoreError) as e:
+                logger.error(f"Error creando bucket público: {e}")
+                return
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Principal": {"AWS": ["*"]},
+                    "Action": ["s3:GetObject"],
+                    "Resource": [f"arn:aws:s3:::{self.S3_PUBLIC_BUCKET}/*"],
+                }
+            ],
+        }
+        try:
+            self.client.put_bucket_policy(
+                Bucket=self.S3_PUBLIC_BUCKET, Policy=json.dumps(policy)
+            )
+        except (ClientError, BotoCoreError) as e:
+            logger.error(f"Error aplicando política pública: {e}")
     
+    def _ensure_chat_bucket(self):
+        """Crea el bucket público de adjuntos del chat (SOLO lectura)."""
+        try:
+            self.client.head_bucket(Bucket=self.S3_CHAT_BUCKET)
+        except (ClientError, BotoCoreError):
+            try:
+                self.client.create_bucket(Bucket=self.S3_CHAT_BUCKET)
+                logger.info(f"Bucket público '{self.S3_CHAT_BUCKET}' creado")
+            except (ClientError, BotoCoreError) as e:
+                logger.error(f"Error creando bucket de chat: {e}")
+                return
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Principal": {"AWS": ["*"]},
+                    "Action": ["s3:GetObject"],
+                    "Resource": [f"arn:aws:s3:::{self.S3_CHAT_BUCKET}/*"],
+                }
+            ],
+        }
+        try:
+            self.client.put_bucket_policy(
+                Bucket=self.S3_CHAT_BUCKET, Policy=json.dumps(policy)
+            )
+        except (ClientError, BotoCoreError) as e:
+            logger.error(f"Error aplicando política pública del chat: {e}")
+
+    def upload_chat_file(
+        self, file_bytes: bytes, conversation_id: str, filename: str, content_type: str
+    ) -> str:
+        """Sube un adjunto del chat al bucket público y devuelve su URL.
+
+        Args:
+            file_bytes: Contenido del archivo
+            conversation_id: Conversación (carpeta destino)
+            filename: Nombre original del archivo
+            content_type: Tipo MIME
+
+        Returns:
+            URL pública del archivo
+        """
+        if len(file_bytes) > self.MAX_DOC_SIZE:
+            raise ValueError(f"Archivo excede {self.MAX_DOC_SIZE} bytes")
+
+        key = f"chat/{conversation_id}/{filename}"
+        self.client.put_object(
+            Bucket=self.S3_CHAT_BUCKET,
+            Key=key,
+            Body=file_bytes,
+            ContentType=content_type or "application/octet-stream",
+        )
+        return f"{self.S3_PUBLIC_ENDPOINT}/{self.S3_CHAT_BUCKET}/{key}"
+
     def upload_file(self, file_bytes: bytes, key: str, content_type: str) -> str:
         """Sube un archivo al bucket.
         
@@ -168,6 +273,44 @@ class StorageService:
             content_type="image/webp"
         )
     
+    def upload_public_avatar(self, file_bytes: bytes, folder: str, filename: str) -> str:
+        """Sube la foto de perfil al bucket PÚBLICO de avatares (optimizada a WebP).
+
+        A diferencia de `upload_avatar` (bucket privado, para documentos
+        técnicos), aquí el objeto es público por naturaleza y la URL devuelta
+        usa `S3_PUBLIC_ENDPOINT`, que sí resuelve en el navegador.
+
+        Args:
+            file_bytes: Contenido de la imagen
+            folder: Carpeta destino (p.ej. `42` o `sim/pds/001`)
+            filename: Nombre base del archivo
+
+        Returns:
+            URL pública de la foto de perfil
+        """
+        if len(file_bytes) > self.MAX_IMAGE_SIZE:
+            raise ValueError(f"Imagen excede {self.MAX_IMAGE_SIZE} bytes")
+
+        img = Image.open(io.BytesIO(file_bytes))
+        if img.mode in ('RGBA', 'P'):
+            img = img.convert('RGB')
+        img.thumbnail(
+            (self.IMAGE_MAX_DIMENSION, self.IMAGE_MAX_DIMENSION),
+            Image.Resampling.LANCZOS
+        )
+        buffer = io.BytesIO()
+        img.save(buffer, format=self.IMAGE_FORMAT, quality=self.IMAGE_QUALITY)
+        buffer.seek(0)
+
+        key = f"avatar/{folder}/{filename}.webp"
+        self.client.put_object(
+            Bucket=self.S3_PUBLIC_BUCKET,
+            Key=key,
+            Body=buffer.getvalue(),
+            ContentType="image/webp"
+        )
+        return f"{self.S3_PUBLIC_ENDPOINT}/{self.S3_PUBLIC_BUCKET}/{key}"
+
     def upload_video(self, file_bytes: bytes, pds_id: str, filename: str) -> str:
         """Sube video al portafolio.
         

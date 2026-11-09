@@ -13,6 +13,15 @@ class ContractCreateSchema(Schema):
     proveedor_id = fields.Integer(required=True)
 
 
+class FirmaSchema(Schema):
+    """Datos de la firma de una de las partes del contrato."""
+
+    nombre = fields.String(required=False, allow_none=True)
+    documento = fields.String(required=False, allow_none=True)
+    data_url = fields.String(required=False, allow_none=True)
+    fecha = fields.String(required=False, allow_none=True)
+
+
 class ContractEstadoSchema(Schema):
     """Acción de transición de estado (RF-07.2/3/4)."""
 
@@ -21,12 +30,15 @@ class ContractEstadoSchema(Schema):
         validate=validate.OneOf(["aceptar", "completar", "confirmar", "cancelar"]),
     )
     motivo_cancelacion = fields.String(required=False, allow_none=True)
+    # Firma de la parte que ejecuta la acción 'aceptar' (firma bilateral).
+    firma = fields.Nested(FirmaSchema, required=False, allow_none=True)
 
 
 class SolicitudResumenSchema(Schema):
     """Resumen de la solicitud anidado en el contrato."""
 
     id = fields.Integer()
+    titulo = fields.String()
     categoria = fields.String()
     descripcion = fields.String()
     ubicacion = fields.String()
@@ -40,6 +52,17 @@ class ContractSchema(Schema):
     proveedor_id = fields.Integer()
     solicitante_id = fields.Integer()
     estado = fields.Enum(EstadoContrato, by_value=True)
+    oferta_id = fields.Integer(allow_none=True)
+    monto = fields.Float(allow_none=True)
+    condiciones = fields.List(fields.Dict(), allow_none=True)
+    fecha_deseada = fields.Date(allow_none=True)
+    horario = fields.String(allow_none=True)
+    firma_solicitante = fields.Boolean()
+    firma_proveedor = fields.Boolean()
+    firmado_solicitante_en = fields.DateTime(allow_none=True)
+    firmado_proveedor_en = fields.DateTime(allow_none=True)
+    datos_firma_solicitante = fields.Dict(allow_none=True)
+    datos_firma_proveedor = fields.Dict(allow_none=True)
     motivo_cancelacion = fields.String(allow_none=True)
     inicio_en = fields.DateTime(allow_none=True)
     fin_en = fields.DateTime(allow_none=True)
