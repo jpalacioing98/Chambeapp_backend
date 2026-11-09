@@ -9,13 +9,20 @@ from app.extensions import db
 from app.models.notification import Notification
 from app.schemas.notification import NotificationSchema
 from app.services.pagination import paginate_query
+from app.services.realtime import safe_emit
 
 
 blp = Blueprint("notifications", __name__, description="Centro de notificaciones (RF-10)")
 
 
 def crear_notificacion(user_id, tipo, mensaje, titulo=None, datos=None):
-    """Helper: persiste (sin commit) una notificación para user_id."""
+    """Helper: persiste (sin commit) una notificación para user_id.
+
+    Además emite `notificacion:nueva` por socket a la sala del usuario para
+    que el badge/centro se actualice sin recargar. El emit no necesita el ID
+    de la fila (que aún no existe sin flush); si la transacción revierte, el
+    cliente se corrige en el siguiente fetch.
+    """
     notif = Notification(
         user_id=user_id,
         tipo=tipo,
@@ -24,6 +31,16 @@ def crear_notificacion(user_id, tipo, mensaje, titulo=None, datos=None):
         datos=datos,
     )
     db.session.add(notif)
+    safe_emit(
+        "notificacion:nueva",
+        {
+            "tipo": tipo,
+            "titulo": titulo,
+            "mensaje": mensaje,
+            "datos": datos,
+        },
+        room=f"user:{user_id}",
+    )
     return notif
 
 

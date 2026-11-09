@@ -140,3 +140,46 @@ def test_mensaje_http_llega_por_socket(app, client):
     payload = args[0] if isinstance(args, (list, tuple)) else args
     assert payload["contenido"] == "hola en vivo"
     socket.disconnect()
+
+
+def test_mensaje_por_socket_llega_a_la_contraparte(app, client):
+    """El chat en vivo real: A envía por socket y B lo recibe sin HTTP.
+
+    Cubre el handler `message` (persistencia + difusión a la sala del hilo
+    y a la sala personal del peer), que era el camino roto en producción.
+    """
+    _register(client, "a@example.com")
+    _register(client, "b@example.com")
+    token_a = _login(client, "a@example.com")
+    token_b = _login(client, "b@example.com")
+
+    conv = client.post(
+        "/api/v1/chat/conversations",
+        headers=_auth(token_a),
+        json={"otro_usuario_id": 2},
+    ).get_json()
+
+    socket_a = socketio.test_client(app, auth={"token": token_a})
+    socket_b = socketio.test_client(app, auth={"token": token_b})
+    socket_a.get_received()
+    socket_b.get_received()
+
+    # B abre el hilo; A envía por socket.
+    socket_b.emit("join", {"conversation_id": conv["id"]})
+    socket_b.get_received()
+    socket_a.emit(
+        "message",
+        {"conversation_id": conv["id"], "contenido": "hola por socket"},
+    )
+
+    recibidos = socket_b.get_received()
+    mensajes = [m for m in recibidos if m["name"] == "message"]
+    assert mensajes, _nombres(recibidos)
+    args = mensajes[-1]["args"]
+    payload = args[0] if isinstance(args, (list, tuple)) else args
+    assert payload["contenido"] == "hola por socket"
+    assert payload["sender_id"] == 1
+    assert payload["conversation_id"] == conv["id"]
+
+    socket_a.disconnect()
+    socket_b.disconnect()

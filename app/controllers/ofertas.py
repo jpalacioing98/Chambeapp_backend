@@ -19,7 +19,8 @@ from flask.views import MethodView
 from flask_smorest import Blueprint, abort
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 
-from app.extensions import db, socketio
+from app.extensions import db
+from app.services.realtime import safe_emit
 from app.models.user import User, Profile, RolUsuario
 from app.models.solicitud import Solicitud, EstadoSolicitud
 from app.models.oferta import Oferta, EstadoOferta
@@ -79,7 +80,7 @@ def _publicar_en_chat(
         db.session.add(msg)
         db.session.commit()
 
-        socketio.emit(
+        safe_emit(
             "message",
             {
                 "id": msg.id,
@@ -91,27 +92,31 @@ def _publicar_en_chat(
             },
             room=f"conversation_{conv.id}",
         )
+        # El destinatario recibe el mensaje aunque no tenga el hilo abierto.
+        safe_emit(
+            "message",
+            {
+                "id": msg.id,
+                "conversation_id": conv.id,
+                "sender_id": emisor_id,
+                "contenido": contenido,
+                "leido": False,
+                "creado_en": msg.creado_en.isoformat() if msg.creado_en else None,
+            },
+            room=f"user:{destinatario_id}",
+        )
     except Exception:
         db.session.rollback()
 
 
 def _emit_oferta(event: str, oferta: Oferta, target_user_id: int) -> None:
-    """Emite evento de oferta a la sala user:<id> del destinatario."""
-    payload = {
-        "oferta_id": oferta.id,
-        "solicitud_id": oferta.solicitud_id,
-        "estado": oferta.estado,
-        "pds_id": oferta.pds_id,
-        "aceptada_por_solicitante": oferta.aceptada_por_solicitante,
-        "aceptada_por_pds": oferta.aceptada_por_pds,
-        "monto_final": oferta.monto_final,
-    }
-    socketio.emit(event, payload, room=f"user:{target_user_id}")
+    """Emite la oferta COMPLETA (OfertaSchema) a la sala del destinatario."""
+    safe_emit(event, OfertaSchema().dump(oferta), room=f"user:{target_user_id}")
 
 
 def _emit_contrato_creado(contract: Contract, target_user_id: int) -> None:
     """Avisa a una parte que el contrato de la negociación está listo."""
-    socketio.emit(
+    safe_emit(
         "contrato:creado",
         {
             "contract_id": contract.id,

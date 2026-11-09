@@ -10,7 +10,8 @@ from flask.views import MethodView
 from flask_smorest import Blueprint, abort
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 
-from app.extensions import db, socketio
+from app.extensions import db
+from app.services.realtime import safe_emit
 from app.models.user import User, RolUsuario
 from app.models.anuncio import (
     AnuncioLaboral,
@@ -35,11 +36,10 @@ ROL_PDS = RolUsuario.PDS.value  # "pds"
 
 
 def _emit_anuncio(event: str, anuncio: AnuncioLaboral, target_user_id: int) -> None:
-    socketio.emit(
-        event,
-        {"anuncio_id": anuncio.id, "estado": anuncio.estado.value},
-        room=f"user:{target_user_id}",
-    )
+    """Emite el anuncio COMPLETO a la sala del usuario destinatario."""
+    payload = AnuncioSchema().dump(_anuncio_con_negocio(anuncio))
+    payload["postulaciones_count"] = len(anuncio.postulaciones)
+    safe_emit(event, payload, room=f"user:{target_user_id}")
 
 
 def _anuncio_con_negocio(anuncio: AnuncioLaboral) -> AnuncioLaboral:
@@ -73,6 +73,9 @@ class AnuncioRoot(MethodView):
         )
         db.session.add(anuncio)
         db.session.commit()
+        payload = AnuncioSchema().dump(_anuncio_con_negocio(anuncio))
+        safe_emit("anuncio:actualizado", payload, room=f"user:{user_id}")
+        safe_emit("anuncio:nuevo", payload)
         return _anuncio_con_negocio(anuncio)
 
     @jwt_required()
@@ -152,6 +155,9 @@ class AnuncioEstado(MethodView):
                 abort(400, message="El anuncio ya está publicado.")
             anuncio.estado = EstadoAnuncio.PUBLICADO
         db.session.commit()
+        payload = AnuncioSchema().dump(_anuncio_con_negocio(anuncio))
+        safe_emit("anuncio:actualizado", payload, room=f"user:{user_id}")
+        safe_emit("anuncio:cambio_estado", payload)
         return _anuncio_con_negocio(anuncio)
 
 

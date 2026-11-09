@@ -7,7 +7,8 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from datetime import datetime, timezone
 
-from app.extensions import db, socketio
+from app.extensions import db
+from app.services.realtime import safe_emit
 from app.models.user import User
 from app.models.solicitud import Solicitud, EstadoSolicitud
 from app.models.contract import Contract, EstadoContrato
@@ -330,13 +331,8 @@ class ContractEstado(MethodView):
         disparar_notificaciones_formalizacion(contract)
 
         # Notificación en tiempo real (socket) a ambos participantes.
-        payload = {
-            "contract_id": contract.id,
-            "estado": contract.estado.value,
-            "inicio_en": contract.inicio_en.isoformat() if contract.inicio_en else None,
-            "fin_en": contract.fin_en.isoformat() if contract.fin_en else None,
-        }
-        socketio.emit("contracto:actualizado", payload, room=f"user:{contract.solicitante_id}")
-        socketio.emit("contracto:actualizado", payload, room=f"user:{contract.proveedor_id}")
+        payload = ContractSchema().dump(contract)
+        safe_emit("contrato:actualizado", payload, room=f"user:{contract.solicitante_id}")
+        safe_emit("contrato:actualizado", payload, room=f"user:{contract.proveedor_id}")
 
         return contract

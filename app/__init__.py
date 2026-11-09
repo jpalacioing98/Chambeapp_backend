@@ -22,8 +22,6 @@ from app.controllers.admin import blp as admin_blp
 from app.controllers.tickets import blp as tickets_blp
 from app.controllers.superadmin import blp as superadmin_blp
 from app.controllers.ofertas import blp as ofertas_blp
-from app.controllers.oferta_socket import register_ofertas_socketio
-from app.controllers.notification_socket import register_notification_socketio
 from app.controllers.legal import blp as legal_blp
 from app.controllers.kyc import blp as kyc_blp
 from app.controllers.subscriptions import blp as subscriptions_blp
@@ -122,10 +120,13 @@ def create_app(config_class: str = "app.config.DevelopmentConfig") -> Flask:
     api.register_blueprint(two_factor_blp, url_prefix="/api/v1/auth")
     api.register_blueprint(regions_blp, url_prefix="/api/v1/regions")
 
-    # Handlers SocketIO (después de init_app)
+    # Handlers SocketIO (después de init_app).
+    # UN SOLO módulo registra eventos: Flask-SocketIO guarda un handler por
+    # evento, así que registrar `connect`/`disconnect` en varios módulos
+    # pisaba el anterior (causa de que el chat en vivo no funcionara).
+    # `register_chat_socketio` cubre connect (sala user:<id>) + join +
+    # message + disconnect; los demás solo EMITEN a salas.
     register_chat_socketio(socketio)
-    register_ofertas_socketio(socketio)
-    register_notification_socketio(socketio)
 
     # Cron job: limpiar monedas vencidas cada 24 horas
     def _setup_scheduler():

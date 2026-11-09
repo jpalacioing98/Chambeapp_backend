@@ -29,6 +29,7 @@ from app.schemas.negocios import (
     NegocioMapResponseSchema,
 )
 from app.services.negocio_utils import calcular_estado_horario, generar_slug
+from app.services.realtime import safe_emit
 from app.data.categorias_negocio import CATEGORIAS_NEGOCIO
 
 blp = Blueprint("negocios", __name__, description="Directorio de negocios y comerciantes")
@@ -65,6 +66,46 @@ def _ensure_merchant(user_id: int) -> User:
     if not user or user.rol != RolUsuario.MERCHANT:
         abort(403, message="Solo los merchants pueden crear negocios.")
     return user
+
+
+# ── Tiempo real (Socket.IO) ──────────────────────────────────────────
+
+def _pin_negocio(negocio: Negocio) -> dict:
+    """Pin mínimo del negocio para refrescar el mapa en vivo."""
+    return {
+        "id": negocio.id,
+        "nombre": negocio.nombre,
+        "slug": negocio.slug,
+        "lat": negocio.latitud,
+        "lng": negocio.longitud,
+        "categoria": negocio.categoria_principal,
+        "calificacion": negocio.calificacion_promedio,
+        "verificado": negocio.verificado,
+        "abierto": calcular_estado_horario(negocio.horarios).get("esta_abierto", False),
+        "logo_url": negocio.logo_url,
+    }
+
+
+def _emit_negocio(event: str, negocio: Negocio, *, eliminar: bool = False) -> None:
+    """Emite el negocio actualizado al owner y el pin al mapa global.
+
+    - `user:<owner_id>` recibe el payload completo del negocio (dashboards).
+    - Broadcast global `negocio:pin*` para que los mapas abiertos se
+      actualicen sin recargar (solo el pin mínimo, sin datos privados).
+    """
+    if eliminar:
+        payload = {"id": negocio.id}
+        safe_emit("negocio:eliminado", payload, room=f"user:{negocio.owner_id}")
+        safe_emit("negocio:pin:eliminado", payload)
+        return
+
+    safe_emit(
+        event,
+        NegocioResponseSchema().dump(negocio),
+        room=f"user:{negocio.owner_id}",
+    )
+    safe_emit("negocio:pin", _pin_negocio(negocio))
+
 
 
 # ── CRUD de Negocios ──────────────────────────────────────────────────
@@ -115,6 +156,7 @@ class NegociosList(MethodView):
             db.session.add(h)
 
         db.session.commit()
+        _emit_negocio("negocio:creado", negocio)
         return negocio
 
     @blp.doc()
@@ -186,6 +228,7 @@ class NegocioDetail(MethodView):
 
         negocio.actualizado_en = datetime.now(timezone.utc)
         db.session.commit()
+        _emit_negocio("negocio:actualizado", negocio)
         return negocio
 
     @blp.doc()
@@ -197,6 +240,7 @@ class NegocioDetail(MethodView):
         negocio = _get_negocio_or_404(negocio_id)
         _ensure_owner(negocio, user_id)
 
+        _emit_negocio("negocio:eliminado", negocio, eliminar=True)
         db.session.delete(negocio)
         db.session.commit()
         return "", 204
@@ -389,6 +433,7 @@ class NegocioHorarios(MethodView):
         horarios = NegocioHorario.query.filter_by(
             negocio_id=negocio_id
         ).order_by(NegocioHorario.dia_semana).all()
+        _emit_negocio("negocio:actualizado", negocio)
         return horarios
 
 
@@ -416,6 +461,7 @@ class NegocioImagenes(MethodView):
         imagenes.append(data["url"])
         negocio.imagenes = imagenes
         db.session.commit()
+        _emit_negocio("negocio:actualizado", negocio)
         return negocio
 
 
@@ -438,6 +484,7 @@ class NegocioImagenDelete(MethodView):
         # cambios en columnas JSON mutadas por referencia.
         negocio.imagenes = [img for i, img in enumerate(imagenes) if i != idx]
         db.session.commit()
+        _emit_negocio("negocio:actualizado", negocio)
         return negocio
 
 
@@ -478,6 +525,7 @@ class NegocioRatingCreate(MethodView):
         negocio.total_calificaciones = total
 
         db.session.commit()
+        _emit_negocio("negocio:rating", negocio)
         return rating
 
 
@@ -533,6 +581,7 @@ class NegocioReporteCreate(MethodView):
 
         reporte.ticket_id = ticket.id
         db.session.commit()
+        _emit_negocio("negocio:reporte", negocio)
         return reporte
 
 
@@ -663,4 +712,5 @@ class NegocioImagenUpload(MethodView):
         negocio.actualizado_en = datetime.now(timezone.utc)
         db.session.commit()
 
+        _emit_negocio("negocio:actualizado", negocio)
         return {"url": url, "negocio_id": negocio_id}, 201

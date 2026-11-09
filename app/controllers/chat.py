@@ -9,7 +9,8 @@ from flask.views import MethodView
 from flask_smorest import Blueprint, abort
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
-from app.extensions import db, socketio
+from app.extensions import db
+from app.services.realtime import safe_emit
 from app.models.chat import Conversation, Message
 from app.models.user import User
 from app.schemas.chat import (
@@ -48,6 +49,20 @@ def _get_conversation_or_404(conversation_id: int) -> Conversation:
 def _ensure_participant(conv: Conversation, user_id: int) -> None:
     if not conv.involves(user_id):
         abort(403, message="No eres participante de esta conversación.")
+
+
+def _emit_message(msg: Message, conv: Conversation) -> None:
+    """Difunde el mensaje a la sala del hilo Y a la sala personal del peer.
+
+    La sala `conversation_<id>` cubre a quien tiene el hilo abierto; la sala
+    `user:<peer>` garantiza que la lista de conversaciones del destinatario
+    (último mensaje, badge de no leídos) se actualice aunque no haya abierto
+    el hilo.
+    """
+    payload = MessageSchema().dump(msg)
+    safe_emit("message", payload, room=f"conversation_{conv.id}")
+    peer_id = conv.user_b_id if msg.sender_id == conv.user_a_id else conv.user_a_id
+    safe_emit("message", payload, room=f"user:{peer_id}")
 
 
 def _attach_peer(conv: Conversation, current_user_id: int) -> None:
@@ -153,8 +168,7 @@ class ConversationMessages(MethodView):
         db.session.add(msg)
         db.session.commit()
 
-        payload = MessageSchema().dump(msg)
-        socketio.emit("message", payload, room=f"conversation_{conversation_id}")
+        _emit_message(msg, conv)
 
         return msg, 201
 
@@ -226,8 +240,7 @@ class ConversationAttachments(MethodView):
         db.session.add(msg)
         db.session.commit()
 
-        payload = MessageSchema().dump(msg)
-        socketio.emit("message", payload, room=f"conversation_{conversation_id}")
+        _emit_message(msg, conv)
         return msg, 201
 
 

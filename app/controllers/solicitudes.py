@@ -6,6 +6,7 @@ from flask_smorest import Blueprint, abort
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 
 from app.extensions import db
+from app.services.realtime import safe_emit
 from app.models.user import User, Profile, RolUsuario
 from app.models.solicitud import Solicitud, Rating, EstadoSolicitud, UrgenciaSolicitud
 from app.models.contract import Contract
@@ -42,6 +43,18 @@ def _recalcular_promedio(calificado_id: int) -> None:
     profile.calificacion_promedio = (
         sum(r.puntaje for r in ratings) / len(ratings) if ratings else 0.0
     )
+
+
+# ── Tiempo real (Socket.IO) ──────────────────────────────────────────
+
+def _emit_solicitud(event: str, solicitud: Solicitud, target_user_id: int) -> None:
+    """Emite la solicitud actualizada (payload completo) a una sala de usuario."""
+    safe_emit(
+        event,
+        SolicitudSchema().dump(solicitud),
+        room=f"user:{target_user_id}",
+    )
+
 
 
 @blp.route("/")
@@ -107,6 +120,7 @@ class SolicitudList(MethodView):
         except Exception:
             pass
         db.session.commit()
+        _emit_solicitud("solicitud:creada", solicitud, user_id)
         return solicitud
 
     @jwt_required(optional=True)
@@ -300,6 +314,7 @@ class SolicitudEstado(MethodView):
             abort(403, message="Solo el dueño puede cambiar el estado.")
         solicitud.estado = EstadoSolicitud(data["estado"])
         db.session.commit()
+        _emit_solicitud("solicitud:actualizada", solicitud, user_id)
         return solicitud
 
 

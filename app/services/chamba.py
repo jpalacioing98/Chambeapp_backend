@@ -11,7 +11,8 @@ from datetime import datetime, timezone
 from sqlalchemy import text
 
 from app.ai.geo import haversine_km, is_postgis
-from app.extensions import db, socketio
+from app.extensions import db
+from app.services.realtime import safe_emit
 from app.models.chamba import Chamba, EstadoChamba
 
 logger = logging.getLogger(__name__)
@@ -150,16 +151,14 @@ def finalizar_chamba(chamba: Chamba, estrellas: int, comentario=None,
 
 
 def emitir_actualizacion(chamba: Chamba) -> None:
-    """Notifica en tiempo real (socket) a ambos participantes de la chamba."""
-    payload = {
-        "chamba_id": chamba.id,
-        "contract_id": chamba.contract_id,
-        "estado": chamba.estado.value,
-        "pago_directo_confirmado": chamba.pago_directo_confirmado,
-        "actualizado_en": (
-            chamba.actualizado_en.isoformat() if chamba.actualizado_en else None
-        ),
-    }
+    """Notifica en tiempo real (socket) a ambos participantes de la chamba.
+
+    Emite el expediente COMPLETO (ChambaSchema) para que el frontend
+    actualice su estado local sin recargar la página.
+    """
+    from app.schemas.chambas import ChambaSchema
+
+    payload = ChambaSchema().dump(chamba)
     contract = chamba.contract
-    socketio.emit("chamba:actualizado", payload, room=f"user:{contract.solicitante_id}")
-    socketio.emit("chamba:actualizado", payload, room=f"user:{contract.proveedor_id}")
+    safe_emit("chamba:actualizado", payload, room=f"user:{contract.solicitante_id}")
+    safe_emit("chamba:actualizado", payload, room=f"user:{contract.proveedor_id}")

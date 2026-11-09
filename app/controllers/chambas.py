@@ -13,6 +13,7 @@ from flask_smorest import Blueprint, abort
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from app.extensions import db
+from app.services.realtime import safe_emit
 from app.models.chamba import Chamba, EstadoChamba
 from app.models.contract import Contract
 from app.controllers.notifications import crear_notificacion
@@ -126,6 +127,13 @@ class ChambaMarana(MethodView):
         chamba.adendas = adendas
 
         db.session.commit()
+
+        # Tiempo real: la nueva maraña aparece en el feed del solicitante y
+        # en el de todos los PDS conectados (sala global).
+        payload = MaranaSchema().dump(marana)
+        safe_emit("marana:actualizada", payload, room=f"user:{user_id}")
+        safe_emit("marana:nueva", payload)
+        emitir_actualizacion(chamba)
         return marana
 
 

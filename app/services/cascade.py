@@ -121,9 +121,9 @@ class CascadeManager:
         # Emitir en tiempo real vía Socket.IO (cola Redis / message_queue).
         # El servidor Flask (que mantiene las conexiones de clientes) recibe
         # el evento desde Redis y lo difunde a la sala user:<id>.
-        from app.extensions import socketio
+        from app.services.realtime import safe_emit
         for notif in creadas:
-            socketio.emit(
+            safe_emit(
                 'notificacion:nueva',
                 notif.to_dict(),
                 room=f'user:{notif.user_id}',

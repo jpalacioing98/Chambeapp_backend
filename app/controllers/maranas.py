@@ -14,7 +14,8 @@ from flask.views import MethodView
 from flask_smorest import Blueprint, abort
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 
-from app.extensions import db, socketio
+from app.extensions import db
+from app.services.realtime import safe_emit
 from app.models.user import RolUsuario
 from app.models.marana import (
     Marana,
@@ -39,11 +40,22 @@ ROL_PDS = RolUsuario.PDS.value  # "pds"
 
 
 def _emit_marana(event: str, marana: Marana, target_user_id: int) -> None:
-    socketio.emit(
+    """Emite la maraña COMPLETA (MaranaSchema) a la sala del destinatario.
+
+    El frontend actualiza su estado local sin recargar la página.
+    """
+    safe_emit(
         event,
-        {"marana_id": marana.id, "estado": marana.estado.value},
+        MaranaSchema().dump(marana),
         room=f"user:{target_user_id}",
     )
+
+
+def _emit_marana_partes(event: str, marana: Marana) -> None:
+    """Emite la maraña a TODAS sus partes (solicitante + prestador asignado)."""
+    _emit_marana(event, marana, marana.solicitante_id)
+    if marana.pds_asignado_id:
+        _emit_marana(event, marana, marana.pds_asignado_id)
 
 
 @blp.route("/chamba/<int:chamba_id>")
@@ -255,6 +267,7 @@ class MaranaResponder(MethodView):
             f"¡Ganaste la maraña! {marana.titulo} te fue asignada.",
         )
         _emit_marana("marana:asignada", marana, oferta.pds_id)
+        _emit_marana("marana:actualizada", marana, marana.solicitante_id)
         return oferta
 
 
@@ -297,7 +310,7 @@ class MaranaEstado(MethodView):
             abort(400, message="Acción inválida.")
 
         db.session.commit()
-        _emit_marana("marana:actualizada", marana, marana.solicitante_id)
+        _emit_marana_partes("marana:actualizada", marana)
         return marana
 
 
@@ -339,7 +352,7 @@ class MaranaPago(MethodView):
                 "marana_pago",
                 "Una de las partes confirmó el pago de la maraña.",
             )
-        _emit_marana("marana:actualizada", marana, contraparte)
+        _emit_marana_partes("marana:actualizada", marana)
         return marana
 
 
