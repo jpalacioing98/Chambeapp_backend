@@ -1,8 +1,11 @@
-"""Anuncios blueprint: ofertas laborales NO vinculantes de negocios.
+"""Anuncios blueprint: ofertas laborales de negocios.
 
-Banner publicitario visible en el mapa de negocios para todos los roles
-(solicitante, pds, negocio). Permite postulaciones de PDS y gestión de
-contacto del negocio (contactar/descartar). Sin contratos ni chambas.
+Dos modalidades:
+  - "contacto" (por defecto): banner publicitario visible en el mapa de
+    negocios para todos los roles. Permite postulaciones de PDS y gestión
+    de contacto del negocio (contactar/descartar). Sin contratos.
+  - "contrato": el negocio elige una postulación y se genera un Contract
+    vinculante (con su solicitud y chamba) que ambas partes firman.
 """
 
 from flask import request
@@ -16,9 +19,12 @@ from app.models.user import User, RolUsuario
 from app.models.anuncio import (
     AnuncioLaboral,
     EstadoAnuncio,
+    ModalidadAnuncio,
     AnuncioPostulacion,
     EstadoPostulacionAnuncio,
 )
+from app.models.solicitud import Solicitud, EstadoSolicitud
+from app.models.contract import Contract, EstadoContrato
 from app.schemas.anuncio import (
     AnuncioCreateSchema,
     AnuncioEstadoSchema,
@@ -26,13 +32,18 @@ from app.schemas.anuncio import (
     AnuncioPostulacionSchema,
     AnuncioSchema,
     PostulacionEstadoSchema,
+    ContratarPostulacionSchema,
 )
+from app.schemas.contracts import ContractSchema
 from app.controllers.notifications import crear_notificacion
 
-blp = Blueprint("anuncios", __name__, description="Anuncios laborales (no vinculantes)")
+blp = Blueprint("anuncios", __name__, description="Anuncios laborales de negocios")
 
 ROL_NEGOCIO = RolUsuario.MERCHANT.value  # "merchant"
 ROL_PDS = RolUsuario.PDS.value  # "pds"
+
+# Presupuesto mínimo (COP) de un anuncio vinculante.
+PRESUPUESTO_MINIMO_CONTRATO = 50000
 
 
 def _emit_anuncio(event: str, anuncio: AnuncioLaboral, target_user_id: int) -> None:
@@ -46,7 +57,109 @@ def _anuncio_con_negocio(anuncio: AnuncioLaboral) -> AnuncioLaboral:
     anuncio.negocio_nombre = (
         anuncio.negocio.nombre or f"Negocio #{anuncio.negocio_id}"
     )
+    if anuncio.modalidad == ModalidadAnuncio.CONTRATO:
+        anuncio.vacantes_disponibles = _vacantes_disponibles(anuncio)
+    else:
+        anuncio.vacantes_disponibles = anuncio.vacantes or 0
     return anuncio
+
+
+def _contratos_del_anuncio(anuncio: AnuncioLaboral) -> list[Contract]:
+    """Contratos generados desde este anuncio (incluye los cancelados)."""
+    ids = list(anuncio.contract_ids or [])
+    if not ids:
+        return []
+    return (
+        Contract.query.filter(Contract.id.in_(ids))
+        .order_by(Contract.creado_en.desc())
+        .all()
+    )
+
+
+def _vacantes_disponibles(anuncio: AnuncioLaboral) -> int:
+    """Vacantes que todavía se pueden contratar.
+
+    Los contratos cancelados liberan su vacante: el negocio puede volver
+    a contratar a otro postulante.
+    """
+    total = anuncio.vacantes or 0
+    ocupados = len(
+        [
+            c
+            for c in _contratos_del_anuncio(anuncio)
+            if c.estado != EstadoContrato.CANCELADO
+        ]
+    )
+    return max(total - ocupados, 0)
+
+
+def _crear_contrato_desde_anuncio(
+    anuncio: AnuncioLaboral,
+    postulacion: AnuncioPostulacion,
+    data: dict,
+) -> Contract:
+    """Genera el contrato vinculante de una postulación de un anuncio.
+
+    `Contract.service_id` apunta siempre a una Solicitud (de ahí cuelgan la
+    chamba, los hitos y el cálculo de comisión). Por eso la contratación
+    materializa la solicitud del trabajo anunciado y la deja ASIGNADA:
+    nunca aparece como solicitud publicada en el feed.
+    """
+    monto = data.get("monto")
+    if monto is None:
+        monto = anuncio.presupuesto
+    fecha_deseada = data.get("fecha_deseada") or anuncio.fecha_deseada
+    horario = data.get("horario") or anuncio.horario
+
+    condiciones = [
+        {
+            "texto": f"Contrato generado desde el anuncio #{anuncio.id}: {anuncio.titulo}",
+            "autor": "negocio",
+        }
+    ]
+    for texto in data.get("condiciones") or []:
+        texto = (texto or "").strip()
+        if texto:
+            condiciones.append({"texto": texto, "autor": "negocio"})
+
+    solicitud = Solicitud(
+        solicitante_id=anuncio.negocio_id,
+        titulo=anuncio.titulo,
+        categoria=anuncio.categoria,
+        descripcion=anuncio.descripcion,
+        ubicacion=anuncio.ubicacion or "Valledupar",
+        latitud=anuncio.latitud,
+        longitud=anuncio.longitud,
+        presupuesto=int(round(monto)) if monto is not None else None,
+        fecha_deseada=fecha_deseada,
+        horario=horario,
+        estado=EstadoSolicitud.ASIGNADA,
+    )
+    db.session.add(solicitud)
+    db.session.flush()
+
+    contract = Contract(
+        service_id=solicitud.id,
+        proveedor_id=postulacion.pds_id,
+        solicitante_id=anuncio.negocio_id,
+        estado=EstadoContrato.PENDIENTE.value,
+        monto=monto,
+        condiciones=condiciones,
+        fecha_deseada=fecha_deseada,
+        horario=horario,
+    )
+    db.session.add(contract)
+    db.session.flush()
+
+    postulacion.estado = EstadoPostulacionAnuncio.CONTRATADO
+    postulacion.contract_id = contract.id
+
+    ids = list(anuncio.contract_ids or [])
+    if contract.id not in ids:
+        ids.append(contract.id)
+    anuncio.contract_ids = ids
+
+    return contract
 
 
 @blp.route("/")
@@ -55,10 +168,27 @@ class AnuncioRoot(MethodView):
     @blp.arguments(AnuncioCreateSchema)
     @blp.response(201, AnuncioSchema)
     def post(self, data):
-        """El negocio publica un anuncio laboral (banner publicitario)."""
+        """El negocio publica un anuncio laboral (contacto o vinculante)."""
         user_id = int(get_jwt_identity())
         if get_jwt().get("role") != ROL_NEGOCIO:
             abort(403, message="Solo un negocio puede publicar anuncios laborales.")
+
+        modalidad = ModalidadAnuncio(data.get("modalidad") or ModalidadAnuncio.CONTACTO)
+        presupuesto = data.get("presupuesto")
+        if modalidad == ModalidadAnuncio.CONTRATO:
+            if presupuesto is None:
+                abort(
+                    400,
+                    message="Un anuncio vinculante requiere el presupuesto del trabajo.",
+                )
+            if presupuesto < PRESUPUESTO_MINIMO_CONTRATO:
+                abort(
+                    400,
+                    message=(
+                        "El presupuesto de un anuncio vinculante debe ser de al menos "
+                        f"{PRESUPUESTO_MINIMO_CONTRATO} COP."
+                    ),
+                )
 
         anuncio = AnuncioLaboral(
             negocio_id=user_id,
@@ -69,6 +199,11 @@ class AnuncioRoot(MethodView):
             latitud=data.get("latitud"),
             longitud=data.get("longitud"),
             vacantes=data.get("vacantes"),
+            modalidad=modalidad,
+            presupuesto=presupuesto,
+            fecha_deseada=data.get("fecha_deseada"),
+            horario=data.get("horario"),
+            contract_ids=[],
             estado=EstadoAnuncio.PUBLICADO,
         )
         db.session.add(anuncio)
@@ -107,6 +242,8 @@ class AnunciosDelNegocio(MethodView):
         if not es_dueño:
             query = query.filter_by(estado=EstadoAnuncio.PUBLICADO)
         anuncios = query.order_by(AnuncioLaboral.creado_en.desc()).all()
+        for a in anuncios:
+            _anuncio_con_negocio(a)
         dump = AnuncioSchema(many=True).dump(anuncios)
         if es_dueño:
             for a, item in zip(anuncios, dump):
@@ -167,7 +304,7 @@ class AnuncioPostulacionList(MethodView):
     @blp.arguments(AnuncioPostulacionCreateSchema)
     @blp.response(201, AnuncioPostulacionSchema)
     def post(self, data, anuncio_id):
-        """Un PDS se postula (solo contacto, no vinculante)."""
+        """Un PDS se postula (contacto en anuncios libres; contrato en los vinculantes)."""
         user_id = int(get_jwt_identity())
         if get_jwt().get("role") != ROL_PDS:
             abort(403, message="Solo un pds puede postularse a un anuncio laboral.")
@@ -235,6 +372,8 @@ class AnuncioPostulacionItem(MethodView):
         postulacion = db.get_or_404(AnuncioPostulacion, postulacion_id)
         if postulacion.anuncio_id != anuncio.id:
             abort(400, message="La postulación no pertenece a este anuncio.")
+        if postulacion.estado == EstadoPostulacionAnuncio.CONTRATADO:
+            abort(400, message="El postulante ya fue contratado.")
 
         accion = data["accion"]
         if accion == "contactar":
@@ -251,3 +390,85 @@ class AnuncioPostulacionItem(MethodView):
         db.session.commit()
         postulacion.pds_nombre = postulacion.pds.nombre or f"Prestador #{postulacion.pds_id}"
         return postulacion
+
+
+@blp.route("/<int:anuncio_id>/postulaciones/<int:postulacion_id>/contratar")
+class AnuncioPostulacionContratar(MethodView):
+    @jwt_required()
+    @blp.arguments(ContratarPostulacionSchema)
+    @blp.response(201, ContractSchema)
+    def post(self, data, anuncio_id, postulacion_id):
+        """El negocio contrata a un postulante: genera el contrato vinculante."""
+        user_id = int(get_jwt_identity())
+        anuncio = db.get_or_404(AnuncioLaboral, anuncio_id)
+        if anuncio.negocio_id != user_id:
+            abort(403, message="Solo el negocio dueño puede contratar postulantes.")
+        if anuncio.modalidad != ModalidadAnuncio.CONTRATO:
+            abort(
+                400,
+                message="Este anuncio no es vinculante: no genera contratos.",
+            )
+        if anuncio.estado != EstadoAnuncio.PUBLICADO:
+            abort(400, message="El anuncio ya no admite contrataciones.")
+
+        postulacion = db.get_or_404(AnuncioPostulacion, postulacion_id)
+        if postulacion.anuncio_id != anuncio.id:
+            abort(400, message="La postulación no pertenece a este anuncio.")
+        if postulacion.estado == EstadoPostulacionAnuncio.DESCARTADO:
+            abort(400, message="La postulación fue descartada.")
+        if postulacion.contract_id is not None:
+            previo = db.session.get(Contract, postulacion.contract_id)
+            if previo is not None and previo.estado != EstadoContrato.CANCELADO:
+                abort(400, message="Este postulante ya fue contratado.")
+            # El contrato anterior fue cancelado: el vacante queda libre y el
+            # postulante puede volver a ser contratado.
+            postulacion.contract_id = None
+            postulacion.estado = EstadoPostulacionAnuncio.PENDIENTE
+
+        if _vacantes_disponibles(anuncio) <= 0:
+            abort(400, message="No hay vacantes disponibles en este anuncio.")
+
+        contract = _crear_contrato_desde_anuncio(anuncio, postulacion, data)
+
+        # Al agotar los vacantes el anuncio se cierra solo.
+        if _vacantes_disponibles(anuncio) <= 0:
+            anuncio.estado = EstadoAnuncio.CERRADO
+
+        crear_notificacion(
+            postulacion.pds_id,
+            "anuncio_contratado",
+            f"Te contrataron para el anuncio: {anuncio.titulo}. Firma el contrato para activarlo.",
+        )
+        crear_notificacion(
+            anuncio.negocio_id,
+            "anuncio_contratado",
+            f"Contrato creado con el postulante de {anuncio.titulo}. Fírmalo para activarlo.",
+        )
+        db.session.commit()
+
+        _emit_anuncio("anuncio:actualizado", anuncio, anuncio.negocio_id)
+        _emit_anuncio("anuncio:contratado", anuncio, postulacion.pds_id)
+        safe_emit(
+            "contrato:creado",
+            ContractSchema().dump(contract),
+            room=f"user:{postulacion.pds_id}",
+        )
+        safe_emit(
+            "contrato:creado",
+            ContractSchema().dump(contract),
+            room=f"user:{anuncio.negocio_id}",
+        )
+        return contract
+
+
+@blp.route("/<int:anuncio_id>/contratos")
+class AnuncioContratos(MethodView):
+    @jwt_required()
+    @blp.response(200, ContractSchema(many=True))
+    def get(self, anuncio_id):
+        """Contratos generados por este anuncio (negocio dueño)."""
+        user_id = int(get_jwt_identity())
+        anuncio = db.get_or_404(AnuncioLaboral, anuncio_id)
+        if anuncio.negocio_id != user_id:
+            abort(403, message="Solo el negocio dueño consulta los contratos.")
+        return _contratos_del_anuncio(anuncio)

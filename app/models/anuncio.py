@@ -1,14 +1,28 @@
 """Domain models: AnuncioLaboral — oferta laboral de un negocio.
 
-No es vinculante: solo un banner publicitario visible en el mapa de
-negocios para todos los roles, que permite postulaciones de PDS y
-gestión de contacto (contactar/descartar) por parte del negocio.
+Puede ser de dos modalidades:
+  - "contacto": banner publicitario visible en el mapa de negocios para
+    todos los roles; permite postulaciones de PDS y gestión de contacto
+    (contactar/descartar) por parte del negocio. NO vinculante.
+  - "contrato": oferta vinculante; el negocio elige una postulación y se
+    genera un Contract (con su solicitud y chamba) que ambas partes firman.
 """
 
 from datetime import datetime, timezone
 from enum import Enum
 
 from app.extensions import db
+
+
+class ModalidadAnuncio(str, Enum):
+    """Modalidad de un anuncio laboral."""
+
+    CONTACTO = "contacto"  # solo postulación + contacto (no vinculante)
+    CONTRATO = "contrato"  # postulación → contract vinculante
+
+    @classmethod
+    def values(cls):
+        return [e.value for e in cls]
 
 
 class EstadoAnuncio(str, Enum):
@@ -24,6 +38,7 @@ class EstadoPostulacionAnuncio(str, Enum):
     PENDIENTE = "pendiente"
     CONTACTADO = "contactado"
     DESCARTADO = "descartado"
+    CONTRATADO = "contratado"
 
     @classmethod
     def values(cls):
@@ -35,6 +50,7 @@ class AnuncioLaboral(db.Model):
     __table_args__ = (
         db.Index("ix_anuncios_estado_creado", "estado", "creado_en"),
         db.Index("ix_anuncios_negocio_creado", "negocio_id", "creado_en"),
+        db.Index("ix_anuncios_modalidad_creado", "modalidad", "creado_en"),
     )
 
     id = db.Column(db.Integer, primary_key=True)
@@ -48,6 +64,22 @@ class AnuncioLaboral(db.Model):
     latitud = db.Column(db.Float, nullable=True)
     longitud = db.Column(db.Float, nullable=True)
     vacantes = db.Column(db.Integer, nullable=True)
+    # Modalidad: "contacto" (actual, no vinculante) o "contrato" (vinculante).
+    modalidad = db.Column(
+        db.Enum(
+            ModalidadAnuncio,
+            values_callable=lambda enum: [e.value for e in enum],
+            name="modalidadanuncio",
+        ),
+        nullable=False,
+        default=ModalidadAnuncio.CONTACTO,
+    )
+    # Parámetros del contrato (requeridos cuando modalidad == "contrato").
+    presupuesto = db.Column(db.Float, nullable=True)
+    fecha_deseada = db.Column(db.Date, nullable=True)
+    horario = db.Column(db.String(80), nullable=True)
+    # Trazabilidad: ids de contratos generados desde este anuncio.
+    contract_ids = db.Column(db.JSON, default=list)
     estado = db.Column(
         db.Enum(
             EstadoAnuncio,
@@ -99,6 +131,8 @@ class AnuncioPostulacion(db.Model):
         nullable=False,
         default=EstadoPostulacionAnuncio.PENDIENTE,
     )
+    # Contrato generado al contratar esta postulación (modalidad "contrato").
+    contract_id = db.Column(db.Integer, nullable=True, index=True)
     created_at = db.Column(
         db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )

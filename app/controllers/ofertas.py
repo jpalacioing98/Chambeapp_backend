@@ -1,7 +1,7 @@
 """Ofertas blueprint: negociación pds/solicitante (RF-04 negociación).
 
 Endpoints (prefijo /api/v1):
-  POST   /solicitudes/<sid>/ofertas   -> pds crea oferta (no dueño)
+  POST   /solicitudes/<sid>/ofertas   -> pds o merchant crea oferta (no dueño)
   GET    /solicitudes/<sid>/ofertas   -> dueño o pds con oferta
   GET    /mis-ofertas                 -> ofertas del pds actual
   POST   /ofertas/<oid>/responder     -> aceptar/rechazar/contraofertar
@@ -38,8 +38,10 @@ from app.models.chat import Conversation, Message
 
 blp = Blueprint("ofertas", __name__, description="Ofertas pds/solicitante")
 
-# Rol que actúa como pds (valor "pds" en el enum RolUsuario).
+# Roles que pueden actuar como proveedor en una negociación: el pds
+# (trabajador) y el merchant (negocio que también ofrece servicios).
 ROL_PDS = RolUsuario.PDS.value  # "pds"
+ROL_MERCHANT = RolUsuario.MERCHANT.value  # "merchant"
 
 # Marcador de mensajes estructurados del chat (mismo formato que el
 # frontend: ⟦c:<tipo>⟧<json>).
@@ -218,10 +220,10 @@ class OfertaList(MethodView):
     @blp.arguments(OfertaCreateSchema)
     @blp.response(201, OfertaSchema)
     def post(self, data, sid):
-        """Crea oferta. Solo pds y NO ser el dueño de la solicitud."""
+        """Crea oferta. Solo pds o merchant y NO ser el dueño de la solicitud."""
         user_id = int(get_jwt_identity())
-        if get_jwt().get("role") != ROL_PDS:
-            abort(403, message="Solo un pds puede enviar ofertas.")
+        if get_jwt().get("role") not in (ROL_PDS, ROL_MERCHANT):
+            abort(403, message="Solo un pds o merchant puede enviar ofertas.")
 
         solicitud = db.get_or_404(Solicitud, sid)
         if solicitud.solicitante_id == user_id:

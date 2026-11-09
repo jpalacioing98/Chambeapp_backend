@@ -14,6 +14,7 @@ from app.models.marana import Marana, EstadoMarana, MaranaOferta, EstadoMaranaOf
 from app.models.anuncio import (
     AnuncioLaboral,
     EstadoAnuncio,
+    ModalidadAnuncio,
     AnuncioPostulacion,
     EstadoPostulacionAnuncio,
 )
@@ -66,6 +67,7 @@ __all__ = [
     "EstadoMaranaOferta",
     "AnuncioLaboral",
     "EstadoAnuncio",
+    "ModalidadAnuncio",
     "AnuncioPostulacion",
     "EstadoPostulacionAnuncio",
     "Ticket",

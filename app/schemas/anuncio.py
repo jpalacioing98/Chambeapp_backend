@@ -1,8 +1,12 @@
-"""Marshmallow schemas for Anuncios Laborales (ofertas no vinculantes)."""
+"""Marshmallow schemas for Anuncios Laborales (ofertas de negocios)."""
 
 from marshmallow import Schema, fields, validate
 
-from app.models.anuncio import EstadoAnuncio, EstadoPostulacionAnuncio
+from app.models.anuncio import (
+    EstadoAnuncio,
+    EstadoPostulacionAnuncio,
+    ModalidadAnuncio,
+)
 
 
 class AnuncioCreateSchema(Schema):
@@ -15,6 +19,16 @@ class AnuncioCreateSchema(Schema):
     latitud = fields.Float(required=False, allow_none=True)
     longitud = fields.Float(required=False, allow_none=True)
     vacantes = fields.Integer(required=False, allow_none=True, validate=validate.Range(min=1))
+    # "contacto" (no vinculante, por defecto) | "contrato" (vinculante).
+    modalidad = fields.String(
+        required=False,
+        allow_none=True,
+        validate=validate.OneOf(ModalidadAnuncio.values()),
+    )
+    # Parámetros del contrato (solo cuando modalidad == "contrato").
+    presupuesto = fields.Float(required=False, allow_none=True)
+    fecha_deseada = fields.Date(required=False, allow_none=True)
+    horario = fields.String(required=False, allow_none=True, validate=validate.Length(max=80))
 
 
 class AnuncioEstadoSchema(Schema):
@@ -45,6 +59,7 @@ class AnuncioPostulacionSchema(Schema):
     telefono_contacto = fields.String(allow_none=True)
     email_contacto = fields.String(allow_none=True)
     estado = fields.Enum(EstadoPostulacionAnuncio, by_value=True)
+    contract_id = fields.Integer(allow_none=True)
     created_at = fields.DateTime()
 
 
@@ -55,6 +70,20 @@ class PostulacionEstadoSchema(Schema):
         required=True,
         validate=validate.OneOf(["contactar", "descartar"]),
     )
+
+
+class ContratarPostulacionSchema(Schema):
+    """Body para contratar a un postulante de un anuncio vinculante.
+
+    Todos los campos son opcionales: por defecto se toma el presupuesto,
+    fecha y horario definidos en el anuncio. Permite ajustar el valor
+    pactado en el momento de contratar.
+    """
+
+    monto = fields.Float(required=False, allow_none=True)
+    fecha_deseada = fields.Date(required=False, allow_none=True)
+    horario = fields.String(required=False, allow_none=True, validate=validate.Length(max=80))
+    condiciones = fields.List(fields.String(), required=False, allow_none=True)
 
 
 class AnuncioSchema(Schema):
@@ -70,6 +99,11 @@ class AnuncioSchema(Schema):
     latitud = fields.Float(allow_none=True)
     longitud = fields.Float(allow_none=True)
     vacantes = fields.Integer(allow_none=True)
+    modalidad = fields.Enum(ModalidadAnuncio, by_value=True)
+    presupuesto = fields.Float(allow_none=True)
+    fecha_deseada = fields.Date(allow_none=True)
+    horario = fields.String(allow_none=True)
+    contract_ids = fields.List(fields.Integer(), allow_none=True)
     estado = fields.Enum(EstadoAnuncio, by_value=True)
     creado_en = fields.DateTime()
     actualizado_en = fields.DateTime()
@@ -78,3 +112,5 @@ class AnuncioSchema(Schema):
         fields.Nested(AnuncioPostulacionSchema), dump_only=True, allow_none=True
     )
     postulaciones_count = fields.Integer(dump_only=True, dump_default=0)
+    # Vacantes aún disponibles (modalidad contrato).
+    vacantes_disponibles = fields.Integer(dump_only=True, dump_default=0)
