@@ -7,6 +7,8 @@ Si el usuario no tiene fila de preferencias, todo está permitido: los
 defaults del modelo son True.
 """
 
+from app.extensions import db
+
 # (prefijo del tipo, nombre del toggle)
 _PREFERENCIA_POR_PREFIJO = (
     ("negocio:rating", "notif_nueva_resena"),
@@ -50,9 +52,12 @@ def preferencia_permite(user_id: int, tipo: str) -> bool:
     try:
         from app.models.merchant import MerchantPreference
 
-        prefs = MerchantPreference.query.filter_by(user_id=user_id).first()
-        if prefs is None:
-            return True
-        return bool(getattr(prefs, preferencia, True))
+        # Savepoint: si la consulta falla, no dejamos la transacción del
+        # llamador abortada (la notificación debe poder persistirse igual).
+        with db.session.begin_nested():
+            prefs = MerchantPreference.query.filter_by(user_id=user_id).first()
+            if prefs is None:
+                return True
+            return bool(getattr(prefs, preferencia, True))
     except Exception:  # noqa: BLE001 — una preferencia nunca bloquea el flujo
         return True

@@ -27,8 +27,10 @@ from flask_socketio import join_room, leave_room, emit
 from app.extensions import db
 from app.auth.socket_auth import decode_socket_user_id
 from app.models.chat import Conversation, Message
+from app.models.user import User
 from app.schemas.chat import MessageSchema
 from app.services.realtime import safe_emit
+from app.services.staff_rooms import KYC_STAFF_ROLES, staff_kyc_room
 
 _user_by_sid: dict[str, int] = {}
 
@@ -66,6 +68,15 @@ def register_chat_socketio(sio) -> None:
             # chambas, marañas, anuncios, negocios, notificaciones) sin
             # necesidad de emitir `join` explícito.
             join_room(f"user:{user_id}")
+            # Sala exclusiva del staff KYC: recibe `kyc:documento_nuevo`
+            # cuando un usuario de su región envía un documento.
+            try:
+                user = db.session.get(User, user_id)
+            except Exception:  # noqa: BLE001 — un fallo de BD no corta el socket
+                db.session.rollback()
+                user = None
+            if user is not None and user.rol in KYC_STAFF_ROLES:
+                join_room(staff_kyc_room(user))
             emit("status", {"msg": f"Conectado a sala user:{user_id}"})
 
     @sio.on("join")

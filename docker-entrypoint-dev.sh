@@ -169,6 +169,8 @@ with app.app_context():
     run("ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_secret VARCHAR(255)")
     run("ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_pending_secret VARCHAR(255)")
     run("ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_confirmed_at TIMESTAMP")
+    # Preferencias UI: mapa inicial de chambas (2d | 3d).
+    run("ALTER TABLE merchant_preferences ADD COLUMN IF NOT EXISTS mapa_preferido VARCHAR(4) NOT NULL DEFAULT '2d'")
     run(
         "CREATE TABLE IF NOT EXISTS two_factor_recovery_codes ("
         "id SERIAL PRIMARY KEY, "

@@ -132,26 +132,33 @@ def enviar_push_prueba(user_id: int) -> dict:
     return {"sent": enviados, "subscriptions": len(subs)}
 
 
-def enviar_push_notificacion(notif) -> int:
+def enviar_push_notificacion(notif, forzar: bool = False) -> int:
     """Envía la notificación persistida a todas las suscripciones del usuario.
 
-    Respeta `MerchantPreference.push_enabled`. No hace commit: la transacción
-    la cierra el caller. Devuelve cuántos envíos salieron.
+    Respeta `MerchantPreference.push_enabled` salvo con `forzar=True` (avisos
+    operativos del staff que no deben silenciarse). No hace commit: la
+    transacción la cierra el caller. Devuelve cuántos envíos salieron.
     """
     try:
         from app.models.merchant import MerchantPreference
         from app.models.push import PushSubscription
 
-        prefs = MerchantPreference.query.filter_by(user_id=notif.user_id).first()
-        if prefs is not None and not prefs.push_enabled:
-            return 0
+        # Savepoint: un fallo al leer preferencias/suscripciones no debe
+        # abortar la transacción que persiste la notificación.
+        with db.session.begin_nested():
+            if not forzar:
+                prefs = (
+                    MerchantPreference.query.filter_by(user_id=notif.user_id).first()
+                )
+                if prefs is not None and not prefs.push_enabled:
+                    return 0
 
-        subs = (
-            PushSubscription.query.filter_by(user_id=notif.user_id)
-            .order_by(PushSubscription.id.desc())
-            .limit(10)
-            .all()
-        )
+            subs = (
+                PushSubscription.query.filter_by(user_id=notif.user_id)
+                .order_by(PushSubscription.id.desc())
+                .limit(10)
+                .all()
+            )
         if not subs:
             return 0
 
