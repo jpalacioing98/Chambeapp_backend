@@ -153,6 +153,7 @@ class DisputeDetailSchema(Schema):
     created_at = fields.DateTime()
     contract = fields.Raw(allow_none=True)
     payment = fields.Raw(allow_none=True)
+    resolved_by_user = fields.Raw(allow_none=True)
 
 
 class DisputeResolveSchema(Schema):
@@ -172,6 +173,13 @@ class TicketCreateResponseSchema(Schema):
     status = fields.String()
 
 
+class TicketUserSchema(Schema):
+    id = fields.Integer()
+    nombre = fields.String(allow_none=True)
+    email = fields.Email(allow_none=True)
+    rol = fields.Enum(RolUsuario, by_value=True)
+
+
 class TicketListSchema(Schema):
     id = fields.Integer()
     user_id = fields.Integer()
@@ -180,6 +188,16 @@ class TicketListSchema(Schema):
     priority = fields.String()
     assigned_to = fields.Integer(allow_none=True)
     created_at = fields.DateTime()
+    usuario = fields.Nested(TicketUserSchema, attribute="user", allow_none=True)
+    assigned = fields.Nested(
+        TicketUserSchema, attribute="assigned_user", allow_none=True
+    )
+    conversation_id = fields.Integer(allow_none=True)
+
+
+class TicketDetailSchema(TicketListSchema):
+    body = fields.String()
+    resolved_at = fields.DateTime(allow_none=True)
 
 
 class TicketListResponseSchema(Schema):

@@ -108,6 +108,7 @@ def crear_notificacion(
     *,
     respetar_preferencias: bool = True,
     forzar_push: bool = False,
+    push_url: str | None = None,
 ):
     """Helper: persiste (sin commit) una notificación para user_id.
 
@@ -145,7 +146,7 @@ def crear_notificacion(
         },
         room=f"user:{user_id}",
     )
-    enviar_push_notificacion(notif, forzar=forzar_push)
+    enviar_push_notificacion(notif, forzar=forzar_push, url=push_url)
     return notif
 
 

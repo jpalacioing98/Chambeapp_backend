@@ -25,6 +25,12 @@ from app.models.solicitud import Solicitud, Rating, EstadoSolicitud
 from app.models.contract import Contract, EstadoContrato, Dispute
 from app.models.payment import Payment, EstadoPago
 from app.models.ticket import Ticket
+from app.models.chat import Conversation
+from app.services.support_events import (
+    emit_disputa_resuelta,
+    emit_ticket_actualizado,
+    notificar_disputa_resuelta,
+)
 from app.models.audit import write_audit
 from app.schemas.admin import (
     UserListSchema,
@@ -46,6 +52,7 @@ from app.schemas.admin import (
     DisputeDetailSchema,
     DisputeResolveSchema,
     TicketListResponseSchema,
+    TicketDetailSchema,
     TicketPatchSchema,
     ContentReportResponseSchema,
     ContentModerateSchema,
@@ -94,6 +101,18 @@ def _assert_contract_in_region(contract: Contract, scope) -> None:
     solicitante = db.session.get(User, contract.solicitante_id)
     if solicitante is None or solicitante.region_id != scope:
         abort(404, message="Recurso no encontrado en tu región.")
+
+
+def _user_brief(user) -> dict | None:
+    """Datos mínimos de un usuario para detalles de disputas/tickets."""
+    if user is None:
+        return None
+    return {
+        "id": user.id,
+        "nombre": user.nombre,
+        "email": user.email,
+        "rol": user.rol.value,
+    }
 
 
 def _assert_rating_in_region(rating: Rating, scope) -> None:
@@ -433,7 +452,7 @@ class AdminContractModerate(MethodView):
 # ==========================================================================
 @blp.route("/disputes")
 class AdminDisputeList(MethodView):
-    @admin_required
+    @role_required(["admin", "superadmin", "soporte"])
     @blp.response(200, DisputeListResponseSchema)
     def get(self):
         """Lista disputas (status por defecto 'abierta') — scoped por región.
@@ -454,7 +473,7 @@ class AdminDisputeList(MethodView):
 
 @blp.route("/disputes/<int:dispute_id>")
 class AdminDisputeDetail(MethodView):
-    @admin_required
+    @role_required(["admin", "superadmin", "soporte"])
     @blp.response(200)
     def get(self, dispute_id):
         """Detalle de disputa + datos de contrato/pago asociados."""
@@ -465,13 +484,40 @@ class AdminDisputeDetail(MethodView):
             _assert_contract_in_region(contract, scope)
         payment = Payment.query.filter_by(contract_id=dispute.contract_id).first()
         data = DisputeDetailSchema().dump(dispute)
+
+        solicitante = proveedor = servicio = None
+        if contract is not None:
+            solicitante = db.session.get(User, contract.solicitante_id)
+            proveedor = db.session.get(User, contract.proveedor_id)
+            servicio = db.session.get(Solicitud, contract.service_id)
+
         data["contract"] = (
             {
                 "id": contract.id,
                 "estado": contract.estado.value,
-                "comprador_id": contract.solicitante_id,
-                "vendedor_id": contract.proveedor_id,
-                "servicio_id": contract.service_id,
+                "monto": contract.monto,
+                "fecha_deseada": (
+                    contract.fecha_deseada.isoformat()
+                    if contract.fecha_deseada
+                    else None
+                ),
+                "horario": contract.horario,
+                "creado_en": (
+                    contract.creado_en.isoformat() if contract.creado_en else None
+                ),
+                "solicitante": _user_brief(solicitante),
+                "proveedor": _user_brief(proveedor),
+                "servicio": (
+                    {
+                        "id": servicio.id,
+                        "titulo": servicio.titulo,
+                        "categoria": servicio.categoria,
+                        "estado": servicio.estado.value,
+                        "presupuesto": servicio.presupuesto,
+                    }
+                    if servicio
+                    else None
+                ),
             }
             if contract
             else None
@@ -487,12 +533,17 @@ class AdminDisputeDetail(MethodView):
             if payment
             else None
         )
+        data["resolved_by_user"] = (
+            _user_brief(db.session.get(User, dispute.resolved_by))
+            if dispute.resolved_by
+            else None
+        )
         return data
 
 
 @blp.route("/disputes/<int:dispute_id>/resolve")
 class AdminDisputeResolve(MethodView):
-    @admin_required
+    @role_required(["admin", "superadmin", "soporte"])
     @blp.arguments(DisputeResolveSchema)
     @blp.response(200)
     def post(self, data, dispute_id):
@@ -521,6 +572,15 @@ class AdminDisputeResolve(MethodView):
             _client_ip(),
         )
         db.session.commit()
+
+        solicitante = (
+            db.session.get(User, contract.solicitante_id) if contract else None
+        )
+        emit_disputa_resuelta(
+            dispute, solicitante.region_id if solicitante else None
+        )
+        notificar_disputa_resuelta(dispute, contract, dispute.resolution)
+
         return {
             "id": dispute.id,
             "status": "resuelta",
@@ -548,11 +608,39 @@ class AdminTicketList(MethodView):
             query = query.filter(Ticket.status == status)
         total = query.count()
         tickets = query.order_by(Ticket.created_at.desc()).limit(50).all()
+
+        actor_id = _actor_id()
+        conversations = Conversation.query.filter(
+            (Conversation.user_a_id == actor_id)
+            | (Conversation.user_b_id == actor_id)
+        ).all()
+        conversacion_por_usuario = {
+            (
+                conv.user_b_id if conv.user_a_id == actor_id else conv.user_a_id
+            ): conv.id
+            for conv in conversations
+        }
+        for ticket in tickets:
+            ticket.conversation_id = conversacion_por_usuario.get(ticket.user_id)
+
         return {"items": tickets, "total": total}
 
 
 @blp.route("/tickets/<int:ticket_id>")
 class AdminTicketPatch(MethodView):
+    @role_required(["admin", "superadmin", "soporte"])
+    @blp.response(200, TicketDetailSchema)
+    def get(self, ticket_id):
+        """Detalle completo del ticket + conversación de soporte existente."""
+        scope = region_scope_id(_actor())
+        ticket = db.get_or_404(Ticket, ticket_id)
+        _assert_in_region(ticket.user_id, scope)
+
+        a, b = Conversation.normalize(_actor_id(), ticket.user_id)
+        conv = Conversation.query.filter_by(user_a_id=a, user_b_id=b).first()
+        ticket.conversation_id = conv.id if conv is not None else None
+        return ticket
+
     @role_required(["admin", "superadmin", "soporte"])
     @blp.arguments(TicketPatchSchema)
     @blp.response(200)
@@ -587,6 +675,11 @@ class AdminTicketPatch(MethodView):
             _client_ip(),
         )
         db.session.commit()
+
+        ticket_user = db.session.get(User, ticket.user_id)
+        region_id = ticket_user.region_id if ticket_user else None
+        emit_ticket_actualizado(ticket, region_id)
+
         return {"id": ticket.id, "status": ticket.status}
 
 

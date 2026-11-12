@@ -132,7 +132,7 @@ def enviar_push_prueba(user_id: int) -> dict:
     return {"sent": enviados, "subscriptions": len(subs)}
 
 
-def enviar_push_notificacion(notif, forzar: bool = False) -> int:
+def enviar_push_notificacion(notif, forzar: bool = False, url: str | None = None) -> int:
     """Envía la notificación persistida a todas las suscripciones del usuario.
 
     Respeta `MerchantPreference.push_enabled` salvo con `forzar=True` (avisos
@@ -174,7 +174,7 @@ def enviar_push_notificacion(notif, forzar: bool = False) -> int:
             ),
             "requireInteraction": False,
             "data": {
-                "url": DEFAULT_PUSH_URL,
+                "url": url or DEFAULT_PUSH_URL,
                 "tipo": notif.tipo,
                 "datos": notif.datos or {},
             },

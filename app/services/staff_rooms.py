@@ -15,6 +15,14 @@ KYC_STAFF_ROLES = frozenset(
     }
 )
 
+SUPPORT_STAFF_ROLES = frozenset(
+    {
+        RolUsuario.SOPORTE,
+        RolUsuario.ADMIN,
+        RolUsuario.SUPERADMIN,
+    }
+)
+
 
 def staff_kyc_room(user) -> str:
     """Sala a la que pertenece un usuario staff para eventos KYC."""
@@ -30,4 +38,21 @@ def staff_kyc_rooms_for_region(region_id) -> list[str]:
     rooms = ["staff:superadmin", "staff:global"]
     if region_id is not None:
         rooms.append(f"staff:region:{region_id}")
+    return rooms
+
+
+def staff_support_room(user) -> str:
+    """Sala a la que pertenece un usuario staff para soporte/disputas."""
+    if user.rol == RolUsuario.SUPERADMIN:
+        return "staff:support:superadmin"
+    if user.region_id is not None:
+        return f"staff:support:region:{user.region_id}"
+    return "staff:support:global"
+
+
+def staff_support_rooms_for_region(region_id) -> list[str]:
+    """Salas que deben recibir eventos de soporte de una región concreta."""
+    rooms = ["staff:support:superadmin", "staff:support:global"]
+    if region_id is not None:
+        rooms.append(f"staff:support:region:{region_id}")
     return rooms

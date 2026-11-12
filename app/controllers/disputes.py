@@ -9,6 +9,8 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from app.extensions import db
 from app.models.contract import Contract, Dispute, EstadoContrato
+from app.models.user import User
+from app.services.support_events import notificar_nueva_disputa
 from app.schemas.contracts import DisputeCreateSchema, DisputeSchema
 
 blp = Blueprint("disputes", __name__, description="Disputas de contrato (P1)")
@@ -46,7 +48,10 @@ class DisputeList(MethodView):
         )
         db.session.add(dispute)
         db.session.commit()
-        
+
+        solicitante = db.session.get(User, contract.solicitante_id)
+        notificar_nueva_disputa(dispute, contract, solicitante)
+
         return dispute
 
     @jwt_required()

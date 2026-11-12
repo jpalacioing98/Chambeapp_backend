@@ -11,6 +11,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from app.extensions import db
 from app.services.realtime import safe_emit
+from app.services.chat_notifications import notificar_mensaje_soporte
 from app.models.chat import Conversation, Message
 from app.models.user import User
 from app.schemas.chat import (
@@ -169,6 +170,7 @@ class ConversationMessages(MethodView):
         db.session.commit()
 
         _emit_message(msg, conv)
+        notificar_mensaje_soporte(conv, msg, current)
 
         return msg, 201
 
@@ -241,6 +243,7 @@ class ConversationAttachments(MethodView):
         db.session.commit()
 
         _emit_message(msg, conv)
+        notificar_mensaje_soporte(conv, msg, current)
         return msg, 201
 
 

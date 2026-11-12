@@ -30,7 +30,13 @@ from app.models.chat import Conversation, Message
 from app.models.user import User
 from app.schemas.chat import MessageSchema
 from app.services.realtime import safe_emit
-from app.services.staff_rooms import KYC_STAFF_ROLES, staff_kyc_room
+from app.services.chat_notifications import notificar_mensaje_soporte
+from app.services.staff_rooms import (
+    KYC_STAFF_ROLES,
+    SUPPORT_STAFF_ROLES,
+    staff_kyc_room,
+    staff_support_room,
+)
 
 _user_by_sid: dict[str, int] = {}
 
@@ -77,6 +83,8 @@ def register_chat_socketio(sio) -> None:
                 user = None
             if user is not None and user.rol in KYC_STAFF_ROLES:
                 join_room(staff_kyc_room(user))
+            if user is not None and user.rol in SUPPORT_STAFF_ROLES:
+                join_room(staff_support_room(user))
             emit("status", {"msg": f"Conectado a sala user:{user_id}"})
 
     @sio.on("join")
@@ -174,6 +182,7 @@ def register_chat_socketio(sio) -> None:
         # La contraparte recibe el mensaje aunque no tenga el hilo abierto.
         peer_id = conv.user_b_id if int(sender_id) == conv.user_a_id else conv.user_a_id
         safe_emit("message", payload, room=f"user:{peer_id}")
+        notificar_mensaje_soporte(conv, msg, int(sender_id))
 
     @sio.on("disconnect")
     def on_disconnect():
