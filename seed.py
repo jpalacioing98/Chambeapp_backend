@@ -422,6 +422,11 @@ def seed_config() -> int:
         ("mantenimiento", False, "Modo mantenimiento de la plataforma"),
         ("ml_ranking_enabled", False, "Activa el ranking ML (LightGBM)"),
         ("ml_shadow_mode", True, "Log ML pero usa heurístico"),
+        (
+            "cascade_notifications",
+            True,
+            "Activa notificaciones en cascada y aviso a PDS elegibles",
+        ),
     ]
     for key, enabled, desc in flag_defaults:
         if FeatureFlag.query.filter_by(key=key).first():

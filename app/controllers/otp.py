@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 
 from flask import current_app
 from flask.views import MethodView
+from flask_jwt_extended import get_jwt_identity, jwt_required
 from flask_smorest import Blueprint, abort
 
 from app.schemas.auth import OtpSendSchema, OtpVerifySchema, MessageResponseSchema
@@ -23,9 +24,14 @@ blp = Blueprint("otp", __name__, description="Verificación de celular por OTP (
 # Store OTPs in memory (in production, use Redis). Clave: teléfono normalizado.
 _otp_store: dict[str, dict] = {}
 
+# Teléfonos verificados por OTP en los últimos minutos. Se consulta al
+# registrar la cuenta para aprobar automáticamente `verificacion_contacto`.
+_verified_phones: dict[str, datetime] = {}
+
 OTP_LENGTH = 6
 OTP_TTL_MINUTES = 5
 OTP_MAX_ATTEMPTS = 5
+VERIFIED_PHONE_TTL_MINUTES = 30
 
 
 def _normalize_phone_for_onurix(phone: str) -> str:
@@ -81,6 +87,25 @@ def _generate_otp(phone: str) -> str:
     return code
 
 
+def marcar_telefono_verificado(phone_e164: str) -> None:
+    """Registra un celular como verificado por OTP (TTL corto)."""
+    _verified_phones[phone_e164] = datetime.now(timezone.utc)
+
+
+def telefono_esta_verificado(phone: str) -> bool:
+    """True si el celular se verificó por OTP hace menos del TTL."""
+    phone_e164 = _normalize_phone_display(phone)
+    verificado_en = _verified_phones.get(phone_e164)
+    if verificado_en is None:
+        return False
+    if datetime.now(timezone.utc) - verificado_en > timedelta(
+        minutes=VERIFIED_PHONE_TTL_MINUTES
+    ):
+        _verified_phones.pop(phone_e164, None)
+        return False
+    return True
+
+
 @blp.route("/otp/send")
 class OtpSend(MethodView):
     @blp.arguments(OtpSendSchema)
@@ -114,6 +139,7 @@ class OtpSend(MethodView):
 
 @blp.route("/otp/verify")
 class OtpVerify(MethodView):
+    @jwt_required(optional=True)
     @blp.arguments(OtpVerifySchema)
     @blp.response(200, MessageResponseSchema)
     def post(self, data):
@@ -141,4 +167,22 @@ class OtpVerify(MethodView):
 
         # Código válido: lo consumimos (un solo uso).
         _otp_store.pop(phone_e164, None)
+        marcar_telefono_verificado(phone_e164)
+
+        # Si hay sesión, el contacto KYC se aprueba al instante. Sin sesión
+        # (registro), `auth/register` lo aprueba al crear la cuenta.
+        user_id = get_jwt_identity()
+        if user_id:
+            from app.extensions import db
+            from app.models.user import User
+            from app.services.verificacion import aprobar_documento_automatico
+
+            user = db.session.get(User, int(user_id))
+            if user is not None and aprobar_documento_automatico(
+                user,
+                "verificacion_contacto",
+                "Verificado automáticamente por OTP.",
+            ):
+                db.session.commit()
+
         return {"message": "Celular verificado correctamente."}

@@ -68,6 +68,19 @@ class Register(MethodView):
         db.session.add(profile)
         db.session.flush()  # obtener user.id para LegalAcceptance
 
+        # Si el celular ya se validó por OTP antes del registro, el documento
+        # KYC de contacto queda aprobado automáticamente.
+        if user.telefono:
+            from app.controllers.otp import telefono_esta_verificado
+            from app.services.verificacion import aprobar_documento_automatico
+
+            if telefono_esta_verificado(user.telefono):
+                aprobar_documento_automatico(
+                    user,
+                    "verificacion_contacto",
+                    "Verificado automáticamente por OTP.",
+                )
+
         legal = LegalAcceptance(
             user_id=user.id,
             version_tyc=TYC_VERSION,

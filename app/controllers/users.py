@@ -1,5 +1,6 @@
 """Users blueprint: perfil propio y público (RF-02, RF-03.4)."""
 
+from flask import request
 from flask.views import MethodView
 from flask_smorest import Blueprint, abort
 from flask_jwt_extended import jwt_required, get_jwt_identity
@@ -16,6 +17,17 @@ from app.schemas.users import (
 from app.schemas.auth import ProfileSchema
 
 blp = Blueprint("users", __name__, description="Perfiles de usuario")
+
+
+def _verificado_efectivo(user) -> bool:
+    """Verificación real según los documentos KYC aprobados del rol.
+
+    GET no debe mutar: se devuelve el cálculo sin tocar el flag. El flag se
+    sincroniza al publicar una solicitud o al revisar un documento.
+    """
+    from app.services.verificacion import esta_verificado
+
+    return esta_verificado(user)
 
 
 @blp.route("/me/foto-perfil")
@@ -144,6 +156,142 @@ class MyProfile(MethodView):
         return profile
 
 
+@blp.route("/me/stats")
+class MyStats(MethodView):
+    """Estadísticas reales del perfil (portafolio del PDS).
+
+    · chambas_completadas → contratos cerrados como proveedor.
+    · rating_promedio / rating_count → tabla de calificaciones.
+    · tiempo_respuesta_seg → mediana del tiempo entre solicitud y oferta.
+    """
+
+    @jwt_required()
+    def get(self):
+        user_id = int(get_jwt_identity())
+
+        from app.models.chamba import Chamba, EstadoChamba
+        from app.models.contract import Contract, EstadoContrato
+        from app.models.oferta import Oferta
+        from app.models.solicitud import Solicitud
+
+        profile = db.session.get(Profile, user_id)
+
+        # Chambas cerradas: contrato completado o chamba finalizada
+        # (puede haber chamba finalizada con el contrato aún en progreso).
+        ids_cerradas: set[int] = {
+            cid
+            for (cid,) in db.session.query(Contract.id).filter_by(
+                proveedor_id=user_id, estado=EstadoContrato.COMPLETADO
+            )
+        }
+        ids_cerradas.update(
+            cid
+            for (cid,) in db.session.query(Chamba.contract_id)
+            .join(Contract, Contract.id == Chamba.contract_id)
+            .filter(
+                Contract.proveedor_id == user_id,
+                Chamba.estado == EstadoChamba.FINALIZADA,
+            )
+        )
+        completadas = len(ids_cerradas)
+
+        # Las chambas guardan su propia calificación (Hito 6) y no siempre
+        # crean una fila en `ratings`: se combinan ambas fuentes.
+        ratings_tabla = Rating.query.filter_by(calificado_id=user_id).all()
+        servicios_calificados = {r.service_id for r in ratings_tabla}
+        filas_chamba = (
+            db.session.query(Chamba.rating_estrellas, Contract.service_id)
+            .join(Contract, Contract.id == Chamba.contract_id)
+            .filter(
+                Contract.proveedor_id == user_id,
+                Chamba.rating_estrellas.isnot(None),
+            )
+            .all()
+        )
+        puntajes = [int(r.puntaje) for r in ratings_tabla]
+        puntajes += [
+            int(estrellas)
+            for estrellas, service_id in filas_chamba
+            if estrellas is not None and service_id not in servicios_calificados
+        ]
+
+        rating_count = len(puntajes)
+        rating_promedio = (
+            round(sum(puntajes) / len(puntajes), 2)
+            if puntajes
+            else float(profile.calificacion_promedio or 0)
+            if profile
+            else 0
+        )
+
+        rows = (
+            db.session.query(Oferta.created_at, Solicitud.creado_en)
+            .join(Solicitud, Oferta.solicitud_id == Solicitud.id)
+            .filter(Oferta.pds_id == user_id)
+            .order_by(Oferta.created_at.desc())
+            .limit(100)
+            .all()
+        )
+        deltas: list[float] = []
+        for oferta_creada, solicitud_creada in rows:
+            if not oferta_creada or not solicitud_creada:
+                continue
+            try:
+                segundos = (oferta_creada - solicitud_creada).total_seconds()
+            except TypeError:
+                continue
+            if segundos >= 0:
+                deltas.append(segundos)
+
+        respuesta = (
+            round(sum(deltas) / len(deltas)) if deltas else None
+        )
+
+        return {
+            "chambas_completadas": completadas,
+            "rating_promedio": rating_promedio,
+            "rating_count": rating_count,
+            "tiempo_respuesta_seg": respuesta,
+        }
+
+
+@blp.route("/me/reviews")
+class MyReviews(MethodView):
+    """Últimos comentarios recibidos (calificaciones al PDS)."""
+
+    @jwt_required()
+    def get(self):
+        user_id = int(get_jwt_identity())
+        limit = request.args.get("limit", default=5, type=int)
+        limit = max(1, min(limit or 5, 20))
+
+        from app.models.solicitud import Solicitud
+
+        rows = (
+            db.session.query(Rating, User.nombre, Solicitud.titulo)
+            .outerjoin(User, User.id == Rating.autor_id)
+            .outerjoin(Solicitud, Solicitud.id == Rating.service_id)
+            .filter(Rating.calificado_id == user_id)
+            .order_by(Rating.creado_en.desc())
+            .limit(limit)
+            .all()
+        )
+
+        return [
+            {
+                "id": rating.id,
+                "puntaje": rating.puntaje,
+                "comentario": rating.comentario,
+                "creado_en": rating.creado_en.isoformat()
+                if rating.creado_en
+                else None,
+                "autor": autor or f"Usuario #{rating.autor_id}",
+                "servicio": servicio or f"Solicitud #{rating.service_id}",
+            }
+            for rating, autor, servicio in rows
+        ]
+
+
 @blp.route("/badges")
 class UserBadges(MethodView):
     @jwt_required()
@@ -172,11 +320,33 @@ class PublicProfile(MethodView):
 
         # Habilidades con su RUTA de niveles + cuáles certificó este usuario.
         from app.models.habilidad import Habilidad, HabilidadNivel
+
+        # Los perfiles guardan slugs cortos ("plomeria", "limpieza"…) y el
+        # catálogo usa nombres largos ("Plomería y Fontanería"). Se resuelve
+        # por alias y, si no, por coincidencia parcial.
+        ALIAS_HABILIDAD = {
+            "plomeria": "Plomería y Fontanería",
+            "limpieza": "Aseo, Limpieza General y Mantenimiento de Espacios",
+            "carpinteria": "Carpintería en Madera, MDF y RH (Mueble Fijo y RTA)",
+            "calentadores": "Mantenimiento e Instalación de Aire Acondicionado y Climatización",
+        }
+
         habilidades_detalle = []
         for nombre in (profile.habilidades or []):
+            clave = nombre.strip()
             hab = Habilidad.query.filter(
-                Habilidad.nombre.ilike(nombre.strip())
+                Habilidad.nombre.ilike(clave)
             ).first()
+            if not hab:
+                alias = ALIAS_HABILIDAD.get(clave.lower())
+                if alias:
+                    hab = Habilidad.query.filter(
+                        Habilidad.nombre.ilike(alias)
+                    ).first()
+            if not hab:
+                hab = Habilidad.query.filter(
+                    Habilidad.nombre.ilike(f"%{clave}%")
+                ).first()
             if not hab:
                 continue
             completados = {
@@ -226,7 +396,9 @@ class PublicProfile(MethodView):
             "categorias": profile.categorias,
             "portafolio": profile.portafolio,
             "calificacion_promedio": profile.calificacion_promedio,
-            "verificado": profile.verificado,
+            # Estado real (documentos aprobados), no el flag que puede
+            # quedar obsoleto en datos sembrados o migrados.
+            "verificado": _verificado_efectivo(user),
             "badges": profile.badges,
             "perfil_completo": profile.perfil_completo,
             "foto_perfil": profile.foto_perfil,

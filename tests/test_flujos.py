@@ -404,22 +404,22 @@ class TestFlujo5CascadaNotificaciones:
             cascade = CascadeManager.start_cascade(solicitud_id=sol_id)
         assert cascade.estado == "activa"
 
-        # Count before
-        before = Notification.query.count()
-
-        # 4. Send phase directly (bypass Celery — also mock apply_async for next phase)
-        with patch("app.services.cascade.send_phase_task", mock_task):
-            CascadeManager.send_phase(cascade.id)
-
-        # 5. Assert notifications were created
-        after = Notification.query.count()
-        assert after > before
+        # 4. El aviso al PDS elegible sale INMEDIATO al crear la solicitud
+        #    (app.services.descubrimiento), no cuando corre la fase.
         pds_user = User.query.filter_by(email="pds_nearby@test.com").first()
         notif = Notification.query.filter_by(
             user_id=pds_user.id, tipo="nueva_solicitud"
         ).first()
         assert notif is not None
         assert notif.datos["solicitud_id"] == sol_id
+
+        # 5. La fase de la cascada NO duplica lo ya notificado.
+        before = Notification.query.count()
+        with patch("app.services.cascade.send_phase_task", mock_task):
+            CascadeManager.send_phase(cascade.id)
+        after = Notification.query.count()
+        assert after == before
+        assert cascade.enviados_total == 0
 
     def test_cascade_completes_when_no_candidates(self, client):
         """If no providers nearby, cascade completes immediately."""

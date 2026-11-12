@@ -349,10 +349,10 @@ class ProgresoOficios(MethodView):
     """Progresión 1-5 de cada oficio del usuario (doc del módulo).
 
     N1 Novato: oficio registrado.
-    N2 Conocedor: >= 1 quiz aprobado + >= 3 trabajos + rating >= 4.0.
-    N3 Práctico: >= 1 quiz aprobado + >= 15 trabajos + rating >= 4.5.
-    N4 Maestro: >= 1 quiz + certificación técnica verificada + >= 35 trabajos + rating >= 4.7.
-    N5 Experto: >= 1 quiz + certificación técnica verificada + >= 70 trabajos + rating >= 4.8.
+    N2 Conocedor: >= 1 quiz aprobado + >= 3 trabajos + rating >= 3.50.
+    N3 Práctico: >= 1 quiz aprobado + >= 15 trabajos + rating >= 3.75.
+    N4 Maestro: >= 1 quiz + certificación técnica verificada + >= 35 trabajos + rating >= 4.00.
+    N5 Experto: >= 1 quiz + certificación técnica verificada + >= 70 trabajos + rating >= 4.25.
     """
 
     @jwt_required()
@@ -363,15 +363,36 @@ class ProgresoOficios(MethodView):
         profile = user.profile
         rating = profile.calificacion_promedio if profile else 0.0
 
-        # Trabajos completados por oficio (vía categoría de la solicitud)
+        # Trabajos realizados por oficio: contrato completado o chamba
+        # finalizada (la chamba puede estar finalizada con el contrato aún
+        # en progreso, como ocurre tras la calificación).
+        from app.models.chamba import Chamba, EstadoChamba
+
         completados = (
             db.session.query(Contract, Solicitud)
             .join(Solicitud, Solicitud.id == Contract.service_id)
-            .filter(Contract.proveedor_id == user_id, Contract.estado == "completado")
+            .filter(
+                Contract.proveedor_id == user_id,
+                Contract.estado == "completado",
+            )
+            .all()
+        )
+        finalizados = (
+            db.session.query(Contract, Solicitud)
+            .join(Solicitud, Solicitud.id == Contract.service_id)
+            .join(Chamba, Chamba.contract_id == Contract.id)
+            .filter(
+                Contract.proveedor_id == user_id,
+                Chamba.estado == EstadoChamba.FINALIZADA,
+            )
             .all()
         )
         por_categoria: dict[str, int] = {}
-        for _c, sol in completados:
+        vistos: set[int] = set()
+        for contrato, sol in [*completados, *finalizados]:
+            if contrato.id in vistos:
+                continue
+            vistos.add(contrato.id)
             cat = (sol.categoria or "").strip().lower()
             por_categoria[cat] = por_categoria.get(cat, 0) + 1
 
@@ -397,7 +418,43 @@ class ProgresoOficios(MethodView):
 
         resultados = []
         for nombre in (profile.habilidades or []):
-            hab = Habilidad.query.filter(Habilidad.nombre.ilike(nombre.strip())).first()
+            clave = (nombre or "").strip()
+            if not clave:
+                continue
+
+            hab = Habilidad.query.filter(
+                Habilidad.nombre.ilike(clave)
+            ).first()
+
+            # El perfil guarda slugs cortos ("plomeria", "limpieza") y el
+            # catálogo usa nombres largos ("Plomería y Fontanería"): se
+            # resuelve por alias y, si no, por coincidencia parcial.
+            if not hab:
+                ALIAS_HABILIDAD = {
+                    "plomeria": "Plomería y Fontanería",
+                    "limpieza": "Aseo, Limpieza General y Mantenimiento de Espacios",
+                    "carpinteria": "Carpintería en Madera, MDF y RH (Mueble Fijo y RTA)",
+                    "calentadores": "Mantenimiento e Instalación de Aire Acondicionado y Climatización",
+                    "electricidad": "Electricidad",
+                    "pintura": "Pintura",
+                }
+                alias = ALIAS_HABILIDAD.get(clave.lower())
+                if alias:
+                    hab = Habilidad.query.filter(
+                        Habilidad.nombre.ilike(alias)
+                    ).first()
+
+            if not hab:
+                clave_norm = normalizar(clave)
+                for candidata in Habilidad.query.all():
+                    nombre_norm = normalizar(candidata.nombre)
+                    if (
+                        clave_norm in nombre_norm
+                        or nombre_norm in clave_norm
+                    ):
+                        hab = candidata
+                        break
+
             if not hab:
                 continue
             trabajos = max(
@@ -407,17 +464,17 @@ class ProgresoOficios(MethodView):
             tiene_quiz = quizzes_por_oficio.get(hab.id, 0) >= 1
             tiene_titulo = hab.id in certificados
 
-            # N5: quiz + certificación verificada + 70 trabajos + 4.8
-            if tiene_quiz and tiene_titulo and trabajos >= 70 and rating >= 4.8:
+            # N5: quiz + certificación verificada + 70 trabajos + 4.25
+            if tiene_quiz and tiene_titulo and trabajos >= 70 and rating >= 4.25:
                 nivel = 5
-            # N4: quiz + certificación verificada + 35 trabajos + 4.7
-            elif tiene_quiz and tiene_titulo and trabajos >= 35 and rating >= 4.7:
+            # N4: quiz + certificación verificada + 35 trabajos + 4.00
+            elif tiene_quiz and tiene_titulo and trabajos >= 35 and rating >= 4.00:
                 nivel = 4
-            # N3: quiz + 15 trabajos + 4.5
-            elif tiene_quiz and trabajos >= 15 and rating >= 4.5:
+            # N3: quiz + 15 trabajos + 3.75
+            elif tiene_quiz and trabajos >= 15 and rating >= 3.75:
                 nivel = 3
-            # N2: quiz + 3 trabajos + 4.0
-            elif tiene_quiz and trabajos >= 3 and rating >= 4.0:
+            # N2: quiz + 3 trabajos + 3.50
+            elif tiene_quiz and trabajos >= 3 and rating >= 3.50:
                 nivel = 2
             else:
                 nivel = 1

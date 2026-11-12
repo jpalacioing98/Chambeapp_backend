@@ -2,27 +2,130 @@
 
 from flask import request
 from flask.views import MethodView
-from flask_smorest import Blueprint, abort
 from flask_jwt_extended import jwt_required, get_jwt_identity
+from flask_smorest import Blueprint, abort
+from marshmallow import Schema, fields
+from sqlalchemy import or_
 
 from app.extensions import db
 from app.models.notification import Notification
 from app.schemas.notification import NotificationSchema
 from app.services.pagination import paginate_query
+from app.services.preferencias import preferencia_permite
+from app.services.push import enviar_push_notificacion
 from app.services.realtime import safe_emit
 
 
 blp = Blueprint("notifications", __name__, description="Centro de notificaciones (RF-10)")
 
 
-def crear_notificacion(user_id, tipo, mensaje, titulo=None, datos=None):
+_GRUPOS = {
+    "chambas": (
+        "nueva_solicitud",
+        "solicitud%",
+        "oferta%",
+        "contrato%",
+        "chamba%",
+        "marana%",
+        "anuncio%",
+    ),
+    "pagos": (
+        "pago%",
+        "wallet%",
+        "contrato_confirmado",
+        "chamba_pago_confirmado",
+        "marana_pago",
+    ),
+    "resenas": ("negocio:rating", "resena%"),
+    "kyc": ("kyc%", "documento%"),
+    "sistema": (
+        "formalizacion",
+        "sistema",
+        "alerta%",
+        "recomendacion%",
+        "message",
+    ),
+}
+
+
+def _filtro_grupo(grupo: str):
+    """Condición SQL para el filtro por grupo del centro de notificaciones."""
+    patrones = _GRUPOS.get(grupo)
+    if not patrones:
+        return Notification.tipo.isnot(None)
+    condiciones = []
+    for patron in patrones:
+        if "%" in patron:
+            condiciones.append(Notification.tipo.like(patron))
+        else:
+            condiciones.append(Notification.tipo == patron)
+    return or_(*condiciones)
+
+
+def _query_usuario(user_id: int):
+    """Query base + filtros opcionales (tipo, grupo, solo_no_leidas)."""
+    query = (
+        Notification.query.filter_by(user_id=user_id)
+        .order_by(Notification.creado_en.desc())
+    )
+
+    tipo = (request.args.get("tipo") or "").strip()
+    if tipo:
+        query = query.filter(Notification.tipo == tipo)
+
+    grupo = (request.args.get("grupo") or "").strip().lower()
+    if grupo:
+        query = query.filter(_filtro_grupo(grupo))
+
+    if request.args.get("solo_no_leidas") in ("1", "true", "True"):
+        query = query.filter(Notification.leida.is_(False))
+
+    return query
+
+
+class NotificationPageSchema(Schema):
+    """Respuesta paginada del centro de notificaciones."""
+
+    items = fields.List(fields.Nested(NotificationSchema))
+    total = fields.Integer()
+    page = fields.Integer()
+    per_page = fields.Integer()
+    pages = fields.Integer()
+
+
+# ---------------------------------------------------------------------------
+# Preferencias: el mapa tipo → toggle vive en app/services/preferencias.py
+# para que descubrimiento y cascada usen exactamente las mismas reglas.
+# ---------------------------------------------------------------------------
+
+
+def crear_notificacion(
+    user_id,
+    tipo,
+    mensaje,
+    titulo=None,
+    datos=None,
+    *,
+    respetar_preferencias: bool = True,
+):
     """Helper: persiste (sin commit) una notificación para user_id.
 
     Además emite `notificacion:nueva` por socket a la sala del usuario para
     que el badge/centro se actualice sin recargar. El emit no necesita el ID
     de la fila (que aún no existe sin flush); si la transacción revierte, el
     cliente se corrige en el siguiente fetch.
+
+    Respeta `MerchantPreference`: si el usuario apagó el grupo al que
+    pertenece `tipo`, no se persiste ni se emite (devuelve None). Pasar
+    `respetar_preferencias=False` para avisos que no se pueden silenciar.
+
+    El Web Push (si `push_enabled` y hay suscripciones) se dispara aquí
+    mismo. `notif.id` aún puede ser None (sin flush), por eso el tag usa el
+    tipo como respaldo.
     """
+    if respetar_preferencias and not preferencia_permite(user_id, tipo):
+        return None
+
     notif = Notification(
         user_id=user_id,
         tipo=tipo,
@@ -41,6 +144,7 @@ def crear_notificacion(user_id, tipo, mensaje, titulo=None, datos=None):
         },
         room=f"user:{user_id}",
     )
+    enviar_push_notificacion(notif)
     return notif
 
 
@@ -87,10 +191,7 @@ class NotificationList(MethodView):
         If no params, returns all items (backward compatible).
         """
         user_id = int(get_jwt_identity())
-        query = (
-            Notification.query.filter_by(user_id=user_id)
-            .order_by(Notification.creado_en.desc())
-        )
+        query = _query_usuario(user_id)
 
         page = request.args.get("page")
         per_page = request.args.get("per_page")
@@ -98,6 +199,27 @@ class NotificationList(MethodView):
 
         if isinstance(result, list):
             return result
+        # El contrato de este endpoint es una lista (compatibilidad).
+        # El centro de notificaciones usa `/pagina` para total/páginas.
+        return result["items"]
+
+
+@blp.route("/pagina")
+class NotificationPage(MethodView):
+    @jwt_required()
+    @blp.response(200, NotificationPageSchema)
+    def get(self):
+        """Centro de notificaciones: lista paginada + total + filtros.
+
+        Query params: page, per_page, grupo (chambas|pagos|resenas|kyc|
+        sistema), tipo (exacto), solo_no_leidas=1.
+        """
+        user_id = int(get_jwt_identity())
+        result = paginate_query(
+            _query_usuario(user_id),
+            page=request.args.get("page", 1),
+            per_page=request.args.get("per_page", 20),
+        )
         return result
 
 

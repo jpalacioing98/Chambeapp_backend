@@ -24,6 +24,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from app.extensions import db
 from app.auth.decorators import role_required
 from app.auth.region import region_scope_id
+from app.controllers.notifications import crear_notificacion
 from app.models.user import User, Profile
 from app.models.kyc import DocumentoRequerido, DocumentoUsuario
 from app.schemas.kyc import (
@@ -47,25 +48,17 @@ def _recalcular_verificado(user: User, profile: Profile) -> None:
     Para documentos multi-instancia solo se requiere al menos una instancia
     aprobada (ej: una validación profesional, un cert bancario, un cert laboral).
     """
-    obligatorios = DocumentoRequerido.query.filter_by(
-        rol=user.rol.value, obligatorio=True
-    ).all()
-    if not obligatorios:
+    from app.services.verificacion import (
+        claves_aprobadas,
+        claves_obligatorias,
+        rol_valor,
+    )
+
+    obligatorias = claves_obligatorias(rol_valor(user))
+    if not obligatorias:
         return
 
-    aprobados = {
-        du.documento_clave
-        for du in DocumentoUsuario.query.filter_by(
-            user_id=user.id, estado="aprobado"
-        ).all()
-    }
-
-    for doc_req in obligatorios:
-        if doc_req.clave not in aprobados:
-            profile.verificado = False
-            return
-
-    profile.verificado = True
+    profile.verificado = set(obligatorias).issubset(claves_aprobadas(user.id))
 
 
 @blp.route("/documentos-requeridos")
@@ -309,6 +302,27 @@ class DocumentoVerificar(MethodView):
             profile = Profile(user_id=user.id)
             db.session.add(profile)
         _recalcular_verificado(user, profile)
+
+        # RF-10: el usuario se entera del resultado de su documento.
+        aprobado = decision == "aprobado"
+        nota = (data.get("nota") or "").strip()
+        crear_notificacion(
+            user.id,
+            f"kyc_{decision}",
+            (
+                f"Tu documento «{du.documento_clave}» fue aprobado."
+                if aprobado
+                else f"Tu documento «{du.documento_clave}» fue rechazado."
+                + (f" Motivo: {nota}" if nota else "")
+            ),
+            titulo="Documento aprobado" if aprobado else "Documento rechazado",
+            datos={
+                "documento": du.documento_clave,
+                "estado": decision,
+                "nota": nota or None,
+            },
+        )
+
         db.session.commit()
 
         du.requerido = DocumentoRequerido.query.filter_by(

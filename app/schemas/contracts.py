@@ -1,6 +1,6 @@
 """Marshmallow schemas for contracts (RF-07)."""
 
-from marshmallow import Schema, fields, validate
+from marshmallow import EXCLUDE, Schema, fields, validate
 
 from app.models.contract import EstadoContrato
 from app.models.solicitud import EstadoSolicitud
@@ -16,7 +16,13 @@ class ContractCreateSchema(Schema):
 class FirmaSchema(Schema):
     """Datos de la firma de una de las partes del contrato."""
 
+    class Meta:
+        # Tolerante a campos extra: la firma es un documento libre y un
+        # campo nuevo del cliente no debe romper la transición de estado.
+        unknown = EXCLUDE
+
     nombre = fields.String(required=False, allow_none=True)
+    tipo_documento = fields.String(required=False, allow_none=True)
     documento = fields.String(required=False, allow_none=True)
     data_url = fields.String(required=False, allow_none=True)
     fecha = fields.String(required=False, allow_none=True)
@@ -24,6 +30,9 @@ class FirmaSchema(Schema):
 
 class ContractEstadoSchema(Schema):
     """Acción de transición de estado (RF-07.2/3/4)."""
+
+    class Meta:
+        unknown = EXCLUDE
 
     estado = fields.String(
         required=True,

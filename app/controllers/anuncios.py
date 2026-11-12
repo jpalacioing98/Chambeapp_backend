@@ -173,6 +173,12 @@ class AnuncioRoot(MethodView):
         if get_jwt().get("role") != ROL_NEGOCIO:
             abort(403, message="Solo un negocio puede publicar anuncios laborales.")
 
+        from app.services.verificacion import exigir_verificado
+
+        exigir_verificado(
+            user_id, "REQUIRE_KYC_TO_MERCHANT", "publicar anuncios laborales"
+        )
+
         modalidad = ModalidadAnuncio(data.get("modalidad") or ModalidadAnuncio.CONTACTO)
         presupuesto = data.get("presupuesto")
         if modalidad == ModalidadAnuncio.CONTRATO:
@@ -210,7 +216,9 @@ class AnuncioRoot(MethodView):
         db.session.commit()
         payload = AnuncioSchema().dump(_anuncio_con_negocio(anuncio))
         safe_emit("anuncio:actualizado", payload, room=f"user:{user_id}")
-        safe_emit("anuncio:nuevo", payload)
+        # Solo a clientes con un feed de anuncios montado (mapa/listado),
+        # no a todos los conectados de la plataforma.
+        safe_emit("anuncio:nuevo", payload, room="anuncios")
         return _anuncio_con_negocio(anuncio)
 
     @jwt_required()
@@ -294,7 +302,7 @@ class AnuncioEstado(MethodView):
         db.session.commit()
         payload = AnuncioSchema().dump(_anuncio_con_negocio(anuncio))
         safe_emit("anuncio:actualizado", payload, room=f"user:{user_id}")
-        safe_emit("anuncio:cambio_estado", payload)
+        safe_emit("anuncio:cambio_estado", payload, room="anuncios")
         return _anuncio_con_negocio(anuncio)
 
 
@@ -308,6 +316,13 @@ class AnuncioPostulacionList(MethodView):
         user_id = int(get_jwt_identity())
         if get_jwt().get("role") != ROL_PDS:
             abort(403, message="Solo un pds puede postularse a un anuncio laboral.")
+
+        from app.services.verificacion import exigir_verificado
+
+        exigir_verificado(
+            user_id, "REQUIRE_KYC_TO_OFFER", "postularte a un anuncio"
+        )
+
         anuncio = db.get_or_404(AnuncioLaboral, anuncio_id)
         if anuncio.negocio_id == user_id:
             abort(403, message="No puedes postularte a tu propio anuncio.")
@@ -403,6 +418,12 @@ class AnuncioPostulacionContratar(MethodView):
         anuncio = db.get_or_404(AnuncioLaboral, anuncio_id)
         if anuncio.negocio_id != user_id:
             abort(403, message="Solo el negocio dueño puede contratar postulantes.")
+
+        from app.services.verificacion import exigir_verificado
+
+        exigir_verificado(
+            user_id, "REQUIRE_KYC_TO_MERCHANT", "contratar postulantes"
+        )
         if anuncio.modalidad != ModalidadAnuncio.CONTRATO:
             abort(
                 400,

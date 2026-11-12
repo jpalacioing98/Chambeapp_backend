@@ -1,29 +1,13 @@
-"""Celery application and tasks for background jobs."""
+"""Celery application and background jobs.
 
-import os
-from celery import Celery
+La instancia de Celery vive en `app.extensions.celery` (ÚNICA para toda la
+app) y se re-exporta aquí como `celery_app` porque el worker y el beat se
+arrancan con `celery -A app.tasks.celery_app ...` (ver docker-compose.dev.yml).
+"""
+
 from celery.schedules import crontab
 
-# Create Celery app
-celery_app = Celery(
-    "chambeapp",
-    broker=os.getenv("REDIS_URL", "redis://localhost:6379/0"),
-    backend=os.getenv("REDIS_URL", "redis://localhost:6379/0"),
-)
-
-# Configure Celery
-celery_app.conf.update(
-    task_serializer="json",
-    accept_content=["json"],
-    result_serializer="json",
-    timezone="America/Bogota",
-    enable_utc=True,
-    task_track_started=True,
-    task_time_limit=300,  # 5 minutes max per task
-    task_soft_time_limit=240,  # 4 minutes soft limit
-    worker_prefetch_multiplier=1,
-    worker_max_tasks_per_child=100,
-)
+from app.extensions import celery as celery_app
 
 # Schedule periodic tasks
 celery_app.conf.beat_schedule = {
@@ -51,6 +35,11 @@ celery_app.conf.beat_schedule = {
     "check-ml-health": {
         "task": "app.tasks.check_ml_health",
         "schedule": crontab(minute="*/360"),  # Every 6 hours
+    },
+    # Reanuda cascadas cuya fase no pudo encolarse (broker caído)
+    "resume-cascades": {
+        "task": "app.tasks.resume_cascades",
+        "schedule": crontab(minute="*/2"),  # Every 2 minutes
     },
 }
 
@@ -176,3 +165,44 @@ def check_ml_health():
             return f"Alertas ML: {'; '.join(alerts)}"
         
         return "ML health OK"
+
+
+@celery_app.task(name="app.tasks.resume_cascades")
+def resume_cascades():
+    """Reintenta las fases de cascada que no pudieron encolarse.
+
+    `CascadeManager.send_phase` deja `timer_expira` cuando el broker está
+    caído. Este barrido las reanuda en cuanto Redis/Celery vuelve, sin
+    esperar a que el usuario recargue ni a que se repita la solicitud.
+    """
+    from datetime import datetime
+
+    from app import create_app
+    from app.extensions import db
+    from app.models.cascade import NotificationCascade
+    from app.services.cascade import CascadeManager
+
+    app = create_app()
+    with app.app_context():
+        pendientes = NotificationCascade.query.filter(
+            NotificationCascade.estado == "activa",
+            NotificationCascade.timer_expira.isnot(None),
+            NotificationCascade.timer_expira <= datetime.utcnow(),
+        ).all()
+
+        reanudadas = 0
+        for cascade in pendientes:
+            # Se limpia antes de enviar: si el envío falla, `send_phase`
+            # vuelve a marcar `timer_expira` para el siguiente barrido.
+            cascade.timer_expira = None
+            db.session.commit()
+            try:
+                CascadeManager.send_phase(cascade.id)
+                reanudadas += 1
+            except Exception:  # noqa: BLE001 — una cascada no frena el barrido
+                db.session.rollback()
+                app.logger.exception(
+                    "No se pudo reanudar la cascada %s", cascade.id
+                )
+
+        return f"Cascadas reanudadas: {reanudadas}/{len(pendientes)}"

@@ -60,6 +60,14 @@ flask-mail==0.10.0
 # HTTP client (Onurix SMS API)
 requests>=2.31.0
 
+# Web Push (VAPID) — RF-10 / HU-33
+pywebpush==2.5.0
+
+# 2FA: TOTP (app autenticadora) + QR
+pyotp==2.9.0
+qrcode==8.2
+cryptography>=42.0.0
+
 # PDF generation
 reportlab>=4.0
 

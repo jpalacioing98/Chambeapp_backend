@@ -88,7 +88,7 @@ services:
       # Bucket público de avatares. S3_PUBLIC_ENDPOINT es la URL que
       # resuelve en el NAVEGADOR (dentro del contenedor el host es `minio`).
       - S3_PUBLIC_BUCKET=chambeapp-avatars
-      - S3_PUBLIC_ENDPOINT=${S3_PUBLIC_ENDPOINT:-http://localhost:9000}
+      - S3_PUBLIC_ENDPOINT=${S3_PUBLIC_ENDPOINT:-/minio}
       - ONURIX_CLIENT=${ONURIX_CLIENT:-}
       - ONURIX_KEY=${ONURIX_KEY:-}
       - ONURIX_APP_NAME=${ONURIX_APP_NAME:-ChambeApp}

@@ -365,8 +365,10 @@ class TestKycMerchant:
         base = [
             ("pds", "doc_identidad", "Doc Identidad PDS", "d", True, "identidad", False, 1),
             ("pds", "prueba_vida", "Prueba de Vida", "d", True, "identidad", False, 2),
+            ("pds", "certificado_laboral", "Certificado Laboral PDS", "d", False, "opcional", True, 3),
             ("solicitante", "doc_identidad", "Doc Identidad Sol", "d", True, "identidad", False, 1),
             ("solicitante", "verificacion_contacto", "Verif Contacto", "d", True, "identidad", False, 2),
+            ("solicitante", "verificacion_domicilio", "Verif Domicilio Sol", "d", False, "identidad", False, 3),
         ]
         for rol, clave, nombre, desc, oblig, grupo, multi, orden in base:
             if not DocumentoRequerido.query.filter_by(rol=rol, clave=clave).first():
@@ -394,7 +396,7 @@ class TestKycMerchant:
         assert r.get_json()["rol"] == "merchant"
 
     def test_merchant_puede_subir_rut(self, client):
-        """Merchant sube rut (obligatorio) → 200."""
+        """Merchant sube rut (opcional) → 200."""
         self._seed_catalogo()
         h = _create_merchant(client, "kyc_m2@test.com")
         r = client.post("/api/v1/kyc/documentos", json={
@@ -403,25 +405,26 @@ class TestKycMerchant:
         assert r.status_code == 200
 
     def test_merchant_no_puede_subir_doc_pds(self, client):
-        """Merchant NO puede subir prueba_vida (catálogo pds) → 400."""
+        """Merchant NO puede subir certificado_laboral (catálogo pds) → 400."""
         self._seed_catalogo()
         h = _create_merchant(client, "kyc_m3@test.com")
         r = client.post("/api/v1/kyc/documentos", json={
-            "clave": "prueba_vida", "url": "http://x/selfie.jpg",
+            "clave": "certificado_laboral", "url": "http://x/cert.pdf",
+            "instancia": "Empleo anterior",
         }, headers=h)
         assert r.status_code == 400
 
     def test_merchant_no_puede_subir_doc_solicitante(self, client):
-        """Merchant NO puede subir verificacion_contacto (catálogo solicitante) → 400."""
+        """Merchant NO puede subir verificacion_domicilio (catálogo solicitante) → 400."""
         self._seed_catalogo()
         h = _create_merchant(client, "kyc_m4@test.com")
         r = client.post("/api/v1/kyc/documentos", json={
-            "clave": "verificacion_contacto", "url": "http://x/contacto",
+            "clave": "verificacion_domicilio", "url": "http://x/domicilio",
         }, headers=h)
         assert r.status_code == 400
 
     def test_documentos_requeridos_merchant(self, client):
-        """GET /kyc/documentos-requeridos devuelve catálogo merchant (4 docs)."""
+        """GET /kyc/documentos-requeridos devuelve el catálogo merchant (6 docs)."""
         self._seed_catalogo()
         h = _create_merchant(client, "kyc_m5@test.com")
         r = client.get("/api/v1/kyc/documentos-requeridos", headers=h)
@@ -429,7 +432,14 @@ class TestKycMerchant:
         data = r.get_json()
         assert data["rol"] == "merchant"
         claves = {d["clave"] for d in data["documentos"]}
-        assert claves == {"doc_identidad", "rut", "certificado_comercial", "foto_local"}
+        assert claves == {
+            "doc_identidad",
+            "prueba_vida",
+            "verificacion_contacto",
+            "rut",
+            "certificado_comercial",
+            "foto_local",
+        }
 
     def test_mis_documentos_merchant(self, client):
         """GET /kyc/mis-documentos refleja envíos del merchant."""

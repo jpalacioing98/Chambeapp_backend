@@ -7,12 +7,16 @@ Flask-SocketIO guarda UN handler por evento: si otro módulo registra
 · `join` une al usuario a `user:<id>` y a `conversation_<id>`.
 · Un participante NO puede unirse a una conversación ajena.
 · Un mensaje enviado por HTTP llega por socket a la contraparte.
+· `join_feed` solo permite las salas públicas `mapa` y `anuncios`.
+· Los pines de negocio llegan únicamente a quien está en `mapa`.
+· `safe_emit` devuelve False (sin lanzar) cuando el broker falla.
 """
 
 import pytest
 
 from app import create_app
 from app.extensions import db, socketio
+from app.services.realtime import get_emit_stats, safe_emit
 
 
 @pytest.fixture
@@ -183,3 +187,76 @@ def test_mensaje_por_socket_llega_a_la_contraparte(app, client):
 
     socket_a.disconnect()
     socket_b.disconnect()
+
+
+# ── Salas de difusión (mapa / anuncios) ─────────────────────────────────
+
+
+def test_join_feed_mapa_recibe_pines(app, client):
+    """Quien entra a `mapa` recibe los pines; el resto no paga el tráfico."""
+    _register(client, "mapa@example.com")
+    token = _login(client, "mapa@example.com")
+
+    socket = socketio.test_client(app, auth={"token": token})
+    socket.get_received()
+
+    socket.emit("join_feed", {"room": "mapa"})
+    assert "joined" in _nombres(socket.get_received())
+
+    assert safe_emit("negocio:pin", {"id": 42, "nombre": "Panadería"}, room="mapa")
+
+    recibidos = socket.get_received()
+    pines = [m for m in recibidos if m["name"] == "negocio:pin"]
+    assert pines, _nombres(recibidos)
+    args = pines[-1]["args"]
+    payload = args[0] if isinstance(args, (list, tuple)) else args
+    assert payload["id"] == 42
+    socket.disconnect()
+
+
+def test_feed_no_llega_a_quien_no_se_suscribio(app, client):
+    """El pin ya no se difunde a todos los conectados."""
+    _register(client, "fuera@example.com")
+    token = _login(client, "fuera@example.com")
+
+    socket = socketio.test_client(app, auth={"token": token})
+    socket.get_received()
+
+    safe_emit("negocio:pin", {"id": 7}, room="mapa")
+
+    assert "negocio:pin" not in _nombres(socket.get_received())
+    socket.disconnect()
+
+
+def test_join_feed_rechaza_salas_privadas(app, client):
+    """Un cliente no puede suscribirse a la sala personal de otro usuario."""
+    _register(client, "intruso@example.com")
+    token = _login(client, "intruso@example.com")
+
+    socket = socketio.test_client(app, auth={"token": token})
+    socket.get_received()
+
+    socket.emit("join_feed", {"room": "user:1"})
+    recibidos = socket.get_received()
+    assert "error" in _nombres(recibidos)
+    socket.disconnect()
+
+
+# ── safe_emit: nunca lanza y reporta el fallo ───────────────────────────
+
+
+def test_safe_emit_devuelve_true_en_emision_normal(app):
+    assert safe_emit("negocio:pin", {"id": 1}, room="mapa") is True
+
+
+def test_safe_emit_devuelve_false_si_el_broker_falla(app, monkeypatch):
+    """Un Redis caído no debe tumbar la petición HTTP que ya persistió."""
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("redis caído")
+
+    antes = get_emit_stats()["failed"]
+    monkeypatch.setattr(socketio, "emit", boom)
+
+    assert safe_emit("negocio:pin", {"id": 1}, room="mapa") is False
+    assert get_emit_stats()["failed"] == antes + 1

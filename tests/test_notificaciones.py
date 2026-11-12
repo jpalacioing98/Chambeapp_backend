@@ -154,6 +154,49 @@ def test_marcar_todas_leidas(client):
     assert resp.get_json()["count"] == 0
 
 
+def test_pagina_filtra_por_grupo(client):
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
+    uid = _uid(client, "emp@example.com")
+    with client.application.app_context():
+        db.session.add_all(
+            [
+                Notification(user_id=uid, tipo="oferta_nueva", mensaje="oferta"),
+                Notification(user_id=uid, tipo="pago_confirmado", mensaje="pago"),
+                Notification(user_id=uid, tipo="kyc_aprobado", mensaje="kyc"),
+            ]
+        )
+        db.session.commit()
+
+    resp = client.get(
+        "/api/v1/notifications/pagina?grupo=pagos&page=1&per_page=20",
+        headers=emp_h,
+    )
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["total"] == 1
+    assert data["items"][0]["tipo"] == "pago_confirmado"
+
+    resp2 = client.get(
+        "/api/v1/notifications/pagina?page=1&per_page=2", headers=emp_h
+    )
+    data2 = resp2.get_json()
+    assert len(data2["items"]) == 2
+    assert data2["total"] == 3
+    assert data2["pages"] == 2
+
+
+def test_lista_legacy_con_page_devuelve_lista(client):
+    emp_h = _user(client, "emp@example.com", rol="solicitante")
+    uid = _uid(client, "emp@example.com")
+    with client.application.app_context():
+        db.session.add(Notification(user_id=uid, tipo="sistema", mensaje="hola"))
+        db.session.commit()
+
+    resp = client.get("/api/v1/notifications/?page=1&per_page=10", headers=emp_h)
+    assert resp.status_code == 200
+    assert isinstance(resp.get_json(), list)
+
+
 def test_marcar_leida_ajena_404(client):
     emp_h = _user(client, "emp@example.com", rol="solicitante")
     other_h = _user(client, "other@example.com", rol="solicitante")

@@ -24,6 +24,7 @@ from app.schemas.chambas import (
     ChambaCreateSchema,
     ChambaEstadoSchema,
     ChambaSchema,
+    EvidenciaDeleteSchema,
     EvidenciaSchema,
     EvidenciaUploadResponseSchema,
     EvidenciaUploadSchema,
@@ -174,9 +175,31 @@ class ChambaDetail(MethodView):
     @jwt_required()
     @blp.response(200, ChambaSchema)
     def get(self, chamba_id):
-        """Detalle del expediente de la chamba (solo participantes)."""
+        """Detalle del expediente de la chamba (solo participantes).
+
+        Carga el contrato con su servicio y ambas partes (y sus perfiles) en
+        el mismo viaje: el hero del expediente los pinta sin consultas extra.
+        """
+        from sqlalchemy.orm import joinedload
+
+        from app.models.user import User
+
         user_id = int(get_jwt_identity())
-        chamba = db.get_or_404(Chamba, chamba_id)
+        chamba = db.session.get(
+            Chamba,
+            chamba_id,
+            options=[
+                joinedload(Chamba.contract).joinedload(Contract.service),
+                joinedload(Chamba.contract)
+                .joinedload(Contract.solicitante)
+                .joinedload(User.profile),
+                joinedload(Chamba.contract)
+                .joinedload(Contract.proveedor)
+                .joinedload(User.profile),
+            ],
+        )
+        if chamba is None:
+            abort(404, message="La chamba no existe.")
         if not _participante(chamba, user_id):
             abort(403, message="No participas en esta chamba.")
         return chamba
@@ -348,6 +371,49 @@ class ChambaEvidenciaSalida(MethodView):
         if chamba.estado not in (EstadoChamba.EN_EJECUCION, EstadoChamba.PENDIENTE_VALIDACION):
             abort(400, message="La evidencia de salida solo aplica al cierre del trabajo.")
         registrar_evidencia(chamba, "salida", data["urls"])
+        db.session.commit()
+        emitir_actualizacion(chamba)
+        return chamba
+
+
+@blp.route("/<int:chamba_id>/evidencia/<string:tipo>")
+class ChambaEvidenciaItem(MethodView):
+    @jwt_required()
+    @blp.arguments(EvidenciaDeleteSchema, location="query")
+    @blp.response(200, ChambaSchema)
+    def delete(self, args, chamba_id, tipo):
+        """Elimina una evidencia concreta (entrada/salida) mientras la obra
+        siga en ejecución. Solo el prestador que la subió puede quitarla."""
+        user_id = int(get_jwt_identity())
+        chamba = db.get_or_404(Chamba, chamba_id)
+
+        if user_id != chamba.contract.proveedor_id:
+            abort(403, message="Solo el prestador puede gestionar sus evidencias.")
+        if tipo not in ("entrada", "salida"):
+            abort(404, message="Tipo de evidencia inválido.")
+        if chamba.estado not in (EstadoChamba.EN_PROCESO, EstadoChamba.EN_EJECUCION):
+            abort(
+                400,
+                message=(
+                    "Las evidencias solo se editan durante la ejecución "
+                    "(antes de solicitar el cierre)."
+                ),
+            )
+
+        url = args["url"]
+        actuales = list(
+            (chamba.evidencia_entrada if tipo == "entrada" else chamba.evidencia_salida)
+            or []
+        )
+        if url not in actuales:
+            abort(404, message="Esa evidencia no existe en el expediente.")
+
+        restantes = [u for u in actuales if u != url]
+        if tipo == "entrada":
+            chamba.evidencia_entrada = restantes
+        else:
+            chamba.evidencia_salida = restantes
+
         db.session.commit()
         emitir_actualizacion(chamba)
         return chamba
@@ -535,7 +601,11 @@ class ChambaEvidenciaUpload(MethodView):
         import base64
         import binascii
 
-        b64 = data.get("archivo_base64", "")
+        b64 = (data.get("archivo_base64") or "").strip()
+        # El cliente puede enviar el data URL completo
+        # ("data:image/jpeg;base64,...") o solo el payload.
+        if b64.startswith("data:") and "," in b64:
+            b64 = b64.split(",", 1)[1].strip()
         try:
             file_bytes = base64.b64decode(b64)
         except (binascii.Error, ValueError):
@@ -549,7 +619,7 @@ class ChambaEvidenciaUpload(MethodView):
         if storage_svc is None:
             abort(502, message="Servicio de almacenamiento no disponible.")
         try:
-            url = storage_svc.upload_avatar(
+            url = storage_svc.upload_public_avatar(
                 file_bytes, f"chamba-{int(get_jwt_identity())}", filename
             )
         except ValueError as e:

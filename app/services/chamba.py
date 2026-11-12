@@ -147,6 +147,45 @@ def finalizar_chamba(chamba: Chamba, estrellas: int, comentario=None,
     chamba.estado = EstadoChamba.FINALIZADA
     chamba.estado_previo = None
     chamba.fecha_finalizacion = datetime.now(timezone.utc)
+
+    # Refleja la calificación en la tabla global de ratings y en el
+    # promedio del perfil (así aparece en el portafolio y perfil público).
+    try:
+        from app.extensions import db
+        from app.models.solicitud import Rating
+        from app.models.user import Profile
+
+        contract = chamba.contract
+        existente = Rating.query.filter_by(
+            service_id=contract.service_id,
+            calificado_id=contract.proveedor_id,
+        ).first()
+        if existente is None:
+            db.session.add(
+                Rating(
+                    service_id=contract.service_id,
+                    autor_id=contract.solicitante_id,
+                    calificado_id=contract.proveedor_id,
+                    puntaje=estrellas,
+                    comentario=comentario,
+                )
+            )
+        else:
+            existente.puntaje = estrellas
+            existente.comentario = comentario
+
+        db.session.flush()
+        ratings = Rating.query.filter_by(
+            calificado_id=contract.proveedor_id
+        ).all()
+        profile = db.session.get(Profile, contract.proveedor_id)
+        if profile is not None and ratings:
+            profile.calificacion_promedio = round(
+                sum(r.puntaje for r in ratings) / len(ratings), 2
+            )
+    except Exception:
+        pass
+
     return chamba
 
 

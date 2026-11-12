@@ -58,6 +58,11 @@ class SolicitudListSchema(Schema):
     actualizado_en = fields.DateTime()
     advertencia = fields.String(dump_only=True, allow_none=True)
     ofertas_count = fields.Integer(dump_default=0)
+    # Distancia REAL (km) del PDS autenticado a la solicitud. La rellena
+    # GET /solicitudes/ cuando el solicitante es un PDS con coordenadas.
+    # Es lo que necesita el mapa del Chambeador para filtrar por radio:
+    # `radio_km` es el radio que pidió el cliente, NO la distancia.
+    distancia_km = fields.Float(dump_only=True, allow_none=True)
 
 
 class SolicitudSchema(Schema):
@@ -86,3 +91,17 @@ class SolicitudSchema(Schema):
     # GROUP BY para que la tarjeta no tenga que pedir las ofertas una a una.
     ofertas_count = fields.Integer(dump_default=0)
     ratings = fields.List(fields.Nested("RatingSchema"), dump_only=True, allow_none=True)
+
+
+class SolicitudMapaSchema(Schema):
+    """Punto anónimo del mapa global (solicitudes y marañas).
+
+    Sin id, título ni dirección: solo ubicación aproximada, categoría y el
+    tipo (`chamba` | `marana`) para elegir el icono. El cliente no puede
+    saber a qué registro corresponde cada punto.
+    """
+
+    lat = fields.Float()
+    lng = fields.Float()
+    categoria = fields.String(allow_none=True)
+    tipo = fields.String(allow_none=True)

@@ -18,6 +18,13 @@ import logging
 from sqlalchemy import text
 from app.extensions import db
 
+# Import a nivel de módulo: `_find_nearby_postgis` y `_find_nearby_haversine`
+# son funciones hermanas y NO ven los imports locales de
+# `find_nearby_providers`. Con el import local, PostGIS reventaba con
+# `NameError: name 'User' is not defined` y el bug quedaba oculto porque
+# los tests (SQLite) caían al fallback Haversine.
+from app.models.user import User, Profile, RolUsuario
+
 logger = logging.getLogger(__name__)
 
 
@@ -97,8 +104,6 @@ def find_nearby_providers(lat: float, lng: float, radius_km: float, top_k: int =
         ...     top_k=10
         ... )
     """
-    from app.models.user import User, Profile, RolUsuario
-    
     if lat is None or lng is None:
         logger.warning("find_nearby_providers: lat/lng nulos, sin búsqueda geoespacial")
         return []
@@ -131,8 +136,6 @@ def _find_nearby_postgis(lat: float, lng: float, radius_km: float, top_k: int):
 
 def _find_nearby_haversine(lat: float, lng: float, radius_km: float, top_k: int = 50):
     """Busca providers cercanos usando Haversine (fallback para SQLite)."""
-    from app.models.user import User, Profile, RolUsuario
-    
     logger.debug(f"Haversine search: lat={lat}, lng={lng}, radius={radius_km}km")
     
     # Cargar todos los providers con ubicación

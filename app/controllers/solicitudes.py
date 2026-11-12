@@ -1,29 +1,58 @@
 """Solicitudes blueprint: crear/listar/detalle/estado/ratings (RF-03, RF-04)."""
 
-from flask import request
+import logging
+
+from flask import request, current_app
 from flask.views import MethodView
 from flask_smorest import Blueprint, abort
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 
 from app.extensions import db
 from app.services.realtime import safe_emit
+from app.services.verificacion import esta_verificado
 from app.models.user import User, Profile, RolUsuario
 from app.models.solicitud import Solicitud, Rating, EstadoSolicitud, UrgenciaSolicitud
 from app.models.contract import Contract
+from app.models.chamba import Chamba
+from app.models.marana import Marana, EstadoMarana
+from app.services.categorias import categoria_norm_expr
+from app.services.descubrimiento import categorias_de_perfil
+from app.ai.geo import haversine_km
 from app.models.config import SystemConfig
 from app.schemas.solicitud import (
     SolicitudCreateSchema,
     SolicitudEstadoSchema,
     SolicitudListSchema,
+    SolicitudMapaSchema,
     SolicitudSchema,
 )
 from app.schemas.rating import RatingCreateSchema, RatingSchema
 
 blp = Blueprint("solicitudes", __name__, description="Solicitudes y calificaciones")
 
+logger = logging.getLogger(__name__)
+
 # Ciudad base de operación (geofence de solicitudes). Configurable vía
 # SystemConfig key="ciudad_base"; Valledupar es el valor por defecto del producto.
 CIUDAD_BASE_DEFAULT = "Valledupar"
+
+# Radio (km) del mapa del PDS: solo se envían puntos de su zona, no la
+# ciudad completa (escala con el número de solicitudes).
+RADIO_MAPA_KM = 20.0
+
+# Categoría padre de cada oficio: una maraña de "construccion" es relevante
+# para un plomero o carpintero aunque el slug exacto no coincida.
+PADRE_CATEGORIA = {
+    "plomeria": "construccion",
+    "carpinteria": "construccion",
+    "electricidad": "construccion",
+    "albanileria": "construccion",
+    "pintura": "construccion",
+    "yeso": "construccion",
+    "limpieza": "domesticos",
+    "calentadores": "climatizacion",
+    "aire_acondicionado": "climatizacion",
+}
 
 
 def _ciudad_base() -> str:
@@ -56,6 +85,29 @@ def _emit_solicitud(event: str, solicitud: Solicitud, target_user_id: int) -> No
     )
 
 
+def _anotar_distancias(items: list[dict], solicitudes: list, user_id: int) -> None:
+    """Añade `distancia_km` a cada item: distancia real del PDS a la solicitud.
+
+    No se exponen las coordenadas (privacidad del solicitante); sólo el
+    número de kilómetros, que es lo que el mapa necesita para filtrar.
+    Las solicitudes sin geolocalización quedan con `distancia_km = None`.
+    """
+    perfil = db.session.get(Profile, user_id)
+    if perfil is None or perfil.latitud is None or perfil.longitud is None:
+        return
+
+    from app.ai.geo import haversine_km
+
+    lat_pds, lng_pds = perfil.latitud, perfil.longitud
+    for item, sol in zip(items, solicitudes):
+        if sol.latitud is None or sol.longitud is None:
+            item["distancia_km"] = None
+            continue
+        item["distancia_km"] = round(
+            haversine_km(lat_pds, lng_pds, sol.latitud, sol.longitud), 2
+        )
+
+
 
 @blp.route("/")
 class SolicitudList(MethodView):
@@ -74,6 +126,31 @@ class SolicitudList(MethodView):
         role = get_jwt().get("role")
         if role not in (RolUsuario.SOLICITANTE.value, RolUsuario.MERCHANT.value):
             abort(403, message="Solo el solicitante o el comerciante puede publicar solicitudes.")
+
+        # Verificación de identidad: un solicitante o merchant sin KYC
+        # aprobado no publica. El criterio se calcula contra los documentos
+        # reales (Profile.verificado puede estar obsoleto en datos sembrados).
+        config_key = {
+            RolUsuario.SOLICITANTE.value: "REQUIRE_KYC_TO_PUBLISH",
+            RolUsuario.MERCHANT.value: "REQUIRE_KYC_TO_MERCHANT",
+        }.get(role)
+        if config_key and current_app.config.get(config_key, True):
+            usuario = db.session.get(User, user_id)
+            if usuario is None:
+                abort(404, message="Usuario no encontrado.")
+            if not esta_verificado(usuario):
+                abort(
+                    403,
+                    message=(
+                        "Verifica tu identidad antes de publicar: necesitas "
+                        "tener aprobados tus documentos KYC. Entra a "
+                        "Verificación de identidad para completarlos."
+                    ),
+                )
+            # Mantiene el flag al día sin un commit extra.
+            perfil = db.session.get(Profile, user_id)
+            if perfil is not None and not perfil.verificado:
+                perfil.verificado = True
 
         for campo in ("titulo", "categoria", "descripcion", "ubicacion"):
             valor = data.get(campo)
@@ -121,6 +198,38 @@ class SolicitudList(MethodView):
             pass
         db.session.commit()
         _emit_solicitud("solicitud:creada", solicitud, user_id)
+
+        # ── Aviso a los PDS elegibles (tiempo real) ──────────────────────
+        # Sin esto, el PDS sólo se enteraba al recargar la página: el
+        # evento `solicitud:creada` anterior sólo se emitía al dueño de la
+        # solicitud. Se avisa a quienes realmente califican (perfil
+        # completo + categoría coincidente + dentro del radio), no a todo
+        # el mundo.
+        try:
+            from app.services.descubrimiento import notificar_pds_elegibles
+
+            notificados = notificar_pds_elegibles(solicitud)
+            db.session.commit()
+            logger.info(
+                "Solicitud %s: %s PDS elegibles notificados", solicitud.id, notificados
+            )
+        except Exception:  # noqa: BLE001 — el aviso nunca tumba el alta
+            db.session.rollback()
+            logger.exception(
+                "No se pudo notificar a los PDS elegibles de la solicitud %s",
+                solicitud.id,
+            )
+
+        # ── Cascada geoespacial (expansión de radio si nadie postula) ────
+        try:
+            from app.services.cascade import CascadeManager
+
+            CascadeManager.start_cascade(solicitud_id=solicitud.id)
+        except Exception:  # noqa: BLE001 — la cascada es best-effort
+            logger.exception(
+                "No se pudo iniciar la cascada de la solicitud %s", solicitud.id
+            )
+
         return solicitud
 
     @jwt_required(optional=True)
@@ -135,6 +244,9 @@ class SolicitudList(MethodView):
         If no params, returns all items (backward compatible).
         """
         query = Solicitud.query
+        # Identidad del solicitante: se necesita para calcular la distancia
+        # real al PDS (`distancia_km`), no sólo para el filtro de elegibles.
+        uid = get_jwt_identity()
         # Solo lo publicado es visible en el listado público. `?estado=todos`
         # conserva el comportamiento histórico (útil para admin/debug).
         estado = request.args.get("estado", EstadoSolicitud.PUBLICADO.value)
@@ -151,7 +263,6 @@ class SolicitudList(MethodView):
             "1", "true", "yes", "si", "sí",
         )
         if elegibles:
-            uid = get_jwt_identity()
             if uid is not None:
                 prof = db.session.get(Profile, int(uid))
                 if prof is not None:
@@ -209,6 +320,14 @@ class SolicitudList(MethodView):
             conteos = {sid: n for sid, n in filas}
         for item in items:
             item["ofertas_count"] = conteos.get(item["id"], 0)
+
+        # ── Distancia real al PDS autenticado ────────────────────────────
+        # El mapa del Chambeador filtra por radio de búsqueda, pero el
+        # listado no expone lat/lng (privacidad). `radio_km` es el radio que
+        # PIDIÓ el cliente, no la distancia: usarlo como proxy descartaba
+        # chambas que estaban a 1 km. Se calcula la distancia real aquí.
+        if uid is not None:
+            _anotar_distancias(items, model_items, int(uid))
 
         if isinstance(result, list):
             return items
@@ -269,6 +388,111 @@ class SolicitudMias(MethodView):
             return payload
         result["items"] = payload
         return result
+
+
+@blp.route("/mapa")
+class SolicitudMapa(MethodView):
+    @jwt_required()
+    @blp.response(200, SolicitudMapaSchema(many=True))
+    def get(self):
+        """Puntos anónimos de solicitudes y marañas relevantes al PDS.
+
+        No expone id, título ni dirección: el cliente solo recibe lat/lng
+        aproximadas (4 decimales), la categoría y el tipo (chamba/maraña).
+        Filtra por las categorías del perfil y por `radio` (km, 10–100;
+        default 20) para que el mapa no crezca con toda la ciudad.
+        """
+        user_id = int(get_jwt_identity())
+        perfil = db.session.get(Profile, user_id)
+        permitidas = categorias_de_perfil(perfil) if perfil else set()
+
+        # Radio del mapa: lo manda el slider del cliente (10–100 km). Se
+        # acota para que un valor absurdo no traiga toda la región.
+        radio_arg = request.args.get("radio", type=float)
+        radio_km = (
+            RADIO_MAPA_KM
+            if radio_arg is None
+            else max(1.0, min(float(radio_arg), 100.0))
+        )
+
+        def _dentro(sol: Solicitud) -> bool:
+            """Dentro del radio del PDS (si tiene coordenadas)."""
+            if (
+                perfil is None
+                or perfil.latitud is None
+                or perfil.longitud is None
+            ):
+                return True
+            return (
+                haversine_km(
+                    perfil.latitud,
+                    perfil.longitud,
+                    sol.latitud,
+                    sol.longitud,
+                )
+                <= radio_km
+            )
+
+        query = Solicitud.query.filter(
+            Solicitud.estado == EstadoSolicitud.PUBLICADO,
+            Solicitud.latitud.isnot(None),
+            Solicitud.longitud.isnot(None),
+        )
+        if permitidas:
+            query = query.filter(
+                categoria_norm_expr(Solicitud.categoria).in_(sorted(permitidas))
+            )
+        filas = query.order_by(Solicitud.creado_en.desc()).limit(300).all()
+        filas = [s for s in filas if _dentro(s)][:200]
+
+        puntos = [
+            {
+                "lat": round(float(s.latitud), 4),
+                "lng": round(float(s.longitud), 4),
+                "categoria": s.categoria,
+                "tipo": "chamba",
+            }
+            for s in filas
+        ]
+
+        # Marañas publicadas: solo las del perfil del PDS y su zona. Se
+        # incluye la categoría padre del oficio (construccion, domesticos…).
+        permitidas_marana = set(permitidas) | {
+            PADRE_CATEGORIA[c]
+            for c in permitidas
+            if c in PADRE_CATEGORIA
+        }
+        mq = (
+            db.session.query(Marana, Solicitud)
+            .join(Chamba, Chamba.id == Marana.chamba_id)
+            .join(Contract, Contract.id == Chamba.contract_id)
+            .join(Solicitud, Solicitud.id == Contract.service_id)
+            .filter(
+                Marana.estado == EstadoMarana.PUBLICADO,
+                Solicitud.latitud.isnot(None),
+                Solicitud.longitud.isnot(None),
+            )
+        )
+        if permitidas_marana:
+            mq = mq.filter(
+                categoria_norm_expr(Marana.categoria).in_(
+                    sorted(permitidas_marana)
+                )
+            )
+        filas_marana = mq.limit(200).all()
+        filas_marana = [(m, s) for m, s in filas_marana if _dentro(s)][:100]
+
+        puntos += [
+            {
+                "lat": round(float(s.latitud), 4),
+                "lng": round(float(s.longitud), 4),
+                "categoria": m.categoria,
+                "tipo": "marana",
+            }
+            for m, s in filas_marana
+        ]
+
+        return puntos
 
 
 @blp.route("/<int:solicitud_id>")

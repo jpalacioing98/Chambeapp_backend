@@ -29,6 +29,8 @@ class MerchantPreference(db.Model):
     # Preferencias UI (perfil unificado: disponibles para todos los roles)
     idioma = db.Column(db.String(5), default="es", nullable=False)
     tema = db.Column(db.String(10), default="system", nullable=False)
+    # Mapa con el que arranca la vista de chambas: "2d" | "3d".
+    mapa_preferido = db.Column(db.String(4), default="2d", nullable=False)
     # Timestamps
     creado_en = db.Column(
         db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False

@@ -87,16 +87,18 @@ def _pin_negocio(negocio: Negocio) -> dict:
 
 
 def _emit_negocio(event: str, negocio: Negocio, *, eliminar: bool = False) -> None:
-    """Emite el negocio actualizado al owner y el pin al mapa global.
+    """Emite el negocio actualizado al owner y el pin a la sala del mapa.
 
     - `user:<owner_id>` recibe el payload completo del negocio (dashboards).
-    - Broadcast global `negocio:pin*` para que los mapas abiertos se
-      actualicen sin recargar (solo el pin mínimo, sin datos privados).
+    - Sala `mapa` recibe solo el pin mínimo (sin datos privados) para que
+      los mapas abiertos se actualicen sin recargar. El cliente entra a la
+      sala con `join_feed {room: "mapa"}` mientras el mapa está montado;
+      antes se hacía broadcast a TODOS los conectados.
     """
     if eliminar:
         payload = {"id": negocio.id}
         safe_emit("negocio:eliminado", payload, room=f"user:{negocio.owner_id}")
-        safe_emit("negocio:pin:eliminado", payload)
+        safe_emit("negocio:pin:eliminado", payload, room="mapa")
         return
 
     safe_emit(
@@ -104,7 +106,7 @@ def _emit_negocio(event: str, negocio: Negocio, *, eliminar: bool = False) -> No
         NegocioResponseSchema().dump(negocio),
         room=f"user:{negocio.owner_id}",
     )
-    safe_emit("negocio:pin", _pin_negocio(negocio))
+    safe_emit("negocio:pin", _pin_negocio(negocio), room="mapa")
 
 
 
@@ -120,6 +122,12 @@ class NegociosList(MethodView):
         """Crear un nuevo negocio (solo merchant)."""
         user_id = int(get_jwt_identity())
         _ensure_merchant(user_id)
+
+        from app.services.verificacion import exigir_verificado
+
+        exigir_verificado(
+            user_id, "REQUIRE_KYC_TO_MERCHANT", "crear tu negocio"
+        )
 
         slug = generar_slug(data["nombre"])
 

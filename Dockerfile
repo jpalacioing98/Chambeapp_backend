@@ -45,7 +45,11 @@ RUN mkdir -p /var/run/postgresql /var/run/redis /var/log/supervisor /var/log/pos
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
 
 COPY docker-entrypoint-allinone.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/docker-entrypoint-allinone.sh
+# Normaliza finales de línea: en Windows el checkout puede traer CRLF y el
+# shebang quedaría "#!/bin/bash\r", lo que hace fallar el exec del entrypoint
+# con "no such file or directory".
+RUN chmod +x /usr/local/bin/docker-entrypoint-allinone.sh \
+    && sed -i 's/\r$//' /usr/local/bin/docker-entrypoint-allinone.sh
 
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 

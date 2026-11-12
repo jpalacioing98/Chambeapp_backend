@@ -20,6 +20,7 @@ os.environ["FLASK_TESTING"] = "1"
 # ---------------------------------------------------------------------------
 
 from sqlalchemy import String as _String
+from sqlalchemy import func as _sa_func
 
 
 class _StubGeometry(_String):
@@ -74,6 +75,14 @@ class _StubGeoAlchemy2(types.ModuleType):
         self.admin = _StubGeometryAdmin("geoalchemy2.admin")
         self.functions = types.ModuleType("geoalchemy2.functions")
         self.elements = types.ModuleType("geoalchemy2.elements")
+        # Funciones PostGIS que usa app/ai/geo.py. Se exponen como funciones
+        # genéricas de SQLAlchemy para que la ruta PostGIS de
+        # `_find_nearby_postgis` sea EJERCITABLE en tests (antes el stub no
+        # las tenía y el import fallaba, lo que ocultaba bugs como el
+        # `NameError: name 'User' is not defined`).
+        self.functions.ST_MakePoint = _sa_func.ST_MakePoint
+        self.functions.ST_SetSRID = _sa_func.ST_SetSRID
+        self.functions.ST_DWithin = _sa_func.ST_DWithin
 
     def __getattr__(self, name):
         # Return a no-op for any other geoalchemy2 attribute

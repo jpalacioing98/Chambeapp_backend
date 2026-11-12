@@ -4,6 +4,62 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - 2026-09-26
 
+### Added — 2FA por SMS, app autenticadora y códigos de recuperación (2026-11-11)
+- **Métodos**: `two_factor_method` (`sms` | `totp`), secreto TOTP cifrado
+  (Fernet) y `two_factor_pending_secret` para el setup.
+- **Códigos de recuperación**: tabla `two_factor_recovery_codes` (10 códigos
+  de un solo uso, HMAC-SHA256); migración **026**.
+- **Endpoints**: estado, envío SMS, setup TOTP con QR (pyotp + qrcode),
+  activar, desactivar (password + código), regenerar códigos, verificar login
+  y reenviar SMS.
+- **Login**: `requires_2fa` ahora indica el método y el teléfono enmascarado;
+  `/auth/2fa/verify` acepta SMS, TOTP o código de recuperación.
+- **Dependencias**: `pyotp==2.9.0`, `qrcode==8.2`, `cryptography>=42`.
+- Tests: flujo SMS, TOTP, recuperación de un solo uso, regeneración y
+  desactivación en `tests/test_perfil_unificado.py`.
+- Documentación: `docs/security-2fa.md`.
+
+### Added — Centro de notificaciones + Web Push (2026-11-11)
+- **Iconos de notificación**: `/icons/icon-192.png` (color) y
+  `/icons/badge-72.png` (monocromo transparente) para el icono pequeño de
+  Android; antes el SVG se veía como un cuadro blanco.
+- **`pywebpush==2.5.0`** (compatible con cryptography 50) y `POST /push/test`
+  para enviar una notificación de prueba desde Perfil → Notificaciones.
+- **Web Push (VAPID)**: modelo `PushSubscription` + migración `025`.
+  Endpoints `GET /push/vapid-public-key`, `POST|DELETE /push/subscribe`,
+  `GET /push/subscriptions`. `pywebpush==2.5.0` en requirements.
+- **`crear_notificacion`** ahora respeta `MerchantPreference` (mapa único en
+  `app/services/preferencias.py`), envía push si `push_enabled` y limpia
+  suscripciones caducadas (404/410).
+- **Descubrimiento y cascada** respetan `notif_nueva_solicitud` y disparan push.
+- **Centro paginado**: `GET /notifications/pagina` con `grupo`, `tipo` y
+  `solo_no_leidas`; `/notifications?page=` deja de romper el contrato legacy.
+- **Claves VAPID**: `scripts/generate_vapid_keys.py` y generación automática en
+  el entrypoint dev. Documentación en `docs/notifications.md`.
+- Tests: `tests/test_push.py` (9) + filtros/paginación en `test_notificaciones.py`.
+
+### Fixed — Firma de contrato (2026-11-11)
+- **`PATCH /contracts/<id>/estado` devolvía 422 al firmar**: `FirmaSchema` no
+  declaraba `tipo_documento`, y Marshmallow 3 rechaza por defecto los campos
+  desconocidos (`unknown=RAISE`). El frontend siempre envía `tipo_documento`
+  (CC/CE/PPT/NIT), por lo que **ninguna firma llegaba a registrarse**.
+  - `FirmaSchema`: se añade `tipo_documento`.
+  - `FirmaSchema` y `ContractEstadoSchema`: `unknown = EXCLUDE` para que un
+    campo nuevo del cliente no rompa la transición de estado.
+  - Verificado end-to-end sobre el contrato 372 (PDS user 248): 200 OK y
+    `firma_proveedor = true`. Tests `test_contracts.py` (17) en verde.
+
+### Real-time (2026-11-10)
+- **`safe_emit` instrumentado**: devuelve `bool`, registra `socket_emit_failed`
+  con `exc_info` y contadores (`get_emit_stats()`); acepta `correlation_id`.
+- **Salas de difusión**: `negocio:pin*` → sala `mapa`; `anuncio:nuevo` y
+  `anuncio:cambio_estado` → sala `anuncios`. Nuevos eventos `join_feed` /
+  `leave_feed` con lista blanca (solo `mapa` y `anuncios`).
+- **Cascada resiliente**: `_enqueue_phase()`; fase 1 inline si el broker está
+  caído; `timer_expira` + `app.tasks.resume_cascades` (beat cada 2 min)
+  reintenta las fases que no se pudieron encolar.
+- **Chat**: `join`/`leave` aceptan `id` o `conversation_id` y coercionan a int.
+
 ### Security
 - **Registro público restringido**: `POST /auth/register` solo acepta los roles
   públicos `pds|solicitante|merchant`; cualquier rol de administración

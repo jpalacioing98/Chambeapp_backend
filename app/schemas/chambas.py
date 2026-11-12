@@ -2,7 +2,22 @@
 
 from marshmallow import Schema, fields, validate
 
+from app.extensions import db
 from app.models.chamba import EstadoChamba
+from app.schemas.contracts import SolicitudResumenSchema
+
+
+class ParteResumenSchema(Schema):
+    """Parte del contrato (solicitante o prestador) para el expediente."""
+
+    id = fields.Integer()
+    nombre = fields.String(allow_none=True)
+    foto_perfil = fields.String(allow_none=True)
+    verificado = fields.Method("dump_verificado")
+
+    def dump_verificado(self, obj) -> bool:
+        profile = getattr(obj, "profile", None)
+        return bool(profile.verificado) if profile is not None else False
 
 
 class ChambaCreateSchema(Schema):
@@ -24,9 +39,33 @@ class ChambaEstadoSchema(Schema):
 
 
 class EvidenciaSchema(Schema):
-    """URLs de evidencia (fotos / entorno 360°) subidas a MinIO."""
+    """URLs de evidencia (fotos / entorno 360°) subidas a MinIO.
 
-    urls = fields.List(fields.Url(), required=True, validate=validate.Length(min=1))
+    Se valida solo el esquema http(s): el storage puede devolver hosts
+    internos (p. ej. `http://minio:9000`) que `fields.Url` rechazaría por
+    no tener TLD.
+    """
+
+    urls = fields.List(
+        fields.String(
+            validate=validate.Regexp(
+                r"^(https?://|/)", error="URL inválida"
+            )
+        ),
+        required=True,
+        validate=validate.Length(min=1),
+    )
+
+
+class EvidenciaDeleteSchema(Schema):
+    """Elimina una evidencia concreta de entrada o salida."""
+
+    url = fields.String(
+        required=True,
+        validate=validate.Regexp(
+            r"^(https?://|/)", error="URL inválida"
+        ),
+    )
 
 
 class EvidenciaUploadSchema(Schema):
@@ -138,13 +177,42 @@ class ValidacionSchema(Schema):
 
 
 class ContractResumenSchema(Schema):
-    """Resumen del contrato anidado en la chamba."""
+    """Resumen del contrato anidado en la chamba.
+
+    Incluye lo mínimo para pintar el expediente sin llamadas extra:
+    servicio contratado, partes y valor/fecha del contrato. No expone
+    datos sensibles (email, documento, coordenadas exactas).
+    """
 
     id = fields.Integer()
     service_id = fields.Integer()
     proveedor_id = fields.Integer()
     solicitante_id = fields.Integer()
     estado = fields.String()
+    monto = fields.Float(allow_none=True)
+    condiciones = fields.List(fields.Dict(), allow_none=True)
+    creado_en = fields.DateTime(allow_none=True)
+    firmado_solicitante_en = fields.DateTime(allow_none=True)
+    firmado_proveedor_en = fields.DateTime(allow_none=True)
+    oferta_creada_en = fields.Method("get_oferta_creada_en", allow_none=True)
+    service = fields.Nested(SolicitudResumenSchema, allow_none=True)
+    solicitante = fields.Nested(ParteResumenSchema, allow_none=True)
+    proveedor = fields.Nested(ParteResumenSchema, allow_none=True)
+
+    def get_oferta_creada_en(self, obj):
+        """Fecha de la postulación que originó el contrato (orden de servicio).
+
+        Es la fecha "gestionada" del acuerdo, no el timestamp técnico en que
+        se insertó la chamba al firmar.
+        """
+        if not getattr(obj, "oferta_id", None):
+            return None
+        from app.models.oferta import Oferta
+
+        oferta = db.session.get(Oferta, obj.oferta_id)
+        if oferta is None or oferta.created_at is None:
+            return None
+        return oferta.created_at.isoformat()
 
 
 class ChambaSchema(Schema):

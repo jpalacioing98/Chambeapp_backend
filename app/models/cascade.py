@@ -103,16 +103,21 @@ class NotificationCascade(db.Model):
         db.session.commit()
     
     def log_phase(self, fase: int, enviados: int, radio_km: float):
-        """Agrega entrada al log de fases."""
-        if not self.log_json:
-            self.log_json = []
-        
-        self.log_json.append({
+        """Agrega entrada al log de fases.
+
+        Reasigna la lista en vez de hacer `append` in-place: SQLAlchemy no
+        detecta mutaciones internas de una columna JSON, así que con
+        `append` sólo se persistía la primera fase (el atributo pasaba de
+        None a lista, lo que sí marcaba la fila como sucia; a partir de la
+        segunda fase, no).
+        """
+        entrada = {
             'fase': fase,
             'enviados': enviados,
             'radio_km': radio_km,
             'timestamp': datetime.utcnow().isoformat()
-        })
+        }
+        self.log_json = list(self.log_json or []) + [entrada]
         db.session.commit()
     
     @classmethod

@@ -36,6 +36,7 @@ from app.controllers.habilidades import blp as habilidades_blp
 from app.controllers.providers import blp as providers_blp
 from app.controllers.onboarding import blp as onboarding_blp
 from app.controllers.portfolio import blp as portfolio_blp
+from app.controllers.push import blp as push_blp
 from app.controllers.ai_metrics import blp as ai_metrics_blp
 from app.controllers.negocios import blp as negocios_blp
 from app.controllers.merchant import blp as merchant_blp
@@ -112,6 +113,7 @@ def create_app(config_class: str = "app.config.DevelopmentConfig") -> Flask:
     api.register_blueprint(providers_blp, url_prefix="/api/v1/providers")
     api.register_blueprint(onboarding_blp, url_prefix="/api/v1/onboarding")
     api.register_blueprint(portfolio_blp, url_prefix="/api/v1/portfolio")
+    api.register_blueprint(push_blp, url_prefix="/api/v1/push")
     api.register_blueprint(ai_metrics_blp, url_prefix="/api/v1/ai")
     api.register_blueprint(negocios_blp, url_prefix="/api/v1/negocios")
     api.register_blueprint(merchant_blp, url_prefix="/api/v1/merchant")

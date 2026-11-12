@@ -10,10 +10,19 @@ del JWT (handshake `auth` o token del evento) vía `app.auth.socket_auth`.
 Al conectar, el usuario se une automáticamente a su sala personal
 `user:<id>` (recibe ofertas, contratos, chambas, marañas, negocios, etc.)
 y a las salas de conversación que solicite con `join`.
+
+Salas de difusión opcionales (`join_feed` / `leave_feed`):
+
+· `mapa`      — pines de negocios (`negocio:pin`, `negocio:pin:eliminado`).
+· `anuncios`  — altas/cambios de estado de anuncios (`anuncio:nuevo`,
+                `anuncio:cambio_estado`).
+
+Solo se permite unirse a esas dos salas: el cliente no puede suscribirse a
+la sala personal de otro usuario ni a una conversación ajena.
 """
 
 from flask import request
-from flask_socketio import join_room, emit
+from flask_socketio import join_room, leave_room, emit
 
 from app.extensions import db
 from app.auth.socket_auth import decode_socket_user_id
@@ -23,6 +32,9 @@ from app.services.realtime import safe_emit
 
 _user_by_sid: dict[str, int] = {}
 
+# Salas de difusión a las que un cliente puede suscribirse explícitamente.
+ROOMS_PUBLICAS = frozenset({"mapa", "anuncios"})
+
 
 def _authed_user_id(data=None):
     """Devuelve el user_id autenticado para el sid actual."""
@@ -30,6 +42,16 @@ def _authed_user_id(data=None):
     if sid_user is not None:
         return sid_user
     return decode_socket_user_id(data=data)
+
+
+def _coerce_int(value):
+    """Convierte ids de socket (string o int) a int; None si no es válido."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def register_chat_socketio(sio) -> None:
@@ -59,8 +81,11 @@ def register_chat_socketio(sio) -> None:
         join_room(room)
         emit("joined", {"room": room})
 
-        conversation_id = data.get("conversation_id")
-        if not conversation_id:
+        # Acepta `conversation_id` (contrato actual) y `id` (clientes viejos).
+        conversation_id = _coerce_int(
+            data.get("conversation_id", data.get("id"))
+        )
+        if conversation_id is None:
             return
         conv = db.session.get(Conversation, conversation_id)
         if conv and conv.involves(int(user_id)):
@@ -76,16 +101,45 @@ def register_chat_socketio(sio) -> None:
     @sio.on("leave")
     def on_leave(data):
         """Sale de la sala de una conversación."""
-        from flask_socketio import leave_room
-
         data = data or {}
-        conversation_id = data.get("conversation_id")
-        if conversation_id:
+        if _authed_user_id(data) is None:
+            emit("error", {"msg": "No autenticado"})
+            return
+        conversation_id = _coerce_int(
+            data.get("conversation_id", data.get("id"))
+        )
+        if conversation_id is not None:
             leave_room(f"conversation_{conversation_id}")
+
+    @sio.on("join_feed")
+    def on_join_feed(data):
+        """Suscribe al cliente a una sala de difusión permitida (mapa/anuncios)."""
+        data = data or {}
+        if _authed_user_id(data) is None:
+            emit("error", {"msg": "No autenticado"})
+            return
+        room = data.get("room")
+        if room not in ROOMS_PUBLICAS:
+            emit("error", {"msg": "Sala no permitida"})
+            return
+        join_room(room)
+        emit("joined", {"room": room})
+
+    @sio.on("leave_feed")
+    def on_leave_feed(data):
+        """Sale de una sala de difusión permitida."""
+        data = data or {}
+        if _authed_user_id(data) is None:
+            emit("error", {"msg": "No autenticado"})
+            return
+        room = data.get("room")
+        if room in ROOMS_PUBLICAS:
+            leave_room(room)
 
     @sio.on("message")
     def on_message(data):
-        conversation_id = data.get("conversation_id")
+        data = data or {}
+        conversation_id = _coerce_int(data.get("conversation_id"))
         sender_id = _authed_user_id(data)
         contenido = data.get("contenido")
         if sender_id is None:

@@ -127,7 +127,87 @@ with app.app_context():
             "INSERT INTO feature_flags (key, enabled, description) VALUES "
             f"('{key}', {str(enabled).lower()}, '{desc}') ON CONFLICT (key) DO NOTHING"
         )
+    # Migracion 020 (el dev hace `flask db stamp`, no `upgrade`, asi que las
+    # migraciones no se ejecutan): bandera maestra de la cascada encendida y
+    # radios/esperas nuevos en las cascadas activas.
+    run(
+        "UPDATE feature_flags SET enabled = true, "
+        "description = 'Activa notificaciones en cascada y aviso a PDS elegibles' "
+        "WHERE key = 'cascade_notifications'"
+    )
+    import json as _json
+    _nueva_config = _json.dumps([
+        {"radius_km": 20.0, "delay_seconds": 30, "max_candidates": 20},
+        {"radius_km": 50.0, "delay_seconds": 120, "max_candidates": 40},
+        {"radius_km": 100.0, "delay_seconds": 300, "max_candidates": 80},
+    ])
+    run(
+        "UPDATE notification_cascades SET config_json = '" + _nueva_config + "' "
+        "WHERE estado = 'activa'"
+    )
     print("[dev] PostGIS/flags listos.")
+
+    # Migración 025: suscripciones Web Push (el dev hace stamp, no upgrade).
+    run(
+        "CREATE TABLE IF NOT EXISTS push_subscriptions ("
+        "id SERIAL PRIMARY KEY, "
+        "user_id INTEGER NOT NULL REFERENCES users(id), "
+        "endpoint TEXT NOT NULL UNIQUE, "
+        "p256dh TEXT NOT NULL, "
+        "auth TEXT NOT NULL, "
+        "user_agent VARCHAR(255), "
+        "creado_en TIMESTAMP NOT NULL DEFAULT NOW(), "
+        "actualizado_en TIMESTAMP NOT NULL DEFAULT NOW())"
+    )
+    run(
+        "CREATE INDEX IF NOT EXISTS ix_push_subscriptions_user "
+        "ON push_subscriptions (user_id)"
+    )
+
+    # Migración 026: 2FA por método + códigos de recuperación.
+    run("ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_method VARCHAR(10) NOT NULL DEFAULT 'sms'")
+    run("ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_secret VARCHAR(255)")
+    run("ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_pending_secret VARCHAR(255)")
+    run("ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_confirmed_at TIMESTAMP")
+    run(
+        "CREATE TABLE IF NOT EXISTS two_factor_recovery_codes ("
+        "id SERIAL PRIMARY KEY, "
+        "user_id INTEGER NOT NULL REFERENCES users(id), "
+        "code_hash VARCHAR(64) NOT NULL, "
+        "usado BOOLEAN NOT NULL DEFAULT FALSE, "
+        "usado_en TIMESTAMP, "
+        "creado_en TIMESTAMP NOT NULL DEFAULT NOW(), "
+        "CONSTRAINT uq_2fa_recovery_user_code UNIQUE (user_id, code_hash))"
+    )
+    run(
+        "CREATE INDEX IF NOT EXISTS ix_2fa_recovery_user "
+        "ON two_factor_recovery_codes (user_id)"
+    )
+    # VAPID: genera claves UNA vez si pywebpush/py-vapid están instalados.
+    try:
+        from app.models.config import SystemConfig
+        if not SystemConfig.get_value("vapid_public_key"):
+            try:
+                import base64
+                from py_vapid import Vapid01
+                from cryptography.hazmat.primitives import serialization
+                _v = Vapid01()
+                _v.generate_keys()
+                _pub_bytes = _v.public_key.public_bytes(
+                    serialization.Encoding.X962,
+                    serialization.PublicFormat.UncompressedPoint,
+                )
+                _pub = base64.urlsafe_b64encode(_pub_bytes).rstrip(b"=").decode()
+                _priv = _v.private_pem()
+                if isinstance(_priv, bytes):
+                    _priv = _priv.decode()
+                SystemConfig.set_value("vapid_public_key", _pub)
+                SystemConfig.set_value("vapid_private_key", _priv)
+                print("[dev] Claves VAPID generadas.")
+            except Exception as _e:
+                print(f"  (aviso) VAPID no generado: {_e}")
+    except Exception as _e:
+        print(f"  (aviso) VAPID: {_e}")
 PY
 
 # Registrar migraciones como aplicadas (el esquema ya está completo).

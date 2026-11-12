@@ -45,6 +45,11 @@ class PortfolioUpload(MethodView):
         tipo = request.form.get('tipo', '').strip()
         categoria = request.form.get('categoria', '').strip()
         descripcion = request.form.get('descripcion', '').strip()
+        precio_raw = request.form.get('precio', '').strip()
+        try:
+            precio = int(float(precio_raw)) if precio_raw else None
+        except ValueError:
+            precio = None
         
         if not titulo:
             abort(400, message="Título requerido")
@@ -60,7 +65,7 @@ class PortfolioUpload(MethodView):
         if not file_bytes:
             abort(400, message="Archivo vacío")
         
-        # Subir según tipo
+        # Subir según tipo (portada)
         try:
             if tipo == 'foto':
                 url = storage.upload_image(file_bytes, str(user_id), file.filename or 'image')
@@ -72,7 +77,30 @@ class PortfolioUpload(MethodView):
             abort(400, message=str(e))
         except Exception as e:
             abort(500, message=f"Error subiendo archivo: {str(e)}")
-        
+
+        # Galería opcional: antes / después / normales.
+        def subir_lista(campo: str) -> list[str]:
+            urls: list[str] = []
+            for extra in request.files.getlist(campo):
+                if extra is None:
+                    continue
+                data = extra.read()
+                if not data:
+                    continue
+                try:
+                    urls.append(
+                        storage.upload_image(
+                            data, str(user_id), extra.filename or campo
+                        )
+                    )
+                except Exception:
+                    continue
+            return urls
+
+        antes = subir_lista('antes')
+        despues = subir_lista('despues')
+        galeria = subir_lista('galeria')
+
         # Crear registro
         item = PortfolioItem(
             pds_id=user_id,
@@ -80,8 +108,12 @@ class PortfolioUpload(MethodView):
             descripcion=descripcion,
             tipo=tipo,
             categoria=categoria,
+            precio=precio,
             s3_key=f"portfolio/{user_id}/{file.filename}",
             url=url,
+            antes=antes,
+            despues=despues,
+            galeria=galeria,
             file_size_bytes=len(file_bytes),
             mime_type=file.content_type
         )
@@ -144,6 +176,82 @@ class PortfolioItemDetail(MethodView):
         db.session.commit()
         
         return "", 204
+
+
+@blp.route("/importar-ultima-chamba")
+class PortfolioImportLastChamba(MethodView):
+    """Monta la última chamba finalizada (con su foto de evidencia) en el
+    portafolio del PDS, sin volver a subir el archivo."""
+
+    @jwt_required()
+    def post(self):
+        user_id = int(get_jwt_identity())
+
+        from app.models.chamba import Chamba, EstadoChamba
+        from app.models.contract import Contract
+
+        chamba = (
+            db.session.query(Chamba)
+            .join(Contract, Contract.id == Chamba.contract_id)
+            .filter(
+                Contract.proveedor_id == user_id,
+                Chamba.estado == EstadoChamba.FINALIZADA,
+            )
+            .order_by(Chamba.fecha_finalizacion.desc(), Chamba.id.desc())
+            .first()
+        )
+        if chamba is None:
+            abort(404, message="No tienes chambas finalizadas para importar.")
+
+        urls = list(chamba.evidencia_salida or []) + list(
+            chamba.evidencia_entrada or []
+        )
+        if not urls:
+            abort(400, message="La última chamba no tiene fotos de evidencia.")
+
+        url = urls[0]
+        existente = PortfolioItem.query.filter_by(
+            pds_id=user_id, url=url
+        ).first()
+        if existente is not None:
+            return existente.to_dict(), 200
+
+        entrada = [u for u in (chamba.evidencia_entrada or []) if u]
+        salida = [u for u in (chamba.evidencia_salida or []) if u]
+        cover = (salida or entrada)[0]
+
+        service = chamba.contract.service if chamba.contract else None
+        from app.models.user import User
+
+        autor = (
+            db.session.get(User, chamba.contract.solicitante_id)
+            if chamba.contract
+            else None
+        )
+        item = PortfolioItem(
+            pds_id=user_id,
+            titulo=(service.titulo if service else f"Chamba #{chamba.id}")[:100],
+            descripcion=service.descripcion if service else None,
+            tipo="foto",
+            categoria=(service.categoria if service else "general")[:50],
+            precio=(service.presupuesto if service else None),
+            calificacion=chamba.rating_estrellas,
+            resena_texto=chamba.rating_comentario,
+            resena_autor=(
+                (autor.nombre or autor.email) if autor is not None else None
+            ),
+            estado="aprobado",
+            s3_key=f"chamba/{chamba.id}/{cover.rsplit('/', 1)[-1]}",
+            url=cover,
+            antes=entrada,
+            despues=salida,
+            galeria=[],
+            mime_type="image/jpeg",
+        )
+        db.session.add(item)
+        db.session.commit()
+
+        return item.to_dict(), 201
 
 
 @blp.route("/pds/<int:pds_id>")

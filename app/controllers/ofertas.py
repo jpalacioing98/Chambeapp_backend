@@ -225,6 +225,17 @@ class OfertaList(MethodView):
         if get_jwt().get("role") not in (ROL_PDS, ROL_MERCHANT):
             abort(403, message="Solo un pds o merchant puede enviar ofertas.")
 
+        # El PDS y el merchant deben tener su identidad verificada para ofertar.
+        rol = get_jwt().get("role")
+        from app.services.verificacion import exigir_verificado
+
+        if rol == ROL_PDS:
+            exigir_verificado(user_id, "REQUIRE_KYC_TO_OFFER", "enviar ofertas")
+        elif rol == ROL_MERCHANT:
+            exigir_verificado(
+                user_id, "REQUIRE_KYC_TO_MERCHANT", "enviar ofertas"
+            )
+
         solicitud = db.get_or_404(Solicitud, sid)
         if solicitud.solicitante_id == user_id:
             abort(403, message="No puedes ofertar en tu propia solicitud.")

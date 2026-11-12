@@ -31,7 +31,7 @@ CATALOGO_KYC: list[tuple] = [
      "Consulta de responsabilidad fiscal — Contraloría General de la República.", True, "antecedentes", False, 7),
     # Grupo: financiero
     ("pds", "cert_bancaria", "Certificación Bancaria",
-     "Cuenta a nombre exclusivo del titular (Nequi, Daviplata, Bancolombia…). Se puede registrar varias (una por cuenta).", True, "financiero", True, 8),
+     "Cuenta a nombre exclusivo del titular (Nequi, Daviplata, Bancolombia…). Se puede registrar varias (una por cuenta).", False, "financiero", True, 8),
     # ── ROL pds · OPCIONALES ──
     ("pds", "validacion_profesional", "Validación Profesional",
      "Tarjeta profesional, certificado SENA o constancia de competencia. Se puede registrar varias (una por habilidad/certificación).", False, "opcional", True, 9),
@@ -64,16 +64,35 @@ def sync_kyc_catalog() -> int:
 
     cambios = 0
     for rol, clave, nombre, descripcion, obligatorio, grupo, multi, orden in catalogo:
-        if DocumentoRequerido.query.filter_by(rol=rol, clave=clave).first():
-            continue
-        db.session.add(
-            DocumentoRequerido(
-                rol=rol, clave=clave, nombre=nombre, descripcion=descripcion,
-                obligatorio=obligatorio, grupo=grupo, multi_instancia=multi, orden=orden,
+        requerido = DocumentoRequerido.query.filter_by(rol=rol, clave=clave).first()
+        if requerido is None:
+            db.session.add(
+                DocumentoRequerido(
+                    rol=rol, clave=clave, nombre=nombre, descripcion=descripcion,
+                    obligatorio=obligatorio, grupo=grupo, multi_instancia=multi, orden=orden,
+                )
             )
-        )
-        cambios += 1
-        print(f"  CREADO doc KYC: {rol}/{clave}")
+            cambios += 1
+            print(f"  CREADO doc KYC: {rol}/{clave}")
+            continue
+
+        # El catálogo es la fuente de verdad: si cambió la obligatoriedad,
+        # el grupo o el orden, se sincroniza la fila existente.
+        cambios_fila = False
+        for campo, valor in (
+            ("nombre", nombre),
+            ("descripcion", descripcion),
+            ("obligatorio", obligatorio),
+            ("grupo", grupo),
+            ("multi_instancia", multi),
+            ("orden", orden),
+        ):
+            if getattr(requerido, campo) != valor:
+                setattr(requerido, campo, valor)
+                cambios_fila = True
+        if cambios_fila:
+            cambios += 1
+            print(f"  ACTUALIZADO doc KYC: {rol}/{clave}")
 
     for doc in DocumentoRequerido.query.all():
         if (doc.rol, doc.clave) not in claves_validas:

@@ -49,6 +49,15 @@ class User(db.Model):
     activo = db.Column(db.Boolean, default=True, nullable=False)
     # Seguridad: autenticación en dos pasos (toggle persistido del perfil).
     two_factor_enabled = db.Column(db.Boolean, default=False, nullable=False)
+    # Método 2FA activo: "sms" | "totp" (app autenticadora).
+    two_factor_method = db.Column(
+        db.String(10), default="sms", server_default="sms", nullable=False
+    )
+    # Secreto TOTP cifrado (Fernet derivado de SECRET_KEY).
+    two_factor_secret = db.Column(db.String(255), nullable=True)
+    # Secreto TOTP en configuración (aún no confirmado con un código).
+    two_factor_pending_secret = db.Column(db.String(255), nullable=True)
+    two_factor_confirmed_at = db.Column(db.DateTime, nullable=True)
     # División regional: el personal (admin/verificador/soporte) pertenece a
     # una región; los usuarios públicos pueden tener región asignada según
     # su ubicación. None = sin asignar (superadmin o global).

@@ -40,6 +40,7 @@ class MerchantPreferencesResponseSchema(Schema):
     email_digest = fields.String()
     idioma = fields.String()
     tema = fields.String()
+    mapa_preferido = fields.String()
     creado_en = fields.DateTime()
     actualizado_en = fields.DateTime()
 
@@ -56,6 +57,7 @@ class MerchantPreferencesUpdateSchema(Schema):
     )
     idioma = fields.String(validate=validate.OneOf(["es", "en"]))
     tema = fields.String(validate=validate.OneOf(["light", "dark", "system"]))
+    mapa_preferido = fields.String(validate=validate.OneOf(["2d", "3d"]))
 
 
 class NegocioStatsSchema(Schema):

@@ -16,6 +16,8 @@ from app.models.kyc import DocumentoRequerido
 
 # ── Catálogo de documentos requeridos para merchant ──
 # (rol, clave, nombre, descripcion, obligatorio, grupo, multi_instancia, orden)
+# Mínimo alineado con el solicitante: identidad + prueba de vida + contacto
+# verificado. RUT, certificado comercial y foto del local pasan a opcionales.
 DOCUMENTOS_MERCHANT: list[tuple] = [
     # Grupo: identidad
     (
@@ -28,27 +30,47 @@ DOCUMENTOS_MERCHANT: list[tuple] = [
         False,      # multi_instancia
         1,          # orden
     ),
-    # Grupo: financiero
+    (
+        "merchant",
+        "prueba_vida",
+        "Prueba de Vida (Biometría)",
+        "Selfie en tiempo real que coincide con el documento de identidad.",
+        True,
+        "identidad",
+        False,
+        2,
+    ),
+    (
+        "merchant",
+        "verificacion_contacto",
+        "Verificación del Número",
+        "Se valida con OTP al celular del representante legal.",
+        True,
+        "identidad",
+        False,
+        3,
+    ),
+    # Grupo: financiero (opcional)
     (
         "merchant",
         "rut",
         "RUT",
         "Registro Único Tributario expedido por la DIAN.",
-        True,       # obligatorio
+        False,      # opcional
         "financiero",
-        False,      # multi_instancia
-        2,          # orden
+        False,
+        4,
     ),
-    # Grupo: antecedentes
+    # Grupo: antecedentes (opcional)
     (
         "merchant",
         "certificado_comercial",
         "Certificado de Existencia y Representación Legal",
         "Expedido por la Cámara de Comercio o equivalente.",
-        True,       # obligatorio
+        False,      # opcional
         "antecedentes",
-        False,      # multi_instancia
-        3,          # orden
+        False,
+        5,
     ),
     # Grupo: opcional
     (
@@ -56,10 +78,10 @@ DOCUMENTOS_MERCHANT: list[tuple] = [
         "foto_local",
         "Foto del Local Comercial",
         "Foto frontal del establecimiento con letrero visible.",
-        False,      # obligatorio (opcional)
+        False,
         "opcional",
-        False,      # multi_instancia
-        4,          # orden
+        False,
+        6,
     ),
 ]
 

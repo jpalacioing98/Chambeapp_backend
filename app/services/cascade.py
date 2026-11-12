@@ -11,6 +11,10 @@ Uso:
 
     # Enviar fase (tarea Celery)
     CascadeManager.send_phase(cascade_id=cascade.id)
+
+La cascada es el SEGUNDO mecanismo de aviso (el primero es el aviso
+inmediato a elegibles, `app.services.descubrimiento`): si nadie postula en
+las primeras fases, el radio se amplía para captar PDS más lejanos.
 """
 
 import logging
@@ -21,19 +25,38 @@ from app.extensions import db, celery
 from app.models.cascade import NotificationCascade
 from app.models.solicitud import Solicitud
 from app.models.notification import Notification
-from app.ai.geo import find_nearby_providers
+from app.schemas.solicitud import SolicitudSchema
+from app.services.descubrimiento import (
+    TIPO_NUEVA_SOLICITUD,
+    pds_elegibles,
+    usuarios_notificados,
+)
+from app.services.preferencias import preferencia_permite
+from app.services.push import enviar_push_notificacion
+from app.services.realtime import safe_emit
 
 logger = logging.getLogger(__name__)
 
 
+def _dump_solicitud(solicitud) -> dict | None:
+    """Serializa la solicitud para emitarla por socket (o None si falla)."""
+    try:
+        return SolicitudSchema().dump(solicitud)
+    except Exception:  # noqa: BLE001 — el dump nunca debe tumbar la fase
+        logger.warning("No se pudo serializar la solicitud %s", getattr(solicitud, "id", "?"))
+        return None
+
+
 class CascadeManager:
     """Gestor de notificaciones en cascada."""
-    
-    # Configuración por defecto (3 fases)
+
+    # Configuración por defecto (3 fases).
+    # `delay_seconds` = espera DESPUÉS de enviar esta fase antes de lanzar
+    # la siguiente. La fase 1 se lanza de inmediato al crear la solicitud.
     DEFAULT_CONFIG = [
-        {"radius_km": 2.0, "delay_seconds": 300, "max_candidates": 5},
-        {"radius_km": 5.0, "delay_seconds": 600, "max_candidates": 10},
-        {"radius_km": 15.0, "delay_seconds": 900, "max_candidates": 15},
+        {"radius_km": 20.0, "delay_seconds": 30, "max_candidates": 20},
+        {"radius_km": 50.0, "delay_seconds": 120, "max_candidates": 40},
+        {"radius_km": 100.0, "delay_seconds": 300, "max_candidates": 80},
     ]
     
     @classmethod
@@ -63,18 +86,45 @@ class CascadeManager:
         )
         db.session.add(cascade)
         db.session.commit()
-        
-        # Programar primera fase
-        from app.services.cascade import send_phase_task
-        send_phase_task.delay(cascade.id)
-        
+
+        # Programar primera fase (inmediata). Si el broker no está disponible
+        # se ejecuta la fase 1 EN ESTE PROCESO: tras el aviso inmediato a
+        # elegibles (`app.services.descubrimiento`) normalmente no quedan
+        # candidatos nuevos en 20 km, así que el coste es una consulta.
+        if not cls._enqueue_phase(cascade.id):
+            try:
+                cls.send_phase(cascade.id)
+            except Exception:  # noqa: BLE001 — el alta ya está persistida
+                logger.exception(
+                    "Fallo al ejecutar la fase 1 de la cascada %s en modo "
+                    "degradado (sin broker)",
+                    cascade.id,
+                )
+
         logger.info(f"Cascada iniciada para solicitud {solicitud_id}")
         return cascade
+
+    @classmethod
+    def _enqueue_phase(cls, cascade_id: int, countdown: int = 0) -> bool:
+        """Encola una fase en Celery. Devuelve False si el broker falla."""
+        from app.services.cascade import send_phase_task
+
+        try:
+            send_phase_task.apply_async(args=[cascade_id], countdown=countdown)
+            return True
+        except Exception:  # noqa: BLE001 — broker caído no tumba la petición
+            logger.warning(
+                "No se pudo encolar la fase de la cascada %s "
+                "(broker no disponible); queda para el barrido periódico",
+                cascade_id,
+                exc_info=True,
+            )
+            return False
     
     @classmethod
     def send_phase(cls, cascade_id: int):
         """Envía notificaciones de una fase.
-        
+
         Args:
             cascade_id: ID de la cascada
         """
@@ -82,70 +132,97 @@ class CascadeManager:
         if not cascade or cascade.estado != 'activa':
             logger.warning(f"Cascada {cascade_id} no activa")
             return
-        
+
         phase = cascade.get_current_phase()
         if not phase:
             cascade.mark_completed()
             return
-        
+
         solicitud = Solicitud.query.get(cascade.solicitud_id)
         if not solicitud:
             cascade.mark_expired()
             return
-        
-        # Buscar candidatos en el radio
-        candidates = find_nearby_providers(
-            lat=solicitud.latitud or 0,
-            lng=solicitud.longitud or 0,
+
+        # Candidatos del radio de esta fase, filtrados por categoría
+        # (mismo criterio que el listado `?elegibles=1`) y sin repetir a
+        # quienes ya recibieron el aviso de esta solicitud.
+        ya_notificados = usuarios_notificados(solicitud.id)
+        candidates = pds_elegibles(
+            solicitud,
             radius_km=phase['radius_km'],
-            top_k=phase['max_candidates']
+            top_k=phase['max_candidates'],
+            excluir_ids=ya_notificados,
         )
-        
+
         # Enviar notificaciones
         enviados = 0
         creadas = []
         for provider in candidates:
+            if not preferencia_permite(provider.id, TIPO_NUEVA_SOLICITUD):
+                continue
             notif = Notification(
                 user_id=provider.id,
-                tipo='nueva_solicitud',
+                tipo=TIPO_NUEVA_SOLICITUD,
                 titulo='Nueva solicitud cerca de ti',
                 mensaje=f'Hay una solicitud de {solicitud.categoria} a {phase["radius_km"]}km',
-                datos={'solicitud_id': solicitud.id}
+                datos={
+                    'solicitud_id': solicitud.id,
+                    'categoria': solicitud.categoria,
+                    'radio_km': phase['radius_km'],
+                    'origen': 'cascada',
+                    'fase': cascade.fase_actual,
+                },
             )
             db.session.add(notif)
             creadas.append(notif)
             enviados += 1
-        
+
         db.session.commit()
-        
+
         # Emitir en tiempo real vía Socket.IO (cola Redis / message_queue).
         # El servidor Flask (que mantiene las conexiones de clientes) recibe
         # el evento desde Redis y lo difunde a la sala user:<id>.
-        from app.services.realtime import safe_emit
+        payload_solicitud = _dump_solicitud(solicitud)
         for notif in creadas:
             safe_emit(
                 'notificacion:nueva',
                 notif.to_dict(),
                 room=f'user:{notif.user_id}',
             )
-        
+            if payload_solicitud is not None:
+                safe_emit(
+                    'solicitud:creada',
+                    payload_solicitud,
+                    room=f'user:{notif.user_id}',
+                )
+            enviar_push_notificacion(notif)
+
         # Log de fase
-        cascade.log_phase(cascade.fase_actual, enviados, phase['radius_km'])
+        fase_numero = cascade.fase_actual
+        cascade.log_phase(fase_numero, enviados, phase['radius_km'])
         cascade.enviados_total += enviados
-        
-        # Programar siguiente fase si existe
+
+        # Programar siguiente fase si existe. El countdown usa el delay de
+        # la fase ACTUAL (espera después de esta fase antes de ampliar).
         if cascade.fase_actual < len(cascade.config_json):
             cascade.fase_actual += 1
-            delay = cascade.config_json[cascade.fase_actual - 1]['delay_seconds']
-            
-            from app.services.cascade import send_phase_task
-            send_phase_task.apply_async(args=[cascade.id], countdown=delay)
-            
+            delay = phase['delay_seconds']
+
+            if cls._enqueue_phase(cascade.id, countdown=delay):
+                cascade.timer_expira = None
+            else:
+                # Sin broker: deja la fase vencida para que el barrido
+                # `app.tasks.resume_cascades` la reintente cuando vuelva.
+                cascade.timer_expira = datetime.utcnow() + timedelta(seconds=delay)
+
             db.session.commit()
         else:
             cascade.mark_completed()
-        
-        logger.info(f"Fase {cascade.fase_actual} enviada: {enviados} notificaciones")
+
+        logger.info(
+            f"Fase {fase_numero} enviada: {enviados} notificaciones "
+            f"(radio {phase['radius_km']}km)"
+        )
     
     @classmethod
     def cancel_cascade(cls, solicitud_id: int):

@@ -120,6 +120,11 @@ class MaranaOfertaList(MethodView):
         user_id = int(get_jwt_identity())
         if get_jwt().get("role") != ROL_PDS:
             abort(403, message="Solo un pds puede postularse.")
+
+        from app.services.verificacion import exigir_verificado
+
+        exigir_verificado(user_id, "REQUIRE_KYC_TO_OFFER", "postularte a una maraña")
+
         marana = db.get_or_404(Marana, marana_id)
         if marana.solicitante_id == user_id:
             abort(403, message="No puedes postularte a tu propia maraña.")

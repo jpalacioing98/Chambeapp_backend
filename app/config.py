@@ -51,6 +51,25 @@ class Config:
     # SMS_SEND_DEV=1 envía SMS reales en desarrollo (requiere credenciales Onurix)
     SMS_SEND_DEV = os.environ.get("SMS_SEND_DEV", "0") == "1"
 
+    # Verificación de identidad: publicar una solicitud (rol solicitante)
+    # exige tener aprobados todos los documentos KYC obligatorios del rol.
+    # Los tests lo desactivan para no aprobar documentos en cada caso.
+    REQUIRE_KYC_TO_PUBLISH = (
+        os.environ.get("REQUIRE_KYC_TO_PUBLISH", "1") == "1"
+    )
+
+    # Verificación de identidad del PDS: ofertar en una solicitud, postularse
+    # a una maraña o a un anuncio, y recibir avisos de nuevas solicitudes
+    # exigen el KYC del rol aprobado. Los tests lo desactivan.
+    REQUIRE_KYC_TO_OFFER = os.environ.get("REQUIRE_KYC_TO_OFFER", "1") == "1"
+
+    # Verificación de identidad del merchant: crear negocio, publicar
+    # solicitudes, enviar ofertas, crear anuncios y contratar postulantes
+    # exigen el KYC mínimo del rol. Los tests lo desactivan.
+    REQUIRE_KYC_TO_MERCHANT = (
+        os.environ.get("REQUIRE_KYC_TO_MERCHANT", "1") == "1"
+    )
+
 
 class DevelopmentConfig(Config):
     DEBUG = True
@@ -77,6 +96,10 @@ class TestingConfig(Config):
     CACHE_TYPE = "SimpleCache"
     SOCKETIO_MESSAGE_QUEUE = None
     PROPAGATE_EXCEPTIONS = False
+    # Los tests crean usuarios sin KYC; el gate se prueba explícitamente.
+    REQUIRE_KYC_TO_PUBLISH = False
+    REQUIRE_KYC_TO_OFFER = False
+    REQUIRE_KYC_TO_MERCHANT = False
     
     @classmethod
     def init(cls):

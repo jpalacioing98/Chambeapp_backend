@@ -64,12 +64,18 @@ class TestCascadeLoad:
         cascade.get_current_phase.return_value = cascade.config_json[0]
         
         solicitud = MagicMock()
+        solicitud.id = 99
         solicitud.latitud = 10.4
         solicitud.longitud = -73.2
         solicitud.categoria = 'plomeria'
         
-        # 100 candidatos mock
-        candidates = [MagicMock(id=i) for i in range(100)]
+        # 100 candidatos mock (el filtro por categoría vive en
+        # app.services.descubrimiento.pds_elegibles).
+        candidates = []
+        for i in range(100):
+            p = MagicMock(id=i)
+            p.profile = MagicMock(categorias=['plomeria'], habilidades=[])
+            candidates.append(p)
         
         # Se parchea la clase NotificationCascade completa (no .query.get):
         # acceder a Model.query requiere app context en Flask-SQLAlchemy 3.x.
@@ -78,15 +84,22 @@ class TestCascadeLoad:
         with app.app_context():
             with patch('app.services.cascade.NotificationCascade') as mock_model:
                 mock_model.query.get.return_value = cascade
-                with patch('app.services.cascade.Solicitud.query.get', return_value=solicitud):
-                    with patch('app.services.cascade.find_nearby_providers', return_value=candidates):
-                        with patch('app.services.cascade.Notification') as mock_notif:
-                            with patch('app.services.cascade.db.session'):
-                                with patch('app.services.cascade.send_phase_task'):
-                                    start = time.time()
-                                    CascadeManager.send_phase(cascade_id=1)
-                                    elapsed = time.time() - start
+                # Se parchea la CLASE Solicitud completa: `Model.query` crea
+                # un Query nuevo en cada acceso, así que parchear
+                # `Solicitud.query.get` no surte efecto dentro de send_phase.
+                with patch('app.services.cascade.Solicitud') as mock_sol:
+                    mock_sol.query.get.return_value = solicitud
+                    with patch('app.services.descubrimiento.find_nearby_providers',
+                               return_value=candidates):
+                        with patch('app.services.descubrimiento.usuarios_notificados',
+                                   return_value=set()):
+                            with patch('app.services.cascade.Notification') as mock_notif:
+                                with patch('app.services.cascade.db.session'):
+                                    with patch('app.services.cascade.send_phase_task'):
+                                        start = time.time()
+                                        CascadeManager.send_phase(cascade_id=1)
+                                        elapsed = time.time() - start
 
-                                    # Debe enviar 100 notificaciones rápido
-                                    assert mock_notif.call_count == 100
-                                    assert elapsed < 2.0  # <2s para 100 notificaciones
+                                        # Debe enviar 100 notificaciones rápido
+                                        assert mock_notif.call_count == 100
+                                        assert elapsed < 2.0  # <2s para 100 notificaciones

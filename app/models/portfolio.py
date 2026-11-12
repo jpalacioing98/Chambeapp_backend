@@ -54,6 +54,12 @@ class PortfolioItem(db.Model):
         nullable=False
     )
     categoria = db.Column(db.String(50), nullable=False)
+    # Datos visibles en la card del portafolio.
+    precio = db.Column(db.Integer, nullable=True)
+    calificacion = db.Column(db.Float, nullable=True)
+    # Reseña del solicitante (trabajos verificados).
+    resena_texto = db.Column(db.Text, nullable=True)
+    resena_autor = db.Column(db.String(120), nullable=True)
     
     # Storage
     s3_key = db.Column(db.String(500), nullable=False)
@@ -61,6 +67,11 @@ class PortfolioItem(db.Model):
     file_size_bytes = db.Column(db.BigInteger)
     mime_type = db.Column(db.String(50))
     
+    # Galería del trabajo: antes / después / fotos normales (URLs).
+    antes = db.Column(db.JSON, nullable=False, default=list)
+    despues = db.Column(db.JSON, nullable=False, default=list)
+    galeria = db.Column(db.JSON, nullable=False, default=list)
+
     # Moderación
     estado = db.Column(
         db.Enum('pendiente_revision', 'aprobado', 'rechazado', name='portfolio_estado'),
@@ -92,7 +103,14 @@ class PortfolioItem(db.Model):
             'descripcion': self.descripcion,
             'tipo': self.tipo,
             'categoria': self.categoria,
+            'precio': self.precio,
+            'calificacion': self.calificacion,
+            'resena_texto': self.resena_texto,
+            'resena_autor': self.resena_autor,
             'url': self.url,
+            'antes': self.antes or [],
+            'despues': self.despues or [],
+            'galeria': self.galeria or [],
             'file_size_bytes': self.file_size_bytes,
             'mime_type': self.mime_type,
             'estado': self.estado,

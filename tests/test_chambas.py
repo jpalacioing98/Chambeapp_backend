@@ -208,7 +208,7 @@ def test_upload_evidencia_ok(client, app, monkeypatch):
     _user(client, "pds@example.com", rol="pds")
 
     class _FakeStorage:
-        def upload_avatar(self, file_bytes, user_id, filename):
+        def upload_public_avatar(self, file_bytes, user_id, filename):
             return "http://minio:9000/chambeapp-portfolio/chamba-1/ev.jpg"
 
     monkeypatch.setattr("app.services.storage.storage", _FakeStorage())
@@ -220,6 +220,32 @@ def test_upload_evidencia_ok(client, app, monkeypatch):
     )
     assert resp.status_code == 200
     assert resp.get_json()["url"].startswith("http://minio:9000/")
+
+
+def test_upload_evidencia_data_url(client, app, monkeypatch):
+    """El cliente puede enviar el data URL completo; el backend quita el prefijo."""
+    sol_h = _user(client, "sol@example.com", rol="solicitante")
+    _user(client, "pds@example.com", rol="pds")
+    capturado = {}
+
+    class _FakeStorage:
+        def upload_public_avatar(self, file_bytes, user_id, filename):
+            capturado["bytes"] = file_bytes
+            return "http://minio:9000/chambeapp-portfolio/chamba-1/ev.jpg"
+
+    monkeypatch.setattr("app.services.storage.storage", _FakeStorage())
+
+    resp = client.post(
+        "/api/v1/chambas/evidencia/upload",
+        json={
+            "archivo_base64": "data:image/png;base64,aGVsbG8=",
+            "nombre_archivo": "ev.png",
+        },
+        headers=sol_h,
+    )
+
+    assert resp.status_code == 200
+    assert capturado["bytes"] == b"hello"
 
 
 def test_upload_evidencia_base64_invalido(client, app):
@@ -331,6 +357,76 @@ def test_evidencia_entrada_solo_prestador(client, app):
         headers=sol_h,
     )
     assert resp.status_code == 403
+
+
+def test_eliminar_evidencia_entrada_ok(client, app):
+    sol_h = _user(client, "sol@example.com", rol="solicitante")
+    pds_h = _user(client, "pds@example.com", rol="pds")
+    d = _avanzar_a_ejecucion(client, app, sol_h, pds_h)
+    url = "/minio/chambeapp-avatars/avatar/chamba-1/entrada/a.jpg"
+    otra = "/minio/chambeapp-avatars/avatar/chamba-1/entrada/b.jpg"
+    client.post(
+        f"/api/v1/chambas/{d['id']}/evidencia-entrada",
+        json={"urls": [url, otra]},
+        headers=pds_h,
+    )
+
+    resp = client.delete(
+        f"/api/v1/chambas/{d['id']}/evidencia/entrada",
+        query_string={"url": url},
+        headers=pds_h,
+    )
+
+    assert resp.status_code == 200
+    assert resp.get_json()["evidencia_entrada"] == [otra]
+
+
+def test_eliminar_evidencia_solo_prestador(client, app):
+    sol_h = _user(client, "sol@example.com", rol="solicitante")
+    pds_h = _user(client, "pds@example.com", rol="pds")
+    d = _avanzar_a_ejecucion(client, app, sol_h, pds_h)
+    url = "https://minio.chambeapp.co/chambas/1/entrada/a.jpg"
+    client.post(
+        f"/api/v1/chambas/{d['id']}/evidencia-entrada",
+        json={"urls": [url]},
+        headers=pds_h,
+    )
+
+    resp = client.delete(
+        f"/api/v1/chambas/{d['id']}/evidencia/entrada",
+        query_string={"url": url},
+        headers=sol_h,
+    )
+
+    assert resp.status_code == 403
+
+
+def test_eliminar_evidencia_inexistente(client, app):
+    sol_h = _user(client, "sol@example.com", rol="solicitante")
+    pds_h = _user(client, "pds@example.com", rol="pds")
+    d = _avanzar_a_ejecucion(client, app, sol_h, pds_h)
+
+    resp = client.delete(
+        f"/api/v1/chambas/{d['id']}/evidencia/entrada",
+        query_string={"url": "https://minio.chambeapp.co/no-existe.jpg"},
+        headers=pds_h,
+    )
+
+    assert resp.status_code == 404
+
+
+def test_eliminar_evidencia_fuera_de_ejecucion(client, app):
+    sol_h = _user(client, "sol@example.com", rol="solicitante")
+    pds_h = _user(client, "pds@example.com", rol="pds")
+    d = _crear_chamba(client, app, sol_h, "pds@example.com")
+
+    resp = client.delete(
+        f"/api/v1/chambas/{d['id']}/evidencia/entrada",
+        query_string={"url": "https://minio.chambeapp.co/x.jpg"},
+        headers=pds_h,
+    )
+
+    assert resp.status_code == 400
 
 
 def test_pasar_a_ejecucion(client, app):
@@ -921,3 +1017,65 @@ def test_listar_chambas_ajenas(client, app):
     other_id = _user_id(app, "other@example.com")
     resp = client.get(f"/api/v1/chambas/solicitante/{other_id}", headers=sol_h)
     assert resp.status_code == 403
+
+
+# ---------------- Hero del expediente: datos reales ----------------
+def test_detalle_expediente_incluye_servicio_y_partes(client, app):
+    """El hero pinta servicio, partes y monto sin llamadas extra."""
+    sol_h = _user(client, "sol-hero@example.com", rol="solicitante")
+    _user(client, "pds-hero@example.com", rol="pds")
+    d = _crear_chamba(client, app, sol_h, "pds-hero@example.com")
+
+    from datetime import datetime, timezone
+
+    from app.models.user import User
+
+    solicitante = User.query.filter_by(email="sol-hero@example.com").one()
+    prestador = User.query.filter_by(email="pds-hero@example.com").one()
+    solicitante.nombre = "Luis Rojas Moreno"
+    prestador.nombre = "Elena Navarro Jimenez"
+    contrato = db.session.get(Contract, d["contract_id"])
+    contrato.monto = 180000
+    contrato.firmado_solicitante_en = datetime(
+        2026, 9, 19, 18, 40, tzinfo=timezone.utc
+    )
+    contrato.firmado_proveedor_en = datetime(
+        2026, 9, 19, 19, 5, tzinfo=timezone.utc
+    )
+
+    # Postulación que originó la orden de servicio (fecha "gestionada").
+    from app.models.oferta import Oferta
+
+    oferta = Oferta(
+        solicitud_id=contrato.service_id,
+        pds_id=contrato.proveedor_id,
+        monto=180000,
+        estado="aceptada",
+        created_at=datetime(2026, 9, 19, 10, 15, tzinfo=timezone.utc),
+    )
+    db.session.add(oferta)
+    db.session.flush()
+    contrato.oferta_id = oferta.id
+    db.session.commit()
+
+    resp = client.get(f"/api/v1/chambas/{d['id']}", headers=sol_h)
+    assert resp.status_code == 200
+    cuerpo = resp.get_json()
+    contrato = cuerpo["contract"]
+
+    assert contrato["monto"] == 180000
+    assert contrato["service"]["titulo"] == "Reparar grifo"
+    assert contrato["service"]["categoria"] == "plomeria"
+    assert contrato["service"]["ubicacion"] == "Valledupar"
+    assert contrato["solicitante"]["nombre"] == "Luis Rojas Moreno"
+    assert contrato["proveedor"]["nombre"] == "Elena Navarro Jimenez"
+    assert contrato["solicitante"]["verificado"] in (True, False)
+    # Fechas de firma que alimentan los dos primeros hitos del timeline.
+    assert contrato["firmado_solicitante_en"].startswith("2026-09-19T18:40")
+    assert contrato["firmado_proveedor_en"].startswith("2026-09-19T19:05")
+    # La orden de servicio muestra la fecha de la postulación, no el
+    # timestamp técnico en que se insertó la chamba.
+    assert contrato["oferta_creada_en"].startswith("2026-09-19T10:15")
+    # No se filtran datos sensibles.
+    assert "email" not in contrato["solicitante"]
+    assert "password_hash" not in contrato["solicitante"]

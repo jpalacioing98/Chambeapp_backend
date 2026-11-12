@@ -41,9 +41,11 @@ from app.models.merchant import MerchantPreference, MerchantPaymentMethod
 from app.models.payment import Payment, EstadoPago
 from app.models.payment_method import MetodoPago
 from app.models.portfolio import PortfolioItem
+from app.models.push import PushSubscription
 from app.models.recommendation_log import RecommendationLog
 from app.models.region import Region
 from app.models.trust import TrustScore
+from app.models.two_factor import TwoFactorRecoveryCode
 
 __all__ = [
     "RolUsuario",
@@ -112,7 +114,9 @@ __all__ = [
     "EstadoPago",
     "MetodoPago",
     "PortfolioItem",
+    "PushSubscription",
     "RecommendationLog",
     "Region",
     "TrustScore",
+    "TwoFactorRecoveryCode",
 ]
