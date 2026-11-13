@@ -267,6 +267,31 @@ def eliminar_paquete(paquete_id: int) -> PaqueteMonedas:
     return paquete
 
 
+def reordenar_paquetes(ids: list[int]) -> list[PaqueteMonedas]:
+    """Aplica un nuevo orden 1..N según la posición de cada id en la lista.
+
+    El reordenamiento es atómico: si algún id no existe, no se toca nada.
+    """
+    paquetes = {p.id: p for p in PaqueteMonedas.query.filter(PaqueteMonedas.id.in_(ids)).all()}
+    faltantes = [pid for pid in ids if pid not in paquetes]
+    if faltantes:
+        raise ValueError(f"Paquetes inexistentes: {', '.join(map(str, faltantes))}.")
+    for posicion, pid in enumerate(ids, start=1):
+        paquetes[pid].orden = posicion
+    db.session.flush()
+    return [paquetes[pid] for pid in ids]
+
+
+def activar_paquete(paquete_id: int) -> PaqueteMonedas:
+    """Reactiva un paquete desactivado."""
+    paquete = db.session.get(PaqueteMonedas, paquete_id)
+    if paquete is None:
+        raise ValueError("El paquete no existe.")
+    paquete.activo = True
+    db.session.flush()
+    return paquete
+
+
 def _validar_paquete(paquete: PaqueteMonedas) -> None:
     if paquete.cantidad < 1:
         raise ValueError("El paquete debe tener al menos 1 moneda.")
@@ -332,10 +357,23 @@ def comprar_paquete(
     return compra
 
 
-def usar_monedas(user_id: int, cantidad: int, motivo: str) -> bool:
+def usar_monedas(
+    user_id: int,
+    cantidad: int,
+    motivo: str,
+    referencia: str | None = None,
+) -> bool:
     """Descuenta monedas del saldo y lo registra en el libro."""
     if cantidad < 1:
         raise ValueError("La cantidad de monedas debe ser mayor que 0.")
+
+    # Idempotencia: la misma referencia no se cobra dos veces.
+    if referencia:
+        existente = MovimientoMonedas.query.filter_by(
+            user_id=user_id, referencia=referencia
+        ).first()
+        if existente is not None:
+            return True
 
     wallet = get_or_create_wallet(user_id)
     if wallet.monedas_saldo < cantidad:
@@ -363,7 +401,37 @@ def usar_monedas(user_id: int, cantidad: int, motivo: str) -> bool:
         TipoMovimientoMonedas.GASTO,
         -cantidad,
         descripcion=motivo,
-        referencia=motivo,
+        referencia=referencia or motivo,
+    )
+    return True
+
+
+def reembolsar_monedas(
+    user_id: int,
+    cantidad: int,
+    referencia: str,
+    descripcion: str,
+) -> bool:
+    """Devuelve monedas al usuario (idempotente por referencia)."""
+    if cantidad < 1:
+        return False
+    existente = MovimientoMonedas.query.filter_by(
+        user_id=user_id, referencia=referencia
+    ).first()
+    if existente is not None:
+        return True
+
+    wallet = get_or_create_wallet(user_id)
+    db.session.add(
+        Coin(user_id=user_id, cantidad=cantidad, tipo=TipoMoneda.COMPRADA)
+    )
+    _registrar_movimiento_monedas(
+        user_id,
+        wallet,
+        TipoMovimientoMonedas.AJUSTE,
+        cantidad,
+        descripcion=descripcion,
+        referencia=referencia,
     )
     return True
 

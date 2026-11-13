@@ -11,9 +11,6 @@ al proveedor inmediatamente.
 from datetime import datetime, timezone
 import uuid
 
-from app.config import (
-    COMMISSION_EXEMPT_THRESHOLD,
-)
 from app.extensions import db
 from app.models.contract import Contract, EstadoContrato
 from app.models.payment import Payment, EstadoPago
@@ -82,9 +79,8 @@ def crear_pago(
     """RF-08.1: crea un pago asociado a un contrato completado.
 
     - Valida que el contrato exista y su estado sea 'completado'.
-    - Calcula comisiones: 
-      - PDS: 12% si monto >= COMMISSION_EXEMPT_THRESHOLD
-      - Solicitante: 8% si monto >= COMMISSION_EXEMPT_THRESHOLD
+    - Sin intermediación: las comisiones son 0 y el pago es solo un
+      registro del acuerdo directo entre las partes.
     - Crea Payment en estado 'pendiente'.
     - Por defecto la pasarela es 'nequi' (transferencia manual). Para
       pagos 'nequi' se genera una referencia tipo NEQ-XXXX.
@@ -97,13 +93,9 @@ def crear_pago(
 
     gateway = gateway or DEFAULT_GATEWAY
 
-    # Calcular comisiones
-    if monto < COMMISSION_EXEMPT_THRESHOLD:
-        comision_pds = 0
-        comision_solicitante = 0
-    else:
-        comision_pds = round(monto * 0.12)  # 12% para PDS
-        comision_solicitante = round(monto * 0.08)  # 8% para solicitante
+    # Sin intermediación: la plataforma no cobra comisiones COP.
+    comision_pds = 0
+    comision_solicitante = 0
 
     # Referencia de pasarela: Nequi usa NEQ-XXXX; el gateway mock la fija en confirm.
     referencia = f"NEQ-{uuid.uuid4().hex[:8].upper()}" if pasarela == "nequi" else None

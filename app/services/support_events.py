@@ -66,6 +66,7 @@ def notificar_nuevo_ticket(ticket, user) -> None:
     payload = {
         "id": ticket.id,
         "subject": ticket.subject,
+        "category": ticket.category,
         "status": ticket.status,
         "priority": ticket.priority,
         "user_id": user.id,
@@ -156,16 +157,17 @@ def notificar_nueva_disputa(dispute, contract, solicitante=None, solicitud=None)
 
 
 def emit_ticket_actualizado(ticket, region_id) -> None:
-    _emit_support(
-        "ticket:actualizado",
-        {
-            "id": ticket.id,
-            "status": ticket.status,
-            "priority": ticket.priority,
-            "assigned_to": ticket.assigned_to,
-        },
-        region_id,
-    )
+    payload = {
+        "id": ticket.id,
+        "subject": ticket.subject,
+        "category": ticket.category,
+        "status": ticket.status,
+        "priority": ticket.priority,
+        "assigned_to": ticket.assigned_to,
+    }
+    _emit_support("ticket:actualizado", payload, region_id)
+    # El dueño del ticket también ve el cambio (lista "Mis tickets").
+    safe_emit("ticket:actualizado", payload, room=f"user:{ticket.user_id}")
 
 
 def emit_disputa_resuelta(dispute, region_id) -> None:

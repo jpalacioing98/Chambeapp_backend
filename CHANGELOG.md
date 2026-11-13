@@ -4,6 +4,39 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - 2026-09-26
 
+### Added — Endpoints que faltaban para las pantallas operativas (2026-11-13)
+- `GET /kyc/metricas` (verificador/admin/superadmin): pendientes, revisados hoy y
+  total, aprobados, rechazados, tasa de aprobación, tiempo medio de revisión y
+  antigüedad del pendiente más viejo. Respeta el alcance regional de `/kyc/pendientes`.
+- `GET /plantillas/` (roles operativos) y `PUT /plantillas/<tipo>` (superadmin):
+  plantillas de `kyc_rechazo`, `ticket_respuesta` y `disputa_veredicto`, guardadas
+  en `SystemConfig` y auditadas. Traen valores por defecto.
+- `POST /tickets/` acepta `user_id`: soporte/admin/superadmin pueden crear un
+  ticket a nombre de otro usuario (403 para el resto).
+- Tests: `tests/test_staff_endpoints.py` (10 casos).
+
+### Added — Brechas del panel SuperAdmin cerradas (2026-11-13)
+- `GET /superadmin/audit-logs` acepta `action` (contiene), `q` (acción o tipo
+  de entidad), `from`/`to` (ISO 8601 o `YYYY-MM-DD`), `offset`, y acota
+  `limit` a 500. Sigue devolviendo `{items, total}`.
+- T&C con ciclo completo:
+  - `GET /superadmin/legal/tyc` incluye `draft` (borrador sin publicar).
+  - `PUT /superadmin/legal/tyc/draft` guarda el borrador.
+  - `GET /superadmin/legal/tyc/history` lista las versiones archivadas
+    (máximo 20, más reciente primero).
+  - `POST /superadmin/legal/tyc/rollback {version}` restaura una versión
+    archivada; la vigente se archiva antes, así que el rollback es reversible.
+  - Publicar descarta el borrador y archiva la versión saliente.
+- Overrides de emergencia aceptan `justificacion` (15–500 caracteres) y la
+  guardan en `after_json` de la auditoría.
+- Paquetes de monedas:
+  - `POST /wallet/admin/paquetes/reordenar {ids}` aplica orden 1..N en una
+    sola transacción (falla completo si algún id no existe).
+  - `POST /wallet/admin/paquetes/<id>/activar` reactiva un paquete.
+- `GET/PUT /admin/cobros` devuelven `updated_at` y `updated_by` de la última
+  modificación de tarifas.
+- Tests: `tests/test_superadmin_mejoras.py` (16 casos).
+
 ### Added — Billetera de monedas virtuales (2026-11-12)
 - `Wallet` incorpora `monedas_saldo`; el saldo COP se mantiene **solo** para
   pagos de contratos.

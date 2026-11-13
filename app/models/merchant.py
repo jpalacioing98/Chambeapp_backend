@@ -31,6 +31,10 @@ class MerchantPreference(db.Model):
     tema = db.Column(db.String(10), default="system", nullable=False)
     # Mapa con el que arranca la vista de chambas: "2d" | "3d".
     mapa_preferido = db.Column(db.String(4), default="2d", nullable=False)
+    # Formulario de publicación: "paso_a_paso" | "completo".
+    formulario_solicitud = db.Column(
+        db.String(12), default="paso_a_paso", nullable=False
+    )
     # Timestamps
     creado_en = db.Column(
         db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False

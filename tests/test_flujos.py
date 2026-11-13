@@ -49,6 +49,20 @@ def _headers(client, email, password="secret123"):
 def _create_user(client, email, rol="pds", password="secret123"):
     """Register + return auth headers for a user."""
     _register(client, email, password=password, rol=rol)
+    # Monedas suficientes para los cobros de firma de contrato.
+    from app.models.user import User
+    from app.models.wallet import Coin, TipoMoneda, Wallet
+
+    u = User.query.filter_by(email=email).first()
+    if u is not None:
+        wallet = Wallet.query.filter_by(user_id=u.id).first()
+        if wallet is None:
+            wallet = Wallet(user_id=u.id, monedas_saldo=1000)
+            db.session.add(wallet)
+        else:
+            wallet.monedas_saldo = 1000
+        db.session.add(Coin(user_id=u.id, cantidad=1000, tipo=TipoMoneda.GANADA))
+        db.session.commit()
     return _headers(client, email, password)
 
 

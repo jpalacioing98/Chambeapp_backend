@@ -51,6 +51,19 @@ def _headers(client, email, password="secret123"):
 
 def _user(client, email, rol="pds"):
     _register(client, email=email, rol=rol)
+    # Monedas para el cobro de firma de contrato.
+    from app.models.user import User
+    from app.models.wallet import Coin, TipoMoneda, Wallet
+
+    u = User.query.filter_by(email=email).first()
+    wallet = Wallet.query.filter_by(user_id=u.id).first()
+    if wallet is None:
+        wallet = Wallet(user_id=u.id, monedas_saldo=1000)
+        db.session.add(wallet)
+    else:
+        wallet.monedas_saldo = 1000
+    db.session.add(Coin(user_id=u.id, cantidad=1000, tipo=TipoMoneda.GANADA))
+    db.session.commit()
     return _headers(client, email)
 
 
@@ -100,7 +113,7 @@ def test_crear_pago_ok(client):
     d = resp.get_json()
     assert d["estado"] == "pendiente"
     assert d["monto"] == 100000
-    assert d["comision_pds"] == 12000  # 12% de 100000
+    assert d["comision_pds"] == 0  # sin intermediación
 
 
 def test_crear_pago_orden_no_completada(client):
@@ -130,7 +143,7 @@ def test_comision_exenta_bajo_umbral(client):
     assert resp.get_json()["comision_pds"] == 0  # < 50000 => exenta
 
 
-def test_comision_12_por_encima_umbral(client):
+def test_comision_cero_por_encima_umbral(client):
     emp_h = _user(client, "emp@example.com", rol="solicitante")
     tr_h = _user(client, "tr@example.com", rol="pds")
     oid = _contrato_completado(client, emp_h, tr_h, tr_id=2)
@@ -138,7 +151,7 @@ def test_comision_12_por_encima_umbral(client):
         "/api/v1/payments/", json={"contract_id": oid, "monto": 50000}, headers=emp_h
     )
     assert resp.status_code == 201
-    assert resp.get_json()["comision_pds"] == 6000  # 12% de 50000
+    assert resp.get_json()["comision_pds"] == 0  # sin intermediación
 
 
 # ---------------- RF-08.3 / 08.6 / 08.7: ciclo ----------------

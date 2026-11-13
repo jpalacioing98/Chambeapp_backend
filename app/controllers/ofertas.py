@@ -21,7 +21,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 
 from app.extensions import db
 from app.services.realtime import safe_emit
-from app.models.user import User, Profile, RolUsuario
+from app.models.user import User, RolUsuario
 from app.models.solicitud import Solicitud, EstadoSolicitud
 from app.models.oferta import Oferta, EstadoOferta
 from app.models.contract import Contract, EstadoContrato
@@ -33,7 +33,6 @@ from app.schemas.oferta import (
     MisOfertasSchema,
 )
 from app.controllers.notifications import crear_notificacion
-from app.controllers.subscriptions import PLANES_LIMITE_POSTULACIONES
 from app.models.chat import Conversation, Message
 
 blp = Blueprint("ofertas", __name__, description="Ofertas pds/solicitante")
@@ -240,28 +239,7 @@ class OfertaList(MethodView):
         if solicitud.solicitante_id == user_id:
             abort(403, message="No puedes ofertar en tu propia solicitud.")
 
-        # RF-11: límite de postulaciones mensuales escalonado por plan.
-        profile = Profile.query.get(user_id)
-        plan = profile.plan if profile else "free"
-        limite = PLANES_LIMITE_POSTULACIONES.get(plan)
-        if limite is not None:
-            now = datetime.now(timezone.utc)
-            inicio_mes = now.replace(
-                day=1, hour=0, minute=0, second=0, microsecond=0
-            )
-            count = Oferta.query.filter(
-                Oferta.pds_id == user_id,
-                Oferta.created_at >= inicio_mes,
-            ).count()
-            if count >= limite:
-                abort(
-                    403,
-                    message=(
-                        f"Has alcanzado el limite de postulaciones de tu plan "
-                        f"({limite}/mes). Suscribete a un plan superior para "
-                        f"mas postulaciones."
-                    ),
-                )
+        # Los planes están deshabilitados: postular no tiene límite mensual.
 
         oferta = Oferta(
             pds_id=user_id,
@@ -484,21 +462,8 @@ class OfertaResponder(MethodView):
             oferta.monto_final = monto
             oferta.fecha_aceptacion = datetime.now(timezone.utc)
 
-            # --- RF-26/27: Validar monedas en Modalidad B (sin comisión) ---
-            # El cobro ocurre UNA vez, al cerrarse el acuerdo.
-            try:
-                from app.services.wallet import get_modalidad, usar_monedas
-
-                modalidad = get_modalidad(solicitud.id)
-                if modalidad.tipo.value == "B_sin_comision":
-                    # Descontar 50 monedas al PDS por usar modalidad B
-                    usar_monedas(
-                        oferta.pds_id, 50, f"MODALIDAD-B-SOLICITUD-{solicitud.id}"
-                    )
-            except ValueError as e:
-                abort(400, message=str(e))
-            except Exception:
-                pass  # Si no existe modalidad, continuar
+            # Las modalidades están eliminadas: no hay cobro aquí. El cobro
+            # en monedas ocurre al firmar el contrato.
 
             # El monto acordado se convierte en el nuevo precio de la
             # solicitud (el contrato lleva el valor final en `monto`).

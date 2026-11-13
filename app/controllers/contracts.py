@@ -144,16 +144,56 @@ class ContractEstado(MethodView):
             firma = data.get("firma") or {}
             ahora = datetime.now(timezone.utc)
 
+            if es_solicitante and contract.firma_solicitante:
+                abort(400, message="Ya firmaste este contrato.")
+            if not es_solicitante and contract.firma_proveedor:
+                abort(400, message="Ya firmaste este contrato.")
+
+            # Cobro en monedas ANTES de registrar la firma. La plataforma
+            # no intermedia el pago del trabajo; solo cobra la tarifa de uso.
+            from app.services.cobros import calcular_monedas_contrato, cobrar_monedas
+
+            solicitud = db.session.get(Solicitud, contract.service_id)
+            monto_base = (
+                contract.monto
+                if contract.monto is not None
+                else (solicitud.presupuesto if solicitud is not None else 0)
+            )
+            monedas = calcular_monedas_contrato(monto_base)
+            referencia = f"COBRO-FIRMA-{contract.id}-{user_id}"
+            try:
+                cobrar_monedas(
+                    user_id,
+                    monedas,
+                    referencia,
+                    f"Cobro por firma del contrato #{contract.id}",
+                )
+            except ValueError:
+                abort(
+                    400,
+                    message=(
+                        f"MONEDAS_INSUFICIENTES:{monedas}:Necesitas {monedas} "
+                        "monedas para firmar este contrato. Recarga tu "
+                        "billetera y vuelve a intentarlo."
+                    ),
+                )
+
             if es_solicitante:
                 contract.firma_solicitante = True
                 contract.firmado_solicitante_en = ahora
                 contract.datos_firma_solicitante = firma
+                contract.cobro_solicitante_monedas = monedas
+                contract.cobro_solicitante_ref = referencia
+                contract.cobro_solicitante_en = ahora
                 contraparte = contract.proveedor_id
                 rol = "solicitante"
             else:
                 contract.firma_proveedor = True
                 contract.firmado_proveedor_en = ahora
                 contract.datos_firma_proveedor = firma
+                contract.cobro_proveedor_monedas = monedas
+                contract.cobro_proveedor_ref = referencia
+                contract.cobro_proveedor_en = ahora
                 contraparte = contract.solicitante_id
                 rol = "proveedor"
 
@@ -239,54 +279,20 @@ class ContractEstado(MethodView):
             contract.estado = EstadoContrato.COMPLETADO
             contract.confirmado_en = datetime.now(timezone.utc)
 
-            # --- RF-25/26: Integrar billetera al confirmar contrato ---
-            solicitud = db.session.get(Solicitud, contract.service_id)
+            # --- Pago directo entre las partes: la plataforma NO intermedia ---
+            # No hay comisión ni acreditación del monto del trabajo. Solo se
+            # otorga la recompensa de fidelidad por completar el servicio.
             try:
-                from app.services.wallet import get_modalidad, descontar_comision, acreditar_pago, dar_monedas_ganadas
-                from app.config import COMMISSION_EXEMPT_THRESHOLD
+                from app.services.wallet import dar_monedas_ganadas
 
-                modalidad = get_modalidad(solicitud.id)
-                # El valor final acordado manda sobre el presupuesto de
-                # la solicitud (puede venir de una contraoferta).
-                monto_total = (
-                    contract.monto
-                    if contract.monto is not None
-                    else (solicitud.presupuesto or 0)
-                )
-
-                if monto_total > 0:
-                    # Determinar si hay comisión (Modalidad A, monto >= umbral)
-                    comision = 0
-                    if modalidad.tipo.value == "A_comision" and monto_total >= COMMISSION_EXEMPT_THRESHOLD:
-                        comision = int(monto_total * 0.12)
-
-                    # Descontar comisión del PDS
-                    if comision > 0:
-                        descontar_comision(
-                            contract.proveedor_id,
-                            comision,
-                            f"COMISION-CONTRATO-{contract.id}",
-                        )
-
-                    # Acreditar pago neto al PDS
-                    monto_neto = monto_total - comision
-                    acreditar_pago(
-                        contract.proveedor_id,
-                        monto_neto,
-                        f"PAGO-CONTRATO-{contract.id}",
-                    )
-
-                    # Otorgar monedas ganadas al completar servicio
-                    dar_monedas_ganadas(contract.proveedor_id, 10)
-
+                dar_monedas_ganadas(contract.proveedor_id, 10)
             except Exception:
-                # No romper el flujo de contrato si falla la billetera
                 pass
 
             crear_notificacion(
                 contract.proveedor_id,
                 "contrato_confirmado",
-                "El solicitante confirmó que el trabajo está completado. ¡Pago procesado!",
+                "El solicitante confirmó que el trabajo está completado.",
             )
             crear_notificacion(
                 contract.solicitante_id,
@@ -308,6 +314,33 @@ class ContractEstado(MethodView):
             motivo = data.get("motivo_cancelacion")
             if not motivo or not str(motivo).strip():
                 abort(400, message="Se requiere un motivo de cancelación.")
+
+            # Reembolso de monedas si el contrato nunca llegó a activarse
+            # (no se completaron ambas firmas).
+            if contract.estado == EstadoContrato.PENDIENTE and not contract.cobros_reembolsados:
+                from app.services.wallet import reembolsar_monedas
+
+                for uid, monto, ref in (
+                    (
+                        contract.solicitante_id,
+                        contract.cobro_solicitante_monedas,
+                        contract.cobro_solicitante_ref,
+                    ),
+                    (
+                        contract.proveedor_id,
+                        contract.cobro_proveedor_monedas,
+                        contract.cobro_proveedor_ref,
+                    ),
+                ):
+                    if monto and ref:
+                        reembolsar_monedas(
+                            uid,
+                            int(monto),
+                            f"REEMBOLSO-{ref}",
+                            f"Reembolso por cancelación del contrato #{contract.id}",
+                        )
+                contract.cobros_reembolsados = True
+
             contract.estado = EstadoContrato.CANCELADO
             contract.motivo_cancelacion = motivo
             contraparte = (
@@ -336,3 +369,31 @@ class ContractEstado(MethodView):
         safe_emit("contrato:actualizado", payload, room=f"user:{contract.proveedor_id}")
 
         return contract
+
+
+@blp.route("/<int:contract_id>/cobro")
+class ContractCobro(MethodView):
+    @jwt_required()
+    @blp.doc(summary="Estimación del cobro en monedas al firmar")
+    def get(self, contract_id):
+        """Monedas que pagaría este usuario al firmar el contrato."""
+        from app.services.cobros import calcular_monedas_contrato, get_config_publica
+
+        user_id = int(get_jwt_identity())
+        contract = db.get_or_404(Contract, contract_id)
+        if user_id not in (contract.solicitante_id, contract.proveedor_id):
+            abort(403, message="No participas en este contrato.")
+
+        solicitud = db.session.get(Solicitud, contract.service_id)
+        monto = (
+            contract.monto
+            if contract.monto is not None
+            else (solicitud.presupuesto if solicitud is not None else 0)
+        )
+        config = get_config_publica()
+        return {
+            "monto": monto or 0,
+            "monedas": calcular_monedas_contrato(monto),
+            "pct_contrato": config["pct_contrato"],
+            "precio_moneda_cop": config["precio_moneda_cop"],
+        }

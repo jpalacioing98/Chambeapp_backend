@@ -3,6 +3,7 @@
 from marshmallow import Schema, fields, validate
 
 from app.models.user import RolUsuario
+from app.models.ticket import TICKET_CATEGORIES
 from app.schemas.region import RegionMinSchema
 
 
@@ -206,13 +207,20 @@ class DisputeVariablesSchema(Schema):
 # Fase 2: tickets de soporte
 # --------------------------------------------------------------------------
 class TicketCreateSchema(Schema):
-    subject = fields.String(required=True)
-    body = fields.String(required=True)
+    subject = fields.String(required=True, validate=validate.Length(min=4, max=200))
+    body = fields.String(required=True, validate=validate.Length(min=10, max=5000))
+    category = fields.String(
+        load_default="otro",
+        validate=validate.OneOf(TICKET_CATEGORIES),
+    )
+    # Solo staff (soporte/admin/superadmin): crea el ticket a nombre de otro usuario.
+    user_id = fields.Integer(required=False, allow_none=True)
 
 
 class TicketCreateResponseSchema(Schema):
     id = fields.Integer()
     status = fields.String()
+    category = fields.String()
 
 
 class TicketUserSchema(Schema):
@@ -226,6 +234,7 @@ class TicketListSchema(Schema):
     id = fields.Integer()
     user_id = fields.Integer()
     subject = fields.String()
+    category = fields.String()
     status = fields.String()
     priority = fields.String()
     assigned_to = fields.Integer(allow_none=True)
@@ -247,6 +256,23 @@ class TicketListResponseSchema(Schema):
     total = fields.Integer()
 
 
+class MyTicketSchema(Schema):
+    """Ticket visto por su dueño (sin datos internos de staff)."""
+    id = fields.Integer()
+    subject = fields.String()
+    body = fields.String()
+    category = fields.String()
+    status = fields.String()
+    priority = fields.String()
+    created_at = fields.DateTime()
+    resolved_at = fields.DateTime(allow_none=True)
+
+
+class MyTicketsResponseSchema(Schema):
+    items = fields.List(fields.Nested(MyTicketSchema))
+    total = fields.Integer()
+
+
 class TicketPatchSchema(Schema):
     status = fields.String(
         required=False,
@@ -256,6 +282,25 @@ class TicketPatchSchema(Schema):
     priority = fields.String(
         required=False, validate=validate.OneOf(["low", "normal", "high"])
     )
+
+
+# --------------------------------------------------------------------------
+# Cobros en monedas (superadmin)
+# --------------------------------------------------------------------------
+class TarifasCobroUpdateSchema(Schema):
+    pct_contrato = fields.Float(required=False)
+    precio_moneda_cop = fields.Float(required=False)
+    monedas_fijas = fields.Float(required=False)
+    min_monedas_contrato = fields.Float(required=False)
+    costo_publicar_anuncio = fields.Float(required=False)
+    costo_reactivar_anuncio = fields.Float(required=False)
+
+
+class TarifasCobroResponseSchema(Schema):
+    tarifas = fields.Dict(keys=fields.String(), values=fields.Float())
+    config = fields.Dict(keys=fields.String(), values=fields.Float())
+    updated_at = fields.String(allow_none=True)
+    updated_by = fields.Integer(allow_none=True)
 
 
 # --------------------------------------------------------------------------

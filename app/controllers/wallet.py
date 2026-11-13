@@ -1,4 +1,4 @@
-"""Wallet blueprint: billetera virtual, monedas, modalidades y hitos (RF-25, RF-26, RF-27, RF-29)."""
+"""Wallet blueprint: billetera virtual, monedas e hitos (RF-25, RF-27, RF-29)."""
 
 from datetime import datetime, timezone
 
@@ -10,9 +10,8 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from app.extensions import db
 from app.models.user import User, RolUsuario
 from app.models.wallet import Wallet, Transaction, Coin
-from app.models.modalidad import Modalidad, Milestone
+from app.models.modalidad import Milestone
 from app.models.contract import Contract
-from app.models.solicitud import Solicitud
 from app.schemas.wallet import (
     WalletSchema,
     WalletWithdrawSchema,
@@ -23,10 +22,9 @@ from app.schemas.wallet import (
     PaqueteMonedasSchema,
     PaqueteCreateSchema,
     PaqueteUpdateSchema,
+    PaqueteReorderSchema,
     CompraPaqueteSchema,
     MovimientoMonedasSchema,
-    ModalidadSchema,
-    ModalidadCreateSchema,
     MilestoneSchema,
     MilestoneCreateSchema,
     MilestoneActionSchema,
@@ -42,11 +40,11 @@ from app.services.wallet import (
     crear_paquete,
     actualizar_paquete,
     eliminar_paquete,
+    reordenar_paquetes,
+    activar_paquete,
     comprar_paquete,
     usar_monedas,
     get_resumen_financiero,
-    crear_modalidad,
-    get_modalidad,
     crear_hitos,
     aprobar_hito,
     rechazar_hito,
@@ -260,36 +258,39 @@ class AdminPaqueteDetail(MethodView):
         return {"mensaje": "Paquete desactivado", "id": paquete.id}
 
 
-# --------------------------------------------------------------------------
-# Modalidades de Cobro (RF-26)
-# --------------------------------------------------------------------------
-
-@blp.route("/modalidades/<int:service_id>")
-class ModalidadDetail(MethodView):
+@blp.route("/admin/paquetes/reordenar")
+class AdminPaquetesReordenar(MethodView):
     @jwt_required()
-    @blp.response(200, ModalidadSchema)
-    def get(self, service_id):
-        """RF-26.5: consulta modalidad de una solicitud."""
-        return get_modalidad(service_id)
-
-    @jwt_required()
-    @blp.arguments(ModalidadCreateSchema)
-    @blp.response(201, ModalidadSchema)
-    def post(self, data, service_id):
-        """RF-26.1: establece modalidad de cobro de una solicitud."""
+    @blp.arguments(PaqueteReorderSchema)
+    @blp.response(200, PaqueteMonedasSchema(many=True))
+    def post(self, data):
+        """Reordena todos los paquetes según la lista de ids (posición = orden)."""
         user_id = int(get_jwt_identity())
-        solicitud = db.session.get(Solicitud, service_id)
-        if solicitud is None:
-            abort(404, message="La solicitud no existe.")
-        if solicitud.solicitante_id != user_id and not _es_admin(user_id):
-            abort(403, message="Solo el solicitante puede definir la modalidad.")
-
+        if not _es_superadmin(user_id):
+            abort(403, message="Solo el superadministrador gestiona los paquetes.")
         try:
-            modalidad = crear_modalidad(service_id, data["tipo"])
+            paquetes = reordenar_paquetes(data["ids"])
         except ValueError as e:
             abort(400, message=str(e))
         db.session.commit()
-        return modalidad
+        return paquetes
+
+
+@blp.route("/admin/paquetes/<int:paquete_id>/activar")
+class AdminPaqueteActivar(MethodView):
+    @jwt_required()
+    @blp.response(200, PaqueteMonedasSchema)
+    def post(self, paquete_id):
+        """Reactiva un paquete desactivado."""
+        user_id = int(get_jwt_identity())
+        if not _es_superadmin(user_id):
+            abort(403, message="Solo el superadministrador gestiona los paquetes.")
+        try:
+            paquete = activar_paquete(paquete_id)
+        except ValueError as e:
+            abort(400, message=str(e))
+        db.session.commit()
+        return paquete
 
 
 # --------------------------------------------------------------------------
@@ -369,3 +370,14 @@ class MilestonesCheck(MethodView):
             "total_hitos": len(hitos),
             "aprobados": sum(1 for h in hitos if h.estado.value == "aprobado"),
         }
+
+
+@blp.route("/tarifas")
+class TarifasUsuario(MethodView):
+    @jwt_required()
+    @blp.doc(summary="Tarifas de cobro vigentes")
+    def get(self):
+        """Precios en monedas que ve el usuario (contratos y anuncios)."""
+        from app.services.cobros import get_config_publica
+
+        return get_config_publica()

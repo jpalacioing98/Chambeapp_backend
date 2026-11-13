@@ -357,82 +357,14 @@ class TestCoins:
 # Tests: Modalidades de Cobro (RF-26)
 # --------------------------------------------------------------------------
 
-class TestModalidades:
-    def _create_solicitud(self, client, solicitante_id):
-        """Helper para crear una solicitud."""
-        with client.application.app_context():
-            sol = Solicitud(
-                solicitante_id=solicitante_id,
-                titulo="Reparación de tubería",
-                categoria="plomeria",
-                descripcion="Reparación de tubería",
-                ubicacion="Valledupar",
-                presupuesto=100000,
-                estado=EstadoSolicitud.PUBLICADO,
-            )
-            db.session.add(sol)
-            db.session.commit()
-            return sol.id
-
-    def test_crear_modalidad(self, client):
-        """Se puede crear una modalidad para una solicitud."""
+class TestModalidadesEliminadas:
+    def test_modalidad_endpoint_eliminado(self, client):
+        """La modalidad RF-26 ya no existe: el endpoint responde 404."""
         _register(client, "sol@test.com", "solicitante")
         headers = _headers(client, "sol@test.com")
+        resp = client.get("/api/v1/wallet/modalidades/1", headers=headers)
+        assert resp.status_code == 404
 
-        with client.application.app_context():
-            user = User.query.filter_by(email="sol@test.com").first()
-            sol_id = self._create_solicitud(client, user.id)
-
-        resp = client.post(
-            f"/api/v1/wallet/modalidades/{sol_id}",
-            json={"tipo": "A_comision"},
-            headers=headers,
-        )
-        assert resp.status_code == 201
-        data = resp.get_json()
-        assert data["tipo"] == "A_comision"
-
-    def test_ver_modalidad(self, client):
-        """Se puede ver la modalidad de una solicitud."""
-        _register(client, "sol@test.com", "solicitante")
-        headers = _headers(client, "sol@test.com")
-
-        with client.application.app_context():
-            user = User.query.filter_by(email="sol@test.com").first()
-            sol_id = self._create_solicitud(client, user.id)
-
-        # Crear modalidad
-        client.post(
-            f"/api/v1/wallet/modalidades/{sol_id}",
-            json={"tipo": "B_sin_comision"},
-            headers=headers,
-        )
-
-        # Ver modalidad
-        resp = client.get(f"/api/v1/wallet/modalidades/{sol_id}", headers=headers)
-        assert resp.status_code == 200
-        data = resp.get_json()
-        assert data["tipo"] == "B_sin_comision"
-        assert data["monedas_requeridas"] == 50
-
-    def test_modalidad_por_defecto(self, client):
-        """Si no hay modalidad, se usa A_comision por defecto."""
-        _register(client, "sol@test.com", "solicitante")
-        headers = _headers(client, "sol@test.com")
-
-        with client.application.app_context():
-            user = User.query.filter_by(email="sol@test.com").first()
-            sol_id = self._create_solicitud(client, user.id)
-
-        resp = client.get(f"/api/v1/wallet/modalidades/{sol_id}", headers=headers)
-        assert resp.status_code == 200
-        data = resp.get_json()
-        assert data["tipo"] == "A_comision"
-
-
-# --------------------------------------------------------------------------
-# Tests: Hitos de Pago (RF-29)
-# --------------------------------------------------------------------------
 
 class TestMilestones:
     def _create_contract(self, client, solicitante_id, proveedor_id):

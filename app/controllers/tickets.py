@@ -14,7 +14,11 @@ from app.extensions import db
 from app.models.ticket import Ticket
 from app.models.user import User
 from app.services.support_events import notificar_nuevo_ticket
-from app.schemas.admin import TicketCreateSchema, TicketCreateResponseSchema
+from app.schemas.admin import (
+    TicketCreateSchema,
+    TicketCreateResponseSchema,
+    MyTicketsResponseSchema,
+)
 
 blp = Blueprint("tickets", __name__, description="Tickets de soporte")
 
@@ -25,12 +29,28 @@ class TicketCreate(MethodView):
     @blp.arguments(TicketCreateSchema)
     @blp.response(201, TicketCreateResponseSchema)
     def post(self, data):
-        """Crea un ticket de soporte (cualquier usuario autenticado)."""
-        user_id = int(get_jwt_identity())
+        """Crea un ticket de soporte.
+
+        Cualquier usuario autenticado crea el suyo. El staff
+        (soporte/admin/superadmin) puede crearlo a nombre de otro usuario
+        enviando `user_id`.
+        """
+        actor_id = int(get_jwt_identity())
+        actor = db.session.get(User, actor_id)
+        user_id = data.get("user_id") or actor_id
+
+        if user_id != actor_id:
+            roles_staff = {"soporte", "admin", "superadmin"}
+            if actor is None or actor.rol.value not in roles_staff:
+                abort(403, message="Solo el equipo de soporte puede crear tickets a nombre de otro usuario.")
+            if db.session.get(User, user_id) is None:
+                abort(404, message="El usuario indicado no existe.")
+
         ticket = Ticket(
             user_id=user_id,
-            subject=data["subject"],
-            body=data["body"],
+            subject=data["subject"].strip(),
+            body=data["body"].strip(),
+            category=data.get("category", "otro"),
         )
         db.session.add(ticket)
         db.session.commit()
@@ -39,4 +59,26 @@ class TicketCreate(MethodView):
         if user is not None:
             notificar_nuevo_ticket(ticket, user)
 
-        return {"id": ticket.id, "status": ticket.status}
+        return {
+            "id": ticket.id,
+            "status": ticket.status,
+            "category": ticket.category,
+        }
+
+
+@blp.route("/mios")
+class MyTickets(MethodView):
+    @jwt_required()
+    @blp.doc(summary="Tickets del usuario autenticado")
+    @blp.response(200, MyTicketsResponseSchema)
+    def get(self):
+        """Lista los tickets del usuario (más recientes primero)."""
+        user_id = int(get_jwt_identity())
+        tickets = (
+            Ticket.query
+            .filter_by(user_id=user_id)
+            .order_by(Ticket.created_at.desc())
+            .limit(50)
+            .all()
+        )
+        return {"items": tickets, "total": len(tickets)}

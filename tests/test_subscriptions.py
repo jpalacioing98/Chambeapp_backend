@@ -87,48 +87,25 @@ def test_get_planes_retorna_3(client):
     assert "Postulaciones ilimitadas" in planes_dict["profesional"]["beneficios"]
 
 
-# ---------------- suscribirse a profesional ----------------
-def test_suscribir_profesional_activa_perfil(client):
+# ---------------- planes deshabilitados ----------------
+def test_suscribir_profesional_deshabilitado(client):
     pds = _make_user("pds1@example.com", rol=RolUsuario.PDS)
     h = _headers(pds)
 
     resp = client.post("/api/v1/subscriptions/", json={"plan": "profesional"}, headers=h)
-    assert resp.status_code == 201
-    d = resp.get_json()
-    assert d["plan"] == "profesional"
-    assert d["estado"] == "activa"
-    assert d["monto"] == 35000
-    assert d["metodo_pago"] == "mock"
-
-    # /mine retorna activa
-    mine = client.get("/api/v1/subscriptions/mine", headers=h).get_json()
-    assert mine is not None
-    assert mine["plan"] == "profesional"
-
-    # perfil actualizado
-    profile = Profile.query.get(pds.id)
-    assert profile.plan == "profesional"
-    assert profile.destacado is True
-
-
-# ---------------- cancelar revierte a free ----------------
-def test_cancelar_revierte_a_free(client):
-    pds = _make_user("pds2@example.com", rol=RolUsuario.PDS)
-    h = _headers(pds)
-
-    client.post("/api/v1/subscriptions/", json={"plan": "profesional"}, headers=h)
-    resp = client.post("/api/v1/subscriptions/cancel", headers=h)
-    assert resp.status_code == 200
-    d = resp.get_json()
-    assert d["estado"] == "cancelada"
-
-    # /mine ya no retorna activa (flask-smorest serializa None como {})
-    mine = client.get("/api/v1/subscriptions/mine", headers=h).get_json()
-    assert mine in (None, {})
+    assert resp.status_code == 403
+    assert "deshabilitados" in resp.get_json()["message"].lower()
 
     profile = Profile.query.get(pds.id)
     assert profile.plan == "free"
     assert profile.destacado is False
+
+
+def test_cancelar_sin_suscripcion_activa(client):
+    pds = _make_user("pds2@example.com", rol=RolUsuario.PDS)
+    h = _headers(pds)
+    resp = client.post("/api/v1/subscriptions/cancel", headers=h)
+    assert resp.status_code in (200, 404)
 
 
 # ---------------- plan inválido ----------------
@@ -139,67 +116,21 @@ def test_plan_invalido_422(client):
     assert resp.status_code == 422
 
 
-# ---------------- límite de postulaciones free ----------------
-def test_limite_postulaciones_free_403_en_cuarta(client):
+# ---------------- sin planes: postulaciones sin límite ----------------
+def test_postulaciones_sin_limite(client):
     emp = _make_user("emp@example.com", rol=RolUsuario.SOLICITANTE)
     pds = _make_user("pdsfree@example.com", rol=RolUsuario.PDS)
     emp_h = _headers(emp)
     pds_h = _headers(pds)
 
-    # pds free
-    profile = Profile.query.get(pds.id)
-    profile.plan = "free"
-    db.session.commit()
-
     sid = _crear_solicitud(client, emp_h)
-
-    # 3 ofertas OK (límite free)
-    for i in range(3):
+    for i in range(20):
         r = client.post(
             f"/api/v1/solicitudes/{sid}/ofertas",
             json={"monto": 100000 + i},
             headers=pds_h,
         )
         assert r.status_code == 201, f"oferta {i+1} debió ser 201"
-
-    # 4ta => 403
-    r4 = client.post(
-        f"/api/v1/solicitudes/{sid}/ofertas",
-        json={"monto": 999999},
-        headers=pds_h,
-    )
-    assert r4.status_code == 403
-    assert "limite" in r4.get_json()["message"].lower()
-
-
-# ---------------- límite de postulaciones basico (15/mes) ----------------
-def test_limite_postulaciones_basico_403_en_decimosexta(client):
-    emp = _make_user("emp3@example.com", rol=RolUsuario.SOLICITANTE)
-    pds = _make_user("pdsbasico@example.com", rol=RolUsuario.PDS)
-    emp_h = _headers(emp)
-    pds_h = _headers(pds)
-
-    client.post("/api/v1/subscriptions/", json={"plan": "basico"}, headers=pds_h)
-
-    sid = _crear_solicitud(client, emp_h)
-
-    # 15 ofertas OK (límite básico)
-    for i in range(15):
-        r = client.post(
-            f"/api/v1/solicitudes/{sid}/ofertas",
-            json={"monto": 100000 + i},
-            headers=pds_h,
-        )
-        assert r.status_code == 201, f"oferta {i+1} debió ser 201"
-
-    # 16ta => 403
-    r16 = client.post(
-        f"/api/v1/solicitudes/{sid}/ofertas",
-        json={"monto": 999999},
-        headers=pds_h,
-    )
-    assert r16.status_code == 403
-    assert "limite" in r16.get_json()["message"].lower()
 
 
 # ---------------- profesional NO tiene límite ----------------

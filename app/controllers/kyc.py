@@ -20,6 +20,7 @@ from flask import jsonify, request
 from flask.views import MethodView
 from flask_smorest import Blueprint, abort
 from flask_jwt_extended import jwt_required, get_jwt_identity
+from marshmallow import Schema, fields
 
 from app.extensions import db
 from app.auth.decorators import role_required
@@ -339,3 +340,94 @@ class DocumentoVerificar(MethodView):
             rol=user.rol.value, clave=du.documento_clave
         ).first()
         return du
+
+# ---------------------------------------------------------------------------
+# Métricas de la cola (dashboard del verificador)
+# ---------------------------------------------------------------------------
+
+class MetricasKycSchema(Schema):
+    pendientes = fields.Integer()
+    revisados_hoy = fields.Integer()
+    revisados_total = fields.Integer()
+    aprobados = fields.Integer()
+    rechazados = fields.Integer()
+    tasa_aprobacion = fields.Float(allow_none=True)
+    tiempo_medio_horas = fields.Float(allow_none=True)
+    mas_antiguo_horas = fields.Float(allow_none=True)
+
+
+@blp.route("/metricas")
+class KycMetricas(MethodView):
+    @role_required(["verificador", "admin", "superadmin"])
+    @blp.response(200, MetricasKycSchema)
+    def get(self):
+        """Indicadores reales de la cola KYC (mismo alcance regional que /pendientes)."""
+        actor = db.get_or_404(User, int(get_jwt_identity()))
+        scope = region_scope_id(actor)
+
+        def con_alcance(query):
+            if scope is None:
+                return query
+            usuarios = db.select(User.id).where(User.region_id == scope)
+            return query.filter(DocumentoUsuario.user_id.in_(usuarios))
+
+        pendientes = con_alcance(
+            DocumentoUsuario.query.filter_by(estado="enviado")
+        ).all()
+        aprobados = con_alcance(
+            DocumentoUsuario.query.filter_by(estado="aprobado")
+        ).count()
+        rechazados = con_alcance(
+            DocumentoUsuario.query.filter_by(estado="rechazado")
+        ).count()
+
+        ahora = datetime.now(timezone.utc)
+        inicio_dia = ahora.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        def aware(valor):
+            """SQLite devuelve datetimes naive; se asume UTC."""
+            if valor is None:
+                return None
+            return valor if valor.tzinfo else valor.replace(tzinfo=timezone.utc)
+
+        revisados_hoy = con_alcance(
+            DocumentoUsuario.query.filter(
+                DocumentoUsuario.revisado_en.isnot(None),
+                DocumentoUsuario.revisado_en >= inicio_dia,
+            )
+        ).count()
+
+        revisados = con_alcance(
+            DocumentoUsuario.query.filter(
+                DocumentoUsuario.revisado_en.isnot(None),
+                DocumentoUsuario.fecha_envio.isnot(None),
+            )
+        ).all()
+        tiempos = [
+            (aware(doc.revisado_en) - aware(doc.fecha_envio)).total_seconds() / 3600
+            for doc in revisados
+            if doc.revisado_en is not None and doc.fecha_envio is not None
+        ]
+        esperas = [
+            (ahora - aware(doc.fecha_envio)).total_seconds() / 3600
+            for doc in pendientes
+            if doc.fecha_envio is not None
+        ]
+
+        total_revisados = aprobados + rechazados
+        return {
+            "pendientes": len(pendientes),
+            "revisados_hoy": revisados_hoy,
+            "revisados_total": total_revisados,
+            "aprobados": aprobados,
+            "rechazados": rechazados,
+            "tasa_aprobacion": (
+                round(aprobados * 100 / total_revisados, 1)
+                if total_revisados
+                else None
+            ),
+            "tiempo_medio_horas": (
+                round(sum(tiempos) / len(tiempos), 2) if tiempos else None
+            ),
+            "mas_antiguo_horas": round(max(esperas), 2) if esperas else None,
+        }

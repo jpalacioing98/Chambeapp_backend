@@ -20,6 +20,7 @@ from app.controllers.chat import blp as chat_blp
 from app.controllers.chat_socket import register_chat_socketio
 from app.controllers.admin import blp as admin_blp
 from app.controllers.tickets import blp as tickets_blp
+from app.controllers.plantillas import blp as plantillas_blp
 from app.controllers.superadmin import blp as superadmin_blp
 from app.controllers.ofertas import blp as ofertas_blp
 from app.controllers.legal import blp as legal_blp
@@ -97,6 +98,7 @@ def create_app(config_class: str = "app.config.DevelopmentConfig") -> Flask:
     api.register_blueprint(chat_blp, url_prefix="/api/v1/chat")
     api.register_blueprint(admin_blp, url_prefix="/api/v1/admin")
     api.register_blueprint(tickets_blp, url_prefix="/api/v1/tickets")
+    api.register_blueprint(plantillas_blp, url_prefix="/api/v1/plantillas")
     api.register_blueprint(superadmin_blp, url_prefix="/api/v1/superadmin")
     api.register_blueprint(ofertas_blp, url_prefix="/api/v1")
     api.register_blueprint(legal_blp, url_prefix="/api/v1/legal")
@@ -171,6 +173,13 @@ def create_app(config_class: str = "app.config.DevelopmentConfig") -> Flask:
             try:
                 from app.data.seed_paquetes import sync_paquetes_monedas
                 sync_paquetes_monedas()
+            except Exception:
+                pass
+
+            # Tarifas de cobro en monedas (crea las claves que falten).
+            try:
+                from app.data.seed_tarifas import sync_tarifas_cobro
+                sync_tarifas_cobro()
             except Exception:
                 pass
 

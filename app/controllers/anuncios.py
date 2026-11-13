@@ -220,6 +220,31 @@ class AnuncioRoot(MethodView):
             estado=EstadoAnuncio.PUBLICADO,
         )
         db.session.add(anuncio)
+        db.session.flush()
+
+        # Cobro en monedas por publicar (después de validar KYC y datos).
+        from app.services.cobros import cobrar_monedas, costo_anuncio
+
+        costo = costo_anuncio("publicar")
+        if costo > 0:
+            try:
+                cobrar_monedas(
+                    user_id,
+                    costo,
+                    f"ANUNCIO-PUB-{anuncio.id}",
+                    f"Publicación de anuncio #{anuncio.id}",
+                )
+            except ValueError:
+                db.session.rollback()
+                abort(
+                    400,
+                    message=(
+                        f"MONEDAS_INSUFICIENTES:{costo}:Necesitas {costo} "
+                        "monedas para publicar el anuncio. Recarga tu "
+                        "billetera y vuelve a intentarlo."
+                    ),
+                )
+
         db.session.commit()
         payload = AnuncioSchema().dump(_anuncio_con_negocio(anuncio))
         safe_emit("anuncio:actualizado", payload, room=f"user:{user_id}")
@@ -305,6 +330,29 @@ class AnuncioEstado(MethodView):
         else:
             if anuncio.estado == EstadoAnuncio.PUBLICADO:
                 abort(400, message="El anuncio ya está publicado.")
+            # Reactivar tiene costo en monedas.
+            import time
+
+            from app.services.cobros import cobrar_monedas, costo_anuncio
+
+            costo = costo_anuncio("reactivar")
+            if costo > 0:
+                try:
+                    cobrar_monedas(
+                        user_id,
+                        costo,
+                        f"ANUNCIO-REACT-{anuncio.id}-{int(time.time())}",
+                        f"Reactivación de anuncio #{anuncio.id}",
+                    )
+                except ValueError:
+                    abort(
+                        400,
+                        message=(
+                            f"MONEDAS_INSUFICIENTES:{costo}:Necesitas {costo} "
+                            "monedas para reactivar el anuncio. Recarga tu "
+                            "billetera y vuelve a intentarlo."
+                        ),
+                    )
             anuncio.estado = EstadoAnuncio.PUBLICADO
         db.session.commit()
         payload = AnuncioSchema().dump(_anuncio_con_negocio(anuncio))

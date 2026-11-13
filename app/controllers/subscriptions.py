@@ -26,6 +26,9 @@ blp = Blueprint(
     "subscriptions", __name__, description="Suscripciones Premium (RF-11)"
 )
 
+# Los planes están deshabilitados: no hay límites ni cobros por suscripción.
+PLANES_HABILITADOS = False
+
 PLANES_CATALOGO = [
     {
         "plan": "free",
@@ -112,7 +115,9 @@ class Suscribirse(MethodView):
     @blp.arguments(SuscripcionCreateSchema)
     @blp.response(201, SuscripcionSchema)
     def post(self, data):
-        """RF-11: suscripción simulada a un plan (sin pasarela real)."""
+        """RF-11: suscripción a un plan (deshabilitada temporalmente)."""
+        if not PLANES_HABILITADOS:
+            abort(403, message="Los planes están deshabilitados por ahora.")
         user_id = int(get_jwt_identity())
         plan = data["plan"]
 

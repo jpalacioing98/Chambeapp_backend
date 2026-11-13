@@ -41,6 +41,7 @@ class MerchantPreferencesResponseSchema(Schema):
     idioma = fields.String()
     tema = fields.String()
     mapa_preferido = fields.String()
+    formulario_solicitud = fields.String()
     creado_en = fields.DateTime()
     actualizado_en = fields.DateTime()
 
@@ -58,6 +59,9 @@ class MerchantPreferencesUpdateSchema(Schema):
     idioma = fields.String(validate=validate.OneOf(["es", "en"]))
     tema = fields.String(validate=validate.OneOf(["light", "dark", "system"]))
     mapa_preferido = fields.String(validate=validate.OneOf(["2d", "3d"]))
+    formulario_solicitud = fields.String(
+        validate=validate.OneOf(["paso_a_paso", "completo"]),
+    )
 
 
 class NegocioStatsSchema(Schema):

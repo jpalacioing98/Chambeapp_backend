@@ -37,6 +37,7 @@ from app.models.wallet import (
     MovimientoMonedas,
 )
 from app.models.modalidad import Modalidad, Milestone, TipoModalidad, EstadoHito
+from app.models.cobro import TarifaCobro, TARIFAS_DEFAULT
 from app.models.badges import BadgeType
 from app.models.negocio import (
     Negocio, NegocioHorario, NegocioRating, NegocioReporte, NegocioRuta,
@@ -107,6 +108,8 @@ __all__ = [
     "Milestone",
     "TipoModalidad",
     "EstadoHito",
+    "TarifaCobro",
+    "TARIFAS_DEFAULT",
     "BadgeType",
     # Módulo Negocios
     "Negocio",

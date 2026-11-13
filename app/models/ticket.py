@@ -1,8 +1,20 @@
-"""Support ticket model (RBAC Fase 2 — tickets de soporte)."""
+"""Support ticket model (RBAC Fase 2 - tickets de soporte)."""
 
 from datetime import datetime, timezone
 
 from app.extensions import db
+
+# Tipos/categorías de ticket (usuario → soporte).
+TICKET_CATEGORIES = (
+    "cuenta",
+    "pagos",
+    "chambas",
+    "negocio",
+    "anuncios",
+    "verificacion",
+    "tecnico",
+    "otro",
+)
 
 
 class Ticket(db.Model):
@@ -20,6 +32,8 @@ class Ticket(db.Model):
     )
     subject = db.Column(db.String(200), nullable=False)
     body = db.Column(db.Text, nullable=False)
+    # Tipo de ticket (cuenta, pagos, chambas, negocio, anuncios…).
+    category = db.Column(db.String(40), default="otro", nullable=False)
     status = db.Column(
         db.String(20), default="open", nullable=False
     )  # open | pending | closed

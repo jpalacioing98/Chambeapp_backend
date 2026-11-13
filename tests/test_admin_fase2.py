@@ -228,6 +228,53 @@ def test_usuario_crea_ticket_201(client):
     assert t.user_id == user.id
 
 
+def test_usuario_crea_ticket_con_categoria(client):
+    user = _make_user("ucat@x.com", RolUsuario.SOLICITANTE, "U")
+    r = client.post(
+        "/api/v1/tickets/",
+        headers=_headers(user),
+        json={
+            "subject": "Pago duplicado",
+            "body": "Se cobró dos veces mi paquete de monedas",
+            "category": "pagos",
+        },
+    )
+    assert r.status_code == 201
+    assert r.get_json()["category"] == "pagos"
+    t = db.session.get(Ticket, r.get_json()["id"])
+    assert t.category == "pagos"
+
+
+def test_ticket_categoria_invalida_422(client):
+    user = _make_user("ucat2@x.com", RolUsuario.PDS, "U")
+    r = client.post(
+        "/api/v1/tickets/",
+        headers=_headers(user),
+        json={
+            "subject": "Problema",
+            "body": "Descripción suficientemente larga",
+            "category": "no_existe",
+        },
+    )
+    assert r.status_code == 422
+
+
+def test_mis_tickets_solo_propios_200(client):
+    u1 = _make_user("mios1@x.com", RolUsuario.PDS, "U1")
+    u2 = _make_user("mios2@x.com", RolUsuario.PDS, "U2")
+    t1 = Ticket(user_id=u1.id, subject="Mío", body="Detalle uno", category="cuenta")
+    t2 = Ticket(user_id=u2.id, subject="Otro", body="Detalle dos", category="pagos")
+    db.session.add_all([t1, t2])
+    db.session.commit()
+
+    r = client.get("/api/v1/tickets/mios", headers=_headers(u1))
+    assert r.status_code == 200
+    ids = [item["id"] for item in r.get_json()["items"]]
+    assert t1.id in ids
+    assert t2.id not in ids
+    assert r.get_json()["items"][0]["category"] == "cuenta"
+
+
 def test_admin_lista_y_gestiona_ticket_200(client):
     admin = _make_user("admin@x.com", RolUsuario.ADMIN, "Admin")
     user = _make_user("u@x.com", RolUsuario.PDS, "U")

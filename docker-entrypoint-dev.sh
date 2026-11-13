@@ -188,6 +188,8 @@ with app.app_context():
     run("ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_confirmed_at TIMESTAMP")
     # Preferencias UI: mapa inicial de chambas (2d | 3d).
     run("ALTER TABLE merchant_preferences ADD COLUMN IF NOT EXISTS mapa_preferido VARCHAR(4) NOT NULL DEFAULT '2d'")
+    # Preferencia UI: formulario de publicación (paso_a_paso | completo).
+    run("ALTER TABLE merchant_preferences ADD COLUMN IF NOT EXISTS formulario_solicitud VARCHAR(12) NOT NULL DEFAULT 'paso_a_paso'")
     # Portafolio: datos visibles de la card y galería del trabajo.
     run("ALTER TABLE portfolio_items ADD COLUMN IF NOT EXISTS precio INTEGER")
     run("ALTER TABLE portfolio_items ADD COLUMN IF NOT EXISTS calificacion DOUBLE PRECISION")
@@ -245,6 +247,26 @@ with app.app_context():
     )
     run("CREATE INDEX IF NOT EXISTS ix_negocio_rutas_negocio_id ON negocio_rutas (negocio_id)")
     run("CREATE INDEX IF NOT EXISTS ix_negocio_rutas_negocio_en_curso ON negocio_rutas (negocio_id, en_curso)")
+
+    # Migración 030: categoría/tipo de ticket de soporte.
+    run("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS category VARCHAR(40) NOT NULL DEFAULT 'otro'")
+
+    # Migración 031: cobros en monedas (tarifas + cobro de firmas).
+    run(
+        "CREATE TABLE IF NOT EXISTS tarifas_cobro ("
+        "clave VARCHAR(50) PRIMARY KEY, "
+        "valor DOUBLE PRECISION NOT NULL, "
+        "descripcion VARCHAR(255), "
+        "actualizado_en TIMESTAMP NOT NULL DEFAULT NOW(), "
+        "actualizado_por INTEGER REFERENCES users(id))"
+    )
+    run("ALTER TABLE contracts ADD COLUMN IF NOT EXISTS cobro_solicitante_monedas INTEGER")
+    run("ALTER TABLE contracts ADD COLUMN IF NOT EXISTS cobro_proveedor_monedas INTEGER")
+    run("ALTER TABLE contracts ADD COLUMN IF NOT EXISTS cobro_solicitante_ref VARCHAR(100)")
+    run("ALTER TABLE contracts ADD COLUMN IF NOT EXISTS cobro_proveedor_ref VARCHAR(100)")
+    run("ALTER TABLE contracts ADD COLUMN IF NOT EXISTS cobro_solicitante_en TIMESTAMP")
+    run("ALTER TABLE contracts ADD COLUMN IF NOT EXISTS cobro_proveedor_en TIMESTAMP")
+    run("ALTER TABLE contracts ADD COLUMN IF NOT EXISTS cobros_reembolsados BOOLEAN NOT NULL DEFAULT FALSE")
 
     # VAPID: genera claves UNA vez si pywebpush/py-vapid están instalados.
     try:

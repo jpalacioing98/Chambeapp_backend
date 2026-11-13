@@ -65,6 +65,19 @@ class Contract(db.Model):
     firmado_proveedor_en = db.Column(db.DateTime, nullable=True)
     datos_firma_solicitante = db.Column(db.JSON, nullable=True)
     datos_firma_proveedor = db.Column(db.JSON, nullable=True)
+
+    # Cobro en monedas al firmar (una vez por parte). La plataforma no
+    # intermedia el pago del trabajo: solo cobra esta tarifa de uso.
+    cobro_solicitante_monedas = db.Column(db.Integer, nullable=True)
+    cobro_proveedor_monedas = db.Column(db.Integer, nullable=True)
+    cobro_solicitante_ref = db.Column(db.String(100), nullable=True)
+    cobro_proveedor_ref = db.Column(db.String(100), nullable=True)
+    cobro_solicitante_en = db.Column(db.DateTime, nullable=True)
+    cobro_proveedor_en = db.Column(db.DateTime, nullable=True)
+    cobros_reembolsados = db.Column(
+        db.Boolean, nullable=False, default=False
+    )
+
     motivo_cancelacion = db.Column(db.String(500), nullable=True)
     # Ciclo de vida "capeta": check-in (inicio) / check-out (fin) del pds.
     inicio_en = db.Column(db.DateTime, nullable=True)

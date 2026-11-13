@@ -29,6 +29,9 @@ from app.schemas.superadmin import (
     AuditLogListResponseSchema,
     AuditLogDetailSchema,
     TyCGetSchema,
+    TyCDraftSchema,
+    TyCHistorySchema,
+    TyCRollbackSchema,
     TyCPostSchema,
     TyCPostResponseSchema,
     OverrideUserSchema,
@@ -53,6 +56,26 @@ def _client_ip() -> str:
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _parse_fecha(valor: str | None, fin_de_dia: bool = False):
+    """Convierte un parámetro ISO ('2026-11-13' o ISO completo) a datetime UTC.
+
+    `fin_de_dia` extiende una fecha sin hora a 23:59:59.999999, para que el
+    filtro `to` incluya todo el día.
+    """
+    if not valor:
+        return None
+    texto = valor.strip()
+    try:
+        fecha = datetime.fromisoformat(texto.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if fecha.tzinfo is None:
+        fecha = fecha.replace(tzinfo=timezone.utc)
+    if fin_de_dia and len(texto) <= 10:
+        fecha = fecha.replace(hour=23, minute=59, second=59, microsecond=999999)
+    return fecha
 
 
 def _resolve_region_id(region_id) -> int | None:
@@ -211,17 +234,45 @@ class SuperAdminAuditList(MethodView):
     @superadmin_required
     @blp.response(200, AuditLogListResponseSchema)
     def get(self):
-        """Lista logs de auditoría (filtros: actor_id, entity_type, limit=100)."""
+        """Lista logs de auditoría.
+
+        Filtros: actor_id, entity_type (exacto), action (contiene), q (acción o
+        tipo de entidad), from/to (ISO 8601, acepta 'YYYY-MM-DD'), limit y offset.
+        """
         query = AuditLog.query
+
         actor_id = request.args.get("actor_id", type=int)
         if actor_id is not None:
             query = query.filter(AuditLog.actor_id == actor_id)
+
         entity_type = request.args.get("entity_type")
         if entity_type:
             query = query.filter(AuditLog.entity_type == entity_type)
-        limit = request.args.get("limit", default=100, type=int)
+
+        action = request.args.get("action")
+        if action:
+            query = query.filter(AuditLog.action.ilike(f"%{action}%"))
+
+        search = request.args.get("q") or request.args.get("search")
+        if search:
+            patron = f"%{search}%"
+            query = query.filter(
+                db.or_(AuditLog.action.ilike(patron), AuditLog.entity_type.ilike(patron))
+            )
+
+        desde = _parse_fecha(request.args.get("from"))
+        if desde is not None:
+            query = query.filter(AuditLog.created_at >= desde)
+
+        hasta = _parse_fecha(request.args.get("to"), fin_de_dia=True)
+        if hasta is not None:
+            query = query.filter(AuditLog.created_at <= hasta)
+
+        limit = min(request.args.get("limit", default=100, type=int) or 100, 500)
+        offset = max(request.args.get("offset", default=0, type=int) or 0, 0)
+
         total = query.count()
-        logs = query.order_by(AuditLog.id.desc()).limit(limit).all()
+        logs = query.order_by(AuditLog.id.desc()).offset(offset).limit(limit).all()
         return {"items": logs, "total": total}
 
 
@@ -243,22 +294,25 @@ class SuperAdminTyC(MethodView):
     @superadmin_required
     @blp.response(200, TyCGetSchema)
     def get(self):
-        """Lee la versión vigente de T&C desde SystemConfig 'tyc_current'."""
+        """Versión vigente de T&C + borrador sin publicar (si existe)."""
         cfg = SystemConfig.query.filter_by(key="tyc_current").first_or_404(
             description="No hay T&C configurados."
         )
         data = SystemConfig.parse_value(cfg.value, "json") or {}
+        draft_cfg = SystemConfig.query.filter_by(key="tyc_draft").first()
+        draft = SystemConfig.parse_value(draft_cfg.value, "json") if draft_cfg else None
         return {
             "version": data.get("version"),
             "content": data.get("content"),
             "published_at": data.get("published_at"),
+            "draft": draft,
         }
 
     @superadmin_required
     @blp.arguments(TyCPostSchema)
     @blp.response(201, TyCPostResponseSchema)
     def post(self, data):
-        """Publica una nueva versión de T&C (incrementa versión)."""
+        """Publica una nueva versión de T&C (incrementa versión y archiva la anterior)."""
         cfg = SystemConfig.query.filter_by(key="tyc_current").first()
         current = SystemConfig.parse_value(cfg.value, "json") if cfg else {}
         try:
@@ -269,8 +323,14 @@ class SuperAdminTyC(MethodView):
             "version": version,
             "content": data["content"],
             "published_at": _now_iso(),
+            "published_by": _actor_id(),
         }
         before = {"tyc_current": current}
+
+        # Archiva la versión que deja de estar vigente (historial acotado a 20).
+        if current.get("content"):
+            _archivar_tyc(current)
+
         if cfg is None:
             cfg = SystemConfig(
                 key="tyc_current",
@@ -281,12 +341,143 @@ class SuperAdminTyC(MethodView):
         cfg.value = SystemConfig.serialize_value(new_value, "json")
         cfg.updated_by = _actor_id()
         cfg.updated_at = datetime.now(timezone.utc)
+
+        # Publicar descarta el borrador.
+        draft_cfg = SystemConfig.query.filter_by(key="tyc_draft").first()
+        if draft_cfg is not None:
+            db.session.delete(draft_cfg)
+
         write_audit(
             _actor_id(), "superadmin.tyc.publish", "system_config", cfg.id,
             before, {"tyc_current": new_value}, _client_ip(),
         )
         db.session.commit()
         return {"version": version, "published_at": new_value["published_at"]}
+
+
+@blp.route("/legal/tyc/draft")
+class SuperAdminTyCDraft(MethodView):
+    @superadmin_required
+    @blp.response(200, TyCGetSchema)
+    def get(self):
+        """Devuelve el borrador guardado (o null si no hay)."""
+        cfg = SystemConfig.query.filter_by(key="tyc_current").first()
+        current = SystemConfig.parse_value(cfg.value, "json") if cfg else {}
+        draft_cfg = SystemConfig.query.filter_by(key="tyc_draft").first()
+        draft = SystemConfig.parse_value(draft_cfg.value, "json") if draft_cfg else None
+        return {
+            "version": current.get("version"),
+            "content": current.get("content"),
+            "published_at": current.get("published_at"),
+            "draft": draft,
+        }
+
+    @superadmin_required
+    @blp.arguments(TyCDraftSchema)
+    @blp.response(200, TyCDraftSchema)
+    def put(self, data):
+        """Guarda (o reemplaza) el borrador de T&C sin publicarlo."""
+        cfg = SystemConfig.query.filter_by(key="tyc_draft").first()
+        valor = {
+            "content": data["content"],
+            "updated_at": _now_iso(),
+            "updated_by": _actor_id(),
+        }
+        antes = SystemConfig.parse_value(cfg.value, "json") if cfg else None
+        if cfg is None:
+            cfg = SystemConfig(
+                key="tyc_draft",
+                value_type="json",
+                description="Borrador de Términos y Condiciones",
+            )
+            db.session.add(cfg)
+        cfg.value = SystemConfig.serialize_value(valor, "json")
+        cfg.updated_by = _actor_id()
+        cfg.updated_at = datetime.now(timezone.utc)
+        write_audit(
+            _actor_id(), "superadmin.tyc.draft.save", "system_config", cfg.id,
+            {"tyc_draft": antes}, {"tyc_draft": valor}, _client_ip(),
+        )
+        db.session.commit()
+        return valor
+
+
+@blp.route("/legal/tyc/history")
+class SuperAdminTyCHistory(MethodView):
+    @superadmin_required
+    @blp.response(200, TyCHistorySchema)
+    def get(self):
+        """Historial de versiones publicadas (más reciente primero)."""
+        cfg = SystemConfig.query.filter_by(key="tyc_history").first()
+        items = SystemConfig.parse_value(cfg.value, "json") if cfg else []
+        return {"items": list(reversed(items or []))}
+
+
+@blp.route("/legal/tyc/rollback")
+class SuperAdminTyCRollback(MethodView):
+    @superadmin_required
+    @blp.arguments(TyCRollbackSchema)
+    @blp.response(200, TyCPostResponseSchema)
+    def post(self, data):
+        """Restaura una versión del historial como vigente (deja rastro en auditoría)."""
+        version = data["version"]
+        historial = _leer_historial_tyc()
+        elegida = next((v for v in historial if int(v.get("version", -1)) == version), None)
+        if elegida is None:
+            abort(404, message="Esa versión no está en el historial.")
+
+        cfg = SystemConfig.query.filter_by(key="tyc_current").first()
+        current = SystemConfig.parse_value(cfg.value, "json") if cfg else {}
+        if current.get("content"):
+            _archivar_tyc(current)
+
+        restaurada = {
+            "version": version,
+            "content": elegida.get("content"),
+            "published_at": _now_iso(),
+            "published_by": _actor_id(),
+        }
+        if cfg is None:
+            cfg = SystemConfig(
+                key="tyc_current",
+                value_type="json",
+                description="Términos y Condiciones vigentes",
+            )
+            db.session.add(cfg)
+        cfg.value = SystemConfig.serialize_value(restaurada, "json")
+        cfg.updated_by = _actor_id()
+        cfg.updated_at = datetime.now(timezone.utc)
+        write_audit(
+            _actor_id(), "superadmin.tyc.rollback", "system_config", cfg.id,
+            {"tyc_current": current}, {"tyc_current": restaurada}, _client_ip(),
+        )
+        db.session.commit()
+        return {"version": version, "published_at": restaurada["published_at"]}
+
+
+def _leer_historial_tyc() -> list:
+    cfg = SystemConfig.query.filter_by(key="tyc_history").first()
+    if cfg is None:
+        return []
+    return SystemConfig.parse_value(cfg.value, "json") or []
+
+
+def _archivar_tyc(version: dict) -> None:
+    """Añade una versión al historial (máximo 20 entradas)."""
+    historial = _leer_historial_tyc()
+    historial.append(version)
+    historial = historial[-20:]
+    cfg = SystemConfig.query.filter_by(key="tyc_history").first()
+    if cfg is None:
+        cfg = SystemConfig(
+            key="tyc_history",
+            value_type="json",
+            description="Historial de versiones de Términos y Condiciones",
+        )
+        db.session.add(cfg)
+    cfg.value = SystemConfig.serialize_value(historial, "json")
+    cfg.updated_by = _actor_id()
+    cfg.updated_at = datetime.now(timezone.utc)
 
 
 # ==========================================================================
@@ -310,7 +501,9 @@ class SuperAdminOverrideUser(MethodView):
         user.role_version += 1  # revoca tokens del afectado
         write_audit(
             _actor_id(), f"superadmin.override.user.{action}", "user", user.id,
-            before, {"status": new_status}, _client_ip(),
+            before,
+            {"status": new_status, "justificacion": data.get("justificacion")},
+            _client_ip(),
         )
         db.session.commit()
         return {"id": user.id, "status": user.status}
@@ -333,7 +526,9 @@ class SuperAdminOverrideContract(MethodView):
         contract.estado = new_estado
         write_audit(
             _actor_id(), f"superadmin.override.contract.{action}", "contract", contract.id,
-            before, {"estado": new_estado.value}, _client_ip(),
+            before,
+            {"estado": new_estado.value, "justificacion": data.get("justificacion")},
+            _client_ip(),
         )
         db.session.commit()
         return {"id": contract.id, "estado": contract.estado.value}

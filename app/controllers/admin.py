@@ -68,6 +68,8 @@ from app.schemas.admin import (
     ContentModerateSchema,
     StaffCreateSchema,
     StaffListResponseSchema,
+    TarifasCobroUpdateSchema,
+    TarifasCobroResponseSchema,
 )
 
 blp = Blueprint("admin", __name__, description="Panel administrativo (RBAC + regiones)")
@@ -1344,3 +1346,68 @@ class AdminStaff(MethodView):
         )
         db.session.commit()
         return {"items": [user], "total": 1}
+# ==========================================================================
+# COBROS EN MONEDAS (configuración del superadmin)
+# ==========================================================================
+
+@blp.route("/cobros")
+class AdminCobros(MethodView):
+    @role_required(["superadmin"])
+    @blp.response(200, TarifasCobroResponseSchema)
+    def get(self):
+        """Tarifas de cobro y configuración efectiva (+ última actualización)."""
+        from app.services.cobros import get_config_publica, get_tarifas
+
+        ultima = _ultima_actualizacion_tarifas()
+        return {
+            "tarifas": get_tarifas(),
+            "config": get_config_publica(),
+            "updated_at": ultima["updated_at"],
+            "updated_by": ultima["updated_by"],
+        }
+
+    @role_required(["superadmin"])
+    @blp.arguments(TarifasCobroUpdateSchema)
+    @blp.response(200, TarifasCobroResponseSchema)
+    def put(self, data):
+        """Actualiza tarifas y porcentajes (recalcula paquetes si cambia la moneda)."""
+        from app.services.cobros import (
+            actualizar_tarifas,
+            get_config_publica,
+            get_tarifas,
+        )
+
+        try:
+            actualizar_tarifas(data, _actor_id())
+        except ValueError as e:
+            abort(400, message=str(e))
+
+        write_audit(
+            _actor_id(), "cobros.update", "tarifas_cobro", None,
+            None, data, _client_ip(),
+        )
+        db.session.commit()
+        ultima = _ultima_actualizacion_tarifas()
+        return {
+            "tarifas": get_tarifas(),
+            "config": get_config_publica(),
+            "updated_at": ultima["updated_at"],
+            "updated_by": ultima["updated_by"],
+        }
+
+
+def _ultima_actualizacion_tarifas() -> dict:
+    """Última modificación de tarifas (para mostrar 'actualizado el …')."""
+    from app.models.cobro import TarifaCobro
+
+    ultima = (
+        TarifaCobro.query.order_by(TarifaCobro.actualizado_en.desc()).first()
+    )
+    if ultima is None:
+        return {"updated_at": None, "updated_by": None}
+    return {
+        "updated_at": (
+            ultima.actualizado_en.isoformat() if ultima.actualizado_en else None
+        ),
+        "updated_by": ultima.actualizado_por,
+    }

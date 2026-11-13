@@ -98,6 +98,27 @@ class TyCGetSchema(Schema):
     version = fields.Raw()
     content = fields.String(allow_none=True)
     published_at = fields.String(allow_none=True)
+    # Borrador vigente (no publicado). Null si no hay borrador guardado.
+    draft = fields.Raw(allow_none=True)
+
+
+class TyCVersionSchema(Schema):
+    version = fields.Raw()
+    content = fields.String(allow_none=True)
+    published_at = fields.String(allow_none=True)
+    published_by = fields.Integer(allow_none=True)
+
+
+class TyCHistorySchema(Schema):
+    items = fields.List(fields.Nested(TyCVersionSchema))
+
+
+class TyCDraftSchema(Schema):
+    content = fields.String(required=True, validate=validate.Length(min=1))
+
+
+class TyCRollbackSchema(Schema):
+    version = fields.Integer(required=True)
 
 
 class TyCPostSchema(Schema):
@@ -114,12 +135,23 @@ class OverrideUserSchema(Schema):
     action = fields.String(
         required=True, validate=validate.OneOf(["reactivate", "suspend"])
     )
+    # Obligatoria: queda en la auditoría como evidencia de la acción forzada.
+    justificacion = fields.String(
+        required=False,
+        allow_none=True,
+        validate=validate.Length(min=15, max=500),
+    )
 
 
 class OverrideContractSchema(Schema):
     contract_id = fields.Integer(required=True)
     action = fields.String(
         required=True, validate=validate.OneOf(["complete", "cancel"])
+    )
+    justificacion = fields.String(
+        required=False,
+        allow_none=True,
+        validate=validate.Length(min=15, max=500),
     )
 
 

@@ -214,3 +214,11 @@ class MilestoneActionSchema(Schema):
         required=True,
         validate=validate.OneOf(["aprobar", "rechazar"]),
     )
+
+
+class PaqueteReorderSchema(Schema):
+    """Nuevo orden de paquetes: la posición en la lista es el orden final."""
+
+    ids = fields.List(
+        fields.Integer(), required=True, validate=validate.Length(min=1)
+    )

@@ -32,6 +32,20 @@ def _register(client, email, rol="pds"):
         "/api/v1/auth/register",
         json={"email": email, "password": "secret123", "rol": rol, "acepto_tyc": True, "ip": "127.0.0.1"},
     )
+    # Monedas suficientes para firmar el contrato base del flujo.
+    from app.models.user import User
+    from app.models.wallet import Coin, TipoMoneda, Wallet
+
+    u = User.query.filter_by(email=email).first()
+    if u is not None:
+        wallet = Wallet.query.filter_by(user_id=u.id).first()
+        if wallet is None:
+            wallet = Wallet(user_id=u.id, monedas_saldo=1000)
+            db.session.add(wallet)
+        else:
+            wallet.monedas_saldo = 1000
+        db.session.add(Coin(user_id=u.id, cantidad=1000, tipo=TipoMoneda.GANADA))
+        db.session.commit()
 
 
 def _login(client, email):
