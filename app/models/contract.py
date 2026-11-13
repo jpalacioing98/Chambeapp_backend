@@ -95,13 +95,20 @@ class Dispute(db.Model):
     __tablename__ = "disputes"
     __table_args__ = (
         db.Index("ix_disputes_contract_creado", "contract_id", "created_at"),
+        db.Index("ix_disputes_solicitud_creado", "solicitud_id", "created_at"),
         db.Index("ix_disputes_status_creado", "status", "created_at"),
     )
 
     id = db.Column(db.Integer, primary_key=True)
+    # Una disputa puede existir antes del contrato (negociación en curso).
+    # En ese caso queda ligada a la solicitud/oferta y contract_id es NULL.
     contract_id = db.Column(
-        db.Integer, db.ForeignKey("contracts.id"), nullable=False
+        db.Integer, db.ForeignKey("contracts.id"), nullable=True
     )
+    solicitud_id = db.Column(
+        db.Integer, db.ForeignKey("solicitudes.id"), nullable=True
+    )
+    oferta_id = db.Column(db.Integer, nullable=True)
     reason = db.Column(db.Text, nullable=False)
     status = db.Column(
         db.String(20), default="abierta", nullable=False
@@ -111,8 +118,26 @@ class Dispute(db.Model):
     )
     resolved_at = db.Column(db.DateTime, nullable=True)
     resolution = db.Column(db.Text, nullable=True)
+    # Mientras la disputa está abierta, el chat entre las partes queda
+    # bloqueado hasta que soporte lo habilite. Soporte puede habilitarlo
+    # para una parte o para ambas.
+    chat_habilitado = db.Column(db.Boolean, nullable=False, default=False)
+    chat_habilitado_solicitante = db.Column(
+        db.Boolean, nullable=False, default=False
+    )
+    chat_habilitado_proveedor = db.Column(
+        db.Boolean, nullable=False, default=False
+    )
+    # Decisión de soporte sobre las variables de la disputa:
+    # pendiente | aceptada | rechazada.
+    decision_estado = db.Column(db.String(20), nullable=True)
+    decision_solicitante = db.Column(db.String(20), nullable=True)
+    decision_proveedor = db.Column(db.String(20), nullable=True)
+    decision_message_id = db.Column(db.Integer, nullable=True)
+    negociacion_cerrada = db.Column(db.Boolean, nullable=False, default=False)
     created_at = db.Column(
         db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )
 
     contract = db.relationship("Contract")
+    solicitud = db.relationship("Solicitud")

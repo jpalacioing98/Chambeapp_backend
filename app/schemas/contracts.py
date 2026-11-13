@@ -84,14 +84,35 @@ class ContractSchema(Schema):
 class DisputeCreateSchema(Schema):
     """Body de creación de disputa."""
     reason = fields.String(required=True, validate=validate.Length(min=10, max=2000))
+    # Para disputas abiertas durante la negociación (sin contrato).
+    oferta_id = fields.Integer(required=False, allow_none=True)
+
+
+class DisputeDecisionSchema(Schema):
+    """Aceptación o rechazo de la decisión propuesta por soporte."""
+
+    accion = fields.String(
+        required=True, validate=validate.OneOf(["aceptar", "rechazar"])
+    )
 
 
 class DisputeSchema(Schema):
     """Schema de disputa."""
     id = fields.Integer()
-    contract_id = fields.Integer()
+    contract_id = fields.Integer(allow_none=True)
+    solicitud_id = fields.Integer(allow_none=True)
+    oferta_id = fields.Integer(allow_none=True)
+    solicitud_titulo = fields.String(attribute="solicitud.titulo", allow_none=True)
+    solicitud_categoria = fields.String(attribute="solicitud.categoria", allow_none=True)
     reason = fields.String()
     status = fields.String()
+    chat_habilitado = fields.Boolean()
+    chat_habilitado_solicitante = fields.Boolean()
+    chat_habilitado_proveedor = fields.Boolean()
+    decision_estado = fields.String(allow_none=True)
+    decision_solicitante = fields.String(allow_none=True)
+    decision_proveedor = fields.String(allow_none=True)
+    negociacion_cerrada = fields.Boolean()
     resolved_by = fields.Integer(allow_none=True)
     resolved_at = fields.DateTime(allow_none=True)
     resolution = fields.String(allow_none=True)

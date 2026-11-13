@@ -8,10 +8,12 @@ from flask import request
 from flask.views import MethodView
 from flask_smorest import Blueprint, abort
 from flask_jwt_extended import jwt_required, get_jwt_identity
+from sqlalchemy.exc import IntegrityError
 
 from app.extensions import db
 from app.services.realtime import safe_emit
 from app.services.chat_notifications import notificar_mensaje_soporte
+from app.services.chat_lock import is_conversation_chat_locked
 from app.models.chat import Conversation, Message
 from app.models.user import User
 from app.schemas.chat import (
@@ -66,6 +68,13 @@ def _emit_message(msg: Message, conv: Conversation) -> None:
     safe_emit("message", payload, room=f"user:{peer_id}")
 
 
+def _attach_chat_state(conv: Conversation, current_user_id: int) -> None:
+    """Adjunta el peer y el estado de bloqueo por disputa."""
+    _attach_peer(conv, current_user_id)
+    conv.chat_bloqueado = is_conversation_chat_locked(conv, current_user_id)
+    conv.chat_oculto = bool(conv.oculta)
+
+
 def _attach_peer(conv: Conversation, current_user_id: int) -> None:
     """Adjunta el otro participante (perspectiva del usuario autenticado).
 
@@ -104,13 +113,23 @@ class Conversations(MethodView):
         a, b = Conversation.normalize(current, int(otro))
         conv = Conversation.query.filter_by(user_a_id=a, user_b_id=b).first()
         if conv:
-            _attach_peer(conv, current)
+            _attach_chat_state(conv, current)
             return conv, 200
 
         conv = Conversation(user_a_id=a, user_b_id=b)
         db.session.add(conv)
-        db.session.commit()
-        _attach_peer(conv, current)
+        try:
+            db.session.commit()
+        except IntegrityError:
+            # Carrera (p. ej. dos montajes de StrictMode o dos pestañas):
+            # otra petición creó el mismo par; se reutiliza.
+            db.session.rollback()
+            conv = Conversation.query.filter_by(user_a_id=a, user_b_id=b).first()
+            if conv is None:
+                raise
+            _attach_chat_state(conv, current)
+            return conv, 200
+        _attach_chat_state(conv, current)
         return conv, 201
 
     @jwt_required()
@@ -132,7 +151,7 @@ class Conversations(MethodView):
                 .order_by(Message.creado_en.desc())
                 .first()
             )
-            _attach_peer(conv, current)
+            _attach_chat_state(conv, current)
         return convs
 
 
@@ -145,6 +164,8 @@ class ConversationMessages(MethodView):
         current = int(get_jwt_identity())
         conv = _get_conversation_or_404(conversation_id)
         _ensure_participant(conv, current)
+        if conv.oculta:
+            abort(404, message="Conversación no disponible.")
         return (
             Message.query.filter_by(conversation_id=conversation_id)
             .order_by(Message.creado_en.asc())
@@ -159,6 +180,16 @@ class ConversationMessages(MethodView):
         current = int(get_jwt_identity())
         conv = _get_conversation_or_404(conversation_id)
         _ensure_participant(conv, current)
+        if conv.oculta:
+            abort(404, message="Conversación no disponible.")
+        if is_conversation_chat_locked(conv, current):
+            abort(
+                403,
+                message=(
+                    "El chat está bloqueado por una disputa abierta. "
+                    "Soporte debe habilitarlo."
+                ),
+            )
 
         msg = Message(
             conversation_id=conversation_id,
@@ -189,6 +220,16 @@ class ConversationAttachments(MethodView):
         current = int(get_jwt_identity())
         conv = _get_conversation_or_404(conversation_id)
         _ensure_participant(conv, current)
+        if conv.oculta:
+            abort(404, message="Conversación no disponible.")
+        if is_conversation_chat_locked(conv, current):
+            abort(
+                403,
+                message=(
+                    "El chat está bloqueado por una disputa abierta. "
+                    "Soporte debe habilitarlo."
+                ),
+            )
 
         archivo = request.files.get("file")
         if archivo is None or not archivo.filename:

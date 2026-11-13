@@ -9,6 +9,7 @@ class MessageSchema(Schema):
     sender_id = fields.Integer()
     contenido = fields.String()
     leido = fields.Boolean()
+    es_soporte = fields.Boolean()
     creado_en = fields.DateTime()
 
 
@@ -31,6 +32,16 @@ class ConversationSchema(Schema):
     otro_participante = fields.Method(
         "get_otro_participante", dump_only=True, allow_none=True
     )
+    # True mientras una disputa abierta mantiene bloqueado el chat entre
+    # las partes y soporte no lo ha habilitado.
+    chat_bloqueado = fields.Method("get_chat_bloqueado", dump_only=True)
+    chat_oculto = fields.Method("get_chat_oculto", dump_only=True)
 
     def get_otro_participante(self, obj):
         return getattr(obj, "peer", None)
+
+    def get_chat_bloqueado(self, obj):
+        return bool(getattr(obj, "chat_bloqueado", False))
+
+    def get_chat_oculto(self, obj):
+        return bool(getattr(obj, "chat_oculto", False))

@@ -31,6 +31,7 @@ from app.models.user import User
 from app.schemas.chat import MessageSchema
 from app.services.realtime import safe_emit
 from app.services.chat_notifications import notificar_mensaje_soporte
+from app.services.chat_lock import is_conversation_chat_locked
 from app.services.staff_rooms import (
     KYC_STAFF_ROLES,
     SUPPORT_STAFF_ROLES,
@@ -107,7 +108,7 @@ def register_chat_socketio(sio) -> None:
         if conversation_id is None:
             return
         conv = db.session.get(Conversation, conversation_id)
-        if conv and conv.involves(int(user_id)):
+        if conv and conv.involves(int(user_id)) and not conv.oculta:
             join_room(f"conversation_{conversation_id}")
             safe_emit(
                 "status",
@@ -166,6 +167,20 @@ def register_chat_socketio(sio) -> None:
             return
         conv = db.session.get(Conversation, conversation_id) if conversation_id else None
         if not conv or not conv.involves(int(sender_id)) or not contenido:
+            return
+        if conv.oculta:
+            emit("error", {"msg": "Conversación no disponible."})
+            return
+        if is_conversation_chat_locked(conv, int(sender_id)):
+            emit(
+                "error",
+                {
+                    "msg": (
+                        "El chat está bloqueado por una disputa abierta. "
+                        "Soporte debe habilitarlo."
+                    )
+                },
+            )
             return
 
         msg = Message(
