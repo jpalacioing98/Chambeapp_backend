@@ -74,6 +74,7 @@ class PendienteOutSchema(Schema):
     instancia = fields.String(allow_none=True)
     estado = fields.String()
     url = fields.String(allow_none=True)
+    archivo_base64 = fields.String(allow_none=True)
     nombre_archivo = fields.String(allow_none=True)
     tipo_mime = fields.String(allow_none=True)
     nota = fields.String(allow_none=True)

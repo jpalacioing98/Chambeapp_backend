@@ -33,3 +33,9 @@ class Ticket(db.Model):
     resolved_at = db.Column(db.DateTime, nullable=True)
 
     user = db.relationship("User", foreign_keys=[user_id])
+    assigned_user = db.relationship(
+        "User",
+        primaryjoin="foreign(Ticket.assigned_to) == User.id",
+        viewonly=True,
+        uselist=False,
+    )

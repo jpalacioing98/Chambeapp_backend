@@ -131,9 +131,13 @@ class ContractListResponseSchema(Schema):
 # --------------------------------------------------------------------------
 class DisputeListSchema(Schema):
     id = fields.Integer()
-    contract_id = fields.Integer()
+    contract_id = fields.Integer(allow_none=True)
+    solicitud_id = fields.Integer(allow_none=True)
+    oferta_id = fields.Integer(allow_none=True)
+    solicitud_titulo = fields.String(attribute="solicitud.titulo", allow_none=True)
     reason = fields.String()
     status = fields.String()
+    chat_habilitado = fields.Boolean()
     created_at = fields.DateTime()
 
 
@@ -144,19 +148,58 @@ class DisputeListResponseSchema(Schema):
 
 class DisputeDetailSchema(Schema):
     id = fields.Integer()
-    contract_id = fields.Integer()
+    contract_id = fields.Integer(allow_none=True)
+    solicitud_id = fields.Integer(allow_none=True)
+    oferta_id = fields.Integer(allow_none=True)
     reason = fields.String()
     status = fields.String()
+    chat_habilitado = fields.Boolean()
+    chat_habilitado_solicitante = fields.Boolean()
+    chat_habilitado_proveedor = fields.Boolean()
+    decision_estado = fields.String(allow_none=True)
+    decision_solicitante = fields.String(allow_none=True)
+    decision_proveedor = fields.String(allow_none=True)
+    negociacion_cerrada = fields.Boolean()
     resolved_by = fields.Integer(allow_none=True)
     resolved_at = fields.DateTime(allow_none=True)
     resolution = fields.String(allow_none=True)
     created_at = fields.DateTime()
     contract = fields.Raw(allow_none=True)
+    solicitud = fields.Raw(allow_none=True)
     payment = fields.Raw(allow_none=True)
+    resolved_by_user = fields.Raw(allow_none=True)
 
 
 class DisputeResolveSchema(Schema):
     resolution = fields.String(required=True)
+
+
+class DisputeChatSchema(Schema):
+    """Habilita o bloquea el chat de una parte o de ambas."""
+
+    habilitado = fields.Boolean(required=True)
+    # Si se envía, solo cambia el chat del usuario indicado. Sin él,
+    # habilita/bloquea a las dos partes.
+    usuario_id = fields.Integer(required=False, allow_none=True)
+
+
+class DisputeMessageSchema(Schema):
+    """Mensaje de soporte dentro del chat de la disputa."""
+
+    contenido = fields.String(required=True, validate=validate.Length(min=1, max=5000))
+
+
+class DisputeVariablesSchema(Schema):
+    """Variables de la negociación que soporte puede ajustar."""
+
+    monto = fields.Float(required=False, allow_none=True)
+    fecha_deseada = fields.Date(required=False, allow_none=True)
+    horario = fields.String(
+        required=False, allow_none=True, validate=validate.Length(max=80)
+    )
+    condiciones = fields.List(
+        fields.String(validate=validate.Length(min=1, max=500)), required=False
+    )
 
 
 # --------------------------------------------------------------------------
@@ -172,6 +215,13 @@ class TicketCreateResponseSchema(Schema):
     status = fields.String()
 
 
+class TicketUserSchema(Schema):
+    id = fields.Integer()
+    nombre = fields.String(allow_none=True)
+    email = fields.Email(allow_none=True)
+    rol = fields.Enum(RolUsuario, by_value=True)
+
+
 class TicketListSchema(Schema):
     id = fields.Integer()
     user_id = fields.Integer()
@@ -180,6 +230,16 @@ class TicketListSchema(Schema):
     priority = fields.String()
     assigned_to = fields.Integer(allow_none=True)
     created_at = fields.DateTime()
+    usuario = fields.Nested(TicketUserSchema, attribute="user", allow_none=True)
+    assigned = fields.Nested(
+        TicketUserSchema, attribute="assigned_user", allow_none=True
+    )
+    conversation_id = fields.Integer(allow_none=True)
+
+
+class TicketDetailSchema(TicketListSchema):
+    body = fields.String()
+    resolved_at = fields.DateTime(allow_none=True)
 
 
 class TicketListResponseSchema(Schema):

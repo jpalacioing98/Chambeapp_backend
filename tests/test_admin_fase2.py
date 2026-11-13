@@ -202,12 +202,12 @@ def test_admin_resolver_disputa_no_toca_pago(client):
         json={"resolution": "Servicio no conforme"},
     )
     assert r.status_code == 200
-    assert r.get_json()["status"] == "resuelta"
+    assert r.get_json()["status"] == "cerrada"
     db.session.refresh(p)
     # La plataforma no retiene ni congela fondos: el pago no cambia.
     assert p.estado == EstadoPago.COMPLETADO
     db.session.refresh(d)
-    assert d.status == "resuelta"
+    assert d.status == "cerrada"
     assert d.resolved_by == admin.id
     assert d.resolution == "Servicio no conforme"
 

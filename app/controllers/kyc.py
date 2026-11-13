@@ -25,6 +25,7 @@ from app.extensions import db
 from app.auth.decorators import role_required
 from app.auth.region import region_scope_id
 from app.controllers.notifications import crear_notificacion
+from app.services.kyc_events import notificar_nuevo_documento_kyc
 from app.models.user import User, Profile
 from app.models.kyc import DocumentoRequerido, DocumentoUsuario
 from app.schemas.kyc import (
@@ -217,6 +218,8 @@ class Documentos(MethodView):
         du.nota = None
         db.session.commit()
 
+        notificar_nuevo_documento_kyc(du, user, req)
+
         du.requerido = req
         return du
 
@@ -256,7 +259,7 @@ class DocumentosPendientes(MethodView):
         if scope is not None:
             region_users = db.select(User.id).where(User.region_id == scope)
             query = query.filter(DocumentoUsuario.user_id.in_(region_users))
-        docs = query.order_by(DocumentoUsuario.id).all()
+        docs = query.order_by(DocumentoUsuario.id.asc()).all()
         for du in docs:
             user = db.session.get(User, du.user_id)
             du.usuario = (
@@ -306,21 +309,28 @@ class DocumentoVerificar(MethodView):
         # RF-10: el usuario se entera del resultado de su documento.
         aprobado = decision == "aprobado"
         nota = (data.get("nota") or "").strip()
+        requerido = DocumentoRequerido.query.filter_by(
+            rol=user.rol.value, clave=du.documento_clave
+        ).first()
+        nombre_doc = requerido.nombre if requerido else du.documento_clave
         crear_notificacion(
             user.id,
             f"kyc_{decision}",
             (
-                f"Tu documento «{du.documento_clave}» fue aprobado."
+                f"Tu documento «{nombre_doc}» fue aprobado."
                 if aprobado
-                else f"Tu documento «{du.documento_clave}» fue rechazado."
+                else f"Tu documento «{nombre_doc}» fue rechazado."
                 + (f" Motivo: {nota}" if nota else "")
             ),
             titulo="Documento aprobado" if aprobado else "Documento rechazado",
             datos={
                 "documento": du.documento_clave,
+                "documento_nombre": nombre_doc,
                 "estado": decision,
                 "nota": nota or None,
             },
+            respetar_preferencias=False,
+            forzar_push=True,
         )
 
         db.session.commit()

@@ -27,8 +27,17 @@ from flask_socketio import join_room, leave_room, emit
 from app.extensions import db
 from app.auth.socket_auth import decode_socket_user_id
 from app.models.chat import Conversation, Message
+from app.models.user import User
 from app.schemas.chat import MessageSchema
 from app.services.realtime import safe_emit
+from app.services.chat_notifications import notificar_mensaje_soporte
+from app.services.chat_lock import is_conversation_chat_locked
+from app.services.staff_rooms import (
+    KYC_STAFF_ROLES,
+    SUPPORT_STAFF_ROLES,
+    staff_kyc_room,
+    staff_support_room,
+)
 
 _user_by_sid: dict[str, int] = {}
 
@@ -66,6 +75,17 @@ def register_chat_socketio(sio) -> None:
             # chambas, marañas, anuncios, negocios, notificaciones) sin
             # necesidad de emitir `join` explícito.
             join_room(f"user:{user_id}")
+            # Sala exclusiva del staff KYC: recibe `kyc:documento_nuevo`
+            # cuando un usuario de su región envía un documento.
+            try:
+                user = db.session.get(User, user_id)
+            except Exception:  # noqa: BLE001 — un fallo de BD no corta el socket
+                db.session.rollback()
+                user = None
+            if user is not None and user.rol in KYC_STAFF_ROLES:
+                join_room(staff_kyc_room(user))
+            if user is not None and user.rol in SUPPORT_STAFF_ROLES:
+                join_room(staff_support_room(user))
             emit("status", {"msg": f"Conectado a sala user:{user_id}"})
 
     @sio.on("join")
@@ -88,7 +108,7 @@ def register_chat_socketio(sio) -> None:
         if conversation_id is None:
             return
         conv = db.session.get(Conversation, conversation_id)
-        if conv and conv.involves(int(user_id)):
+        if conv and conv.involves(int(user_id)) and not conv.oculta:
             join_room(f"conversation_{conversation_id}")
             safe_emit(
                 "status",
@@ -148,6 +168,20 @@ def register_chat_socketio(sio) -> None:
         conv = db.session.get(Conversation, conversation_id) if conversation_id else None
         if not conv or not conv.involves(int(sender_id)) or not contenido:
             return
+        if conv.oculta:
+            emit("error", {"msg": "Conversación no disponible."})
+            return
+        if is_conversation_chat_locked(conv, int(sender_id)):
+            emit(
+                "error",
+                {
+                    "msg": (
+                        "El chat está bloqueado por una disputa abierta. "
+                        "Soporte debe habilitarlo."
+                    )
+                },
+            )
+            return
 
         msg = Message(
             conversation_id=int(conversation_id),
@@ -163,6 +197,7 @@ def register_chat_socketio(sio) -> None:
         # La contraparte recibe el mensaje aunque no tenga el hilo abierto.
         peer_id = conv.user_b_id if int(sender_id) == conv.user_a_id else conv.user_a_id
         safe_emit("message", payload, room=f"user:{peer_id}")
+        notificar_mensaje_soporte(conv, msg, int(sender_id))
 
     @sio.on("disconnect")
     def on_disconnect():

@@ -12,6 +12,8 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from app.extensions import db
 from app.models.ticket import Ticket
+from app.models.user import User
+from app.services.support_events import notificar_nuevo_ticket
 from app.schemas.admin import TicketCreateSchema, TicketCreateResponseSchema
 
 blp = Blueprint("tickets", __name__, description="Tickets de soporte")
@@ -32,4 +34,9 @@ class TicketCreate(MethodView):
         )
         db.session.add(ticket)
         db.session.commit()
+
+        user = db.session.get(User, user_id)
+        if user is not None:
+            notificar_nuevo_ticket(ticket, user)
+
         return {"id": ticket.id, "status": ticket.status}

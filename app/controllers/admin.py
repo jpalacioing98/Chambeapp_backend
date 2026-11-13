@@ -10,22 +10,35 @@ ve todo. El admin regional puede crear su propio personal (verificador /
 soporte) mediante /admin/staff.
 """
 
+import json
 from datetime import datetime, timezone
 
 from flask import request
 from flask.views import MethodView
 from flask_smorest import Blueprint, abort
 from flask_jwt_extended import get_jwt_identity
+from sqlalchemy import or_
 
 from app.extensions import db
 from app.auth.decorators import admin_required, role_required
 from app.auth.region import region_scope_id
 from app.models.user import User, RolUsuario, Verification
 from app.models.solicitud import Solicitud, Rating, EstadoSolicitud
+from app.models.oferta import Oferta
 from app.models.contract import Contract, EstadoContrato, Dispute
 from app.models.payment import Payment, EstadoPago
 from app.models.ticket import Ticket
+from app.models.chat import Conversation, Message
+from app.services.realtime import safe_emit
+from app.services.support_events import (
+    emit_disputa_resuelta,
+    emit_dispute_chat,
+    emit_ticket_actualizado,
+    notificar_chat_disputa_habilitado,
+    notificar_disputa_resuelta,
+)
 from app.models.audit import write_audit
+from app.schemas.chat import MessageSchema
 from app.schemas.admin import (
     UserListSchema,
     UserDetailSchema,
@@ -45,7 +58,11 @@ from app.schemas.admin import (
     DisputeListResponseSchema,
     DisputeDetailSchema,
     DisputeResolveSchema,
+    DisputeChatSchema,
+    DisputeMessageSchema,
+    DisputeVariablesSchema,
     TicketListResponseSchema,
+    TicketDetailSchema,
     TicketPatchSchema,
     ContentReportResponseSchema,
     ContentModerateSchema,
@@ -94,6 +111,140 @@ def _assert_contract_in_region(contract: Contract, scope) -> None:
     solicitante = db.session.get(User, contract.solicitante_id)
     if solicitante is None or solicitante.region_id != scope:
         abort(404, message="Recurso no encontrado en tu región.")
+
+
+def _assert_solicitud_in_region(solicitud: Solicitud, scope) -> None:
+    """404 si la solicitud (negociación) no pertenece a la región del actor."""
+    if scope is None:
+        return
+    solicitante = db.session.get(User, solicitud.solicitante_id)
+    if solicitante is None or solicitante.region_id != scope:
+        abort(404, message="Recurso no encontrado en tu región.")
+
+
+def _disputa_solicitud(dispute: Dispute, contract: Contract | None) -> Solicitud | None:
+    """Solicitud de una disputa (con o sin contrato)."""
+    if dispute.solicitud_id:
+        return db.session.get(Solicitud, dispute.solicitud_id)
+    if contract is not None:
+        return db.session.get(Solicitud, contract.service_id)
+    return None
+
+
+def _disputa_pds(dispute: Dispute, solicitud: Solicitud | None) -> User | None:
+    """PDS de la negociación, para disputas abiertas antes del contrato."""
+    if solicitud is None:
+        return None
+    oferta = (
+        db.session.get(Oferta, dispute.oferta_id)
+        if dispute.oferta_id
+        else Oferta.query.filter_by(solicitud_id=solicitud.id)
+        .order_by(Oferta.created_at.desc())
+        .first()
+    )
+    return db.session.get(User, oferta.pds_id) if oferta is not None else None
+
+
+def _disputa_oferta(dispute: Dispute, contract: Contract | None, solicitud: Solicitud | None):
+    """Oferta asociada a la disputa (contrato o negociación previa)."""
+    if contract is not None and contract.oferta_id:
+        oferta = db.session.get(Oferta, contract.oferta_id)
+        if oferta is not None:
+            return oferta
+    if dispute.oferta_id:
+        oferta = db.session.get(Oferta, dispute.oferta_id)
+        if oferta is not None:
+            return oferta
+    if solicitud is not None:
+        return (
+            Oferta.query.filter_by(solicitud_id=solicitud.id)
+            .order_by(Oferta.created_at.desc())
+            .first()
+        )
+    return None
+
+
+def _negociacion_variables(contract: Contract | None, oferta) -> dict:
+    """Valores efectivos de la negociación para el panel de soporte."""
+    monto = contract.monto if contract is not None else None
+    fecha = contract.fecha_deseada if contract is not None else None
+    horario = contract.horario if contract is not None else None
+    condiciones = contract.condiciones if contract is not None else None
+
+    if oferta is not None:
+        if monto is None:
+            if oferta.estado == "contraoferta" and oferta.contra_monto is not None:
+                monto = oferta.contra_monto
+            elif oferta.monto_final is not None:
+                monto = oferta.monto_final
+            else:
+                monto = oferta.monto
+        if fecha is None:
+            fecha = oferta.contra_fecha_deseada or oferta.fecha_deseada
+        if horario is None:
+            horario = oferta.contra_horario or oferta.horario
+        if condiciones is None:
+            condiciones = oferta.condiciones
+
+    textos = []
+    for condicion in condiciones or []:
+        if isinstance(condicion, dict):
+            texto = condicion.get("texto")
+        else:
+            texto = str(condicion)
+        if texto:
+            textos.append(texto)
+
+    return {
+        "oferta_id": oferta.id if oferta is not None else None,
+        "origen": "contrato" if contract is not None else "oferta" if oferta is not None else None,
+        "monto": monto,
+        "fecha_deseada": fecha.isoformat() if fecha else None,
+        "horario": horario,
+        "condiciones": textos,
+    }
+
+
+def _dispute_user_ids_for_admin(contract, solicitud, dispute) -> set[int]:
+    if contract is not None:
+        return {contract.solicitante_id, contract.proveedor_id}
+    if solicitud is None:
+        return set()
+    ids = {solicitud.solicitante_id}
+    proveedor = _disputa_pds(dispute, solicitud)
+    if proveedor is not None:
+        ids.add(proveedor.id)
+    return ids
+
+
+def _decision_payload(dispute, variables: dict) -> dict:
+    return {
+        "disputeId": dispute.id,
+        "estado": dispute.decision_estado,
+        "solicitante": dispute.decision_solicitante,
+        "proveedor": dispute.decision_proveedor,
+        "negociacionCerrada": bool(dispute.negociacion_cerrada),
+        "monto": variables.get("monto"),
+        "fecha": variables.get("fecha_deseada"),
+        "horario": variables.get("horario"),
+        "condiciones": variables.get("condiciones") or [],
+    }
+
+
+def _encode_decision(payload: dict) -> str:
+    return "⟦c:decision⟧" + json.dumps(payload, ensure_ascii=False)
+
+
+def _user_brief(user) -> dict | None:
+    """Datos mínimos de un usuario para detalles de disputas/tickets."""
+    if user is None:
+        return None
+    return {
+        "id": user.id,
+        "nombre": user.nombre,
+        "email": user.email,
+        "rol": user.rol.value,
+    }
 
 
 def _assert_rating_in_region(rating: Rating, scope) -> None:
@@ -240,7 +391,15 @@ class AdminStats(MethodView):
 
         dq = Dispute.query.filter(Dispute.status == "abierta")
         if contract_ids is not None:
-            dq = dq.filter(Dispute.contract_id.in_(contract_ids))
+            solicitud_ids = db.select(Solicitud.id).where(
+                Solicitud.solicitante_id.in_(_region_user_ids(scope))
+            )
+            dq = dq.filter(
+                or_(
+                    Dispute.contract_id.in_(contract_ids),
+                    Dispute.solicitud_id.in_(solicitud_ids),
+                )
+            )
         disputes_open = dq.count()
 
         return {
@@ -433,7 +592,7 @@ class AdminContractModerate(MethodView):
 # ==========================================================================
 @blp.route("/disputes")
 class AdminDisputeList(MethodView):
-    @admin_required
+    @role_required(["admin", "superadmin", "soporte"])
     @blp.response(200, DisputeListResponseSchema)
     def get(self):
         """Lista disputas (status por defecto 'abierta') — scoped por región.
@@ -442,39 +601,114 @@ class AdminDisputeList(MethodView):
         """
         scope = region_scope_id(_actor())
         status = request.args.get("status", "abierta")
-        query = Dispute.query.filter(Dispute.status == status)
-        if scope is not None:
-            contract_ids = db.select(Contract.id).where(
-                Contract.solicitante_id.in_(_region_user_ids(scope))
+        if status in ("cerrada", "resuelta"):
+            query = Dispute.query.filter(
+                Dispute.status.in_(("cerrada", "resuelta"))
             )
-            query = query.filter(Dispute.contract_id.in_(contract_ids))
+        else:
+            query = Dispute.query.filter(Dispute.status == status)
+        if scope is not None:
+            region_users = _region_user_ids(scope)
+            contract_ids = db.select(Contract.id).where(
+                Contract.solicitante_id.in_(region_users)
+            )
+            solicitud_ids = db.select(Solicitud.id).where(
+                Solicitud.solicitante_id.in_(region_users)
+            )
+            query = query.filter(
+                or_(
+                    Dispute.contract_id.in_(contract_ids),
+                    Dispute.solicitud_id.in_(solicitud_ids),
+                )
+            )
         disputes = query.order_by(Dispute.created_at.desc()).all()
         return {"items": disputes, "total": len(disputes)}
 
 
 @blp.route("/disputes/<int:dispute_id>")
 class AdminDisputeDetail(MethodView):
-    @admin_required
+    @role_required(["admin", "superadmin", "soporte"])
     @blp.response(200)
     def get(self, dispute_id):
         """Detalle de disputa + datos de contrato/pago asociados."""
         scope = region_scope_id(_actor())
         dispute = db.get_or_404(Dispute, dispute_id)
-        contract = db.session.get(Contract, dispute.contract_id)
+        contract = (
+            db.session.get(Contract, dispute.contract_id)
+            if dispute.contract_id
+            else None
+        )
+        solicitud = _disputa_solicitud(dispute, contract)
         if contract is not None:
             _assert_contract_in_region(contract, scope)
-        payment = Payment.query.filter_by(contract_id=dispute.contract_id).first()
+        elif solicitud is not None:
+            _assert_solicitud_in_region(solicitud, scope)
+        else:
+            abort(404, message="Recurso no encontrado en tu región.")
+
+        payment = (
+            Payment.query.filter_by(contract_id=dispute.contract_id).first()
+            if dispute.contract_id
+            else None
+        )
         data = DisputeDetailSchema().dump(dispute)
+
+        solicitante = proveedor = servicio = None
+        if contract is not None:
+            solicitante = db.session.get(User, contract.solicitante_id)
+            proveedor = db.session.get(User, contract.proveedor_id)
+            servicio = db.session.get(Solicitud, contract.service_id)
+        elif solicitud is not None:
+            solicitante = db.session.get(User, solicitud.solicitante_id)
+            proveedor = _disputa_pds(dispute, solicitud)
+            servicio = solicitud
+
         data["contract"] = (
             {
                 "id": contract.id,
                 "estado": contract.estado.value,
-                "comprador_id": contract.solicitante_id,
-                "vendedor_id": contract.proveedor_id,
-                "servicio_id": contract.service_id,
+                "monto": contract.monto,
+                "fecha_deseada": (
+                    contract.fecha_deseada.isoformat()
+                    if contract.fecha_deseada
+                    else None
+                ),
+                "horario": contract.horario,
+                "creado_en": (
+                    contract.creado_en.isoformat() if contract.creado_en else None
+                ),
+                "solicitante": _user_brief(solicitante),
+                "proveedor": _user_brief(proveedor),
+                "servicio": (
+                    {
+                        "id": servicio.id,
+                        "titulo": servicio.titulo,
+                        "categoria": servicio.categoria,
+                        "estado": servicio.estado.value,
+                        "presupuesto": servicio.presupuesto,
+                    }
+                    if servicio
+                    else None
+                ),
             }
             if contract
             else None
+        )
+        data["solicitud"] = (
+            {
+                "id": solicitud.id,
+                "titulo": solicitud.titulo,
+                "categoria": solicitud.categoria,
+                "estado": solicitud.estado.value,
+                "presupuesto": solicitud.presupuesto,
+                "solicitante": _user_brief(solicitante),
+                "proveedor": _user_brief(proveedor),
+            }
+            if solicitud
+            else None
+        )
+        data["negociacion"] = _negociacion_variables(
+            contract, _disputa_oferta(dispute, contract, solicitud)
         )
         data["payment"] = (
             {
@@ -487,23 +721,391 @@ class AdminDisputeDetail(MethodView):
             if payment
             else None
         )
+        data["resolved_by_user"] = (
+            _user_brief(db.session.get(User, dispute.resolved_by))
+            if dispute.resolved_by
+            else None
+        )
         return data
+
+
+@blp.route("/disputes/<int:dispute_id>/chat")
+class AdminDisputeChat(MethodView):
+    @role_required(["admin", "superadmin", "soporte"])
+    @blp.arguments(DisputeChatSchema)
+    @blp.response(200)
+    def patch(self, data, dispute_id):
+        """Habilita o bloquea el chat entre las partes de la disputa."""
+        scope = region_scope_id(_actor())
+        dispute = db.get_or_404(Dispute, dispute_id)
+        contract = (
+            db.session.get(Contract, dispute.contract_id)
+            if dispute.contract_id
+            else None
+        )
+        solicitud = _disputa_solicitud(dispute, contract)
+        if contract is not None:
+            _assert_contract_in_region(contract, scope)
+        elif solicitud is not None:
+            _assert_solicitud_in_region(solicitud, scope)
+        if dispute.status != "abierta":
+            abort(400, message="La disputa ya está cerrada.")
+
+        solicitante_id = (
+            contract.solicitante_id
+            if contract is not None
+            else solicitud.solicitante_id
+            if solicitud is not None
+            else None
+        )
+        proveedor = (
+            None
+            if contract is not None
+            else _disputa_pds(dispute, solicitud) if solicitud is not None else None
+        )
+        proveedor_id = (
+            contract.proveedor_id
+            if contract is not None
+            else proveedor.id if proveedor is not None else None
+        )
+
+        habilitado = bool(data["habilitado"])
+        usuario_id = data.get("usuario_id")
+        if usuario_id is None:
+            sol_habilitado = habilitado
+            prov_habilitado = habilitado
+        elif usuario_id == solicitante_id:
+            sol_habilitado = habilitado
+            prov_habilitado = dispute.chat_habilitado_proveedor
+        elif usuario_id == proveedor_id:
+            sol_habilitado = dispute.chat_habilitado_solicitante
+            prov_habilitado = habilitado
+        else:
+            abort(400, message="El usuario no participa en esta disputa.")
+
+        before = {
+            "chat_habilitado": dispute.chat_habilitado,
+            "chat_habilitado_solicitante": dispute.chat_habilitado_solicitante,
+            "chat_habilitado_proveedor": dispute.chat_habilitado_proveedor,
+        }
+        dispute.chat_habilitado_solicitante = sol_habilitado
+        dispute.chat_habilitado_proveedor = prov_habilitado
+        dispute.chat_habilitado = sol_habilitado and prov_habilitado
+        after = {
+            "chat_habilitado": dispute.chat_habilitado,
+            "chat_habilitado_solicitante": dispute.chat_habilitado_solicitante,
+            "chat_habilitado_proveedor": dispute.chat_habilitado_proveedor,
+        }
+        write_audit(
+            _actor_id(),
+            "dispute.chat",
+            "dispute",
+            dispute.id,
+            before,
+            after,
+            _client_ip(),
+        )
+        db.session.commit()
+        habilitados_ahora = set()
+        if not before["chat_habilitado_solicitante"] and sol_habilitado:
+            habilitados_ahora.add(solicitante_id)
+        if not before["chat_habilitado_proveedor"] and prov_habilitado:
+            habilitados_ahora.add(proveedor_id)
+        habilitados_ahora.discard(None)
+        notificar_chat_disputa_habilitado(
+            dispute, habilitados_ahora, contract, solicitud
+        )
+        emit_dispute_chat(dispute, contract, solicitud)
+        return {"id": dispute.id, **after}
+
+
+@blp.route("/disputes/<int:dispute_id>/variables")
+class AdminDisputeVariables(MethodView):
+    @role_required(["admin", "superadmin", "soporte"])
+    @blp.arguments(DisputeVariablesSchema)
+    @blp.response(200)
+    def patch(self, data, dispute_id):
+        """Ajusta monto, fecha, horario y condiciones de la negociación."""
+        scope = region_scope_id(_actor())
+        dispute = db.get_or_404(Dispute, dispute_id)
+        contract = (
+            db.session.get(Contract, dispute.contract_id)
+            if dispute.contract_id
+            else None
+        )
+        solicitud = _disputa_solicitud(dispute, contract)
+        if contract is not None:
+            _assert_contract_in_region(contract, scope)
+        elif solicitud is not None:
+            _assert_solicitud_in_region(solicitud, scope)
+        else:
+            abort(400, message="La disputa no tiene una negociación asociada.")
+
+        oferta = _disputa_oferta(dispute, contract, solicitud)
+        if contract is None and oferta is None:
+            abort(400, message="La disputa no tiene una negociación asociada.")
+
+        before = _negociacion_variables(contract, oferta)
+
+        if "monto" in data:
+            monto = data["monto"]
+            if contract is not None:
+                contract.monto = monto
+            if oferta is not None:
+                oferta.monto = monto
+                oferta.contra_monto = monto
+                oferta.monto_final = monto
+            if solicitud is not None:
+                solicitud.presupuesto = (
+                    int(round(monto)) if monto is not None else None
+                )
+
+        if "fecha_deseada" in data:
+            fecha = data["fecha_deseada"]
+            if contract is not None:
+                contract.fecha_deseada = fecha
+            if oferta is not None:
+                oferta.fecha_deseada = fecha
+                oferta.contra_fecha_deseada = fecha
+            if solicitud is not None:
+                solicitud.fecha_deseada = fecha
+
+        if "horario" in data:
+            horario = data["horario"]
+            if contract is not None:
+                contract.horario = horario
+            if oferta is not None:
+                oferta.horario = horario
+                oferta.contra_horario = horario
+            if solicitud is not None:
+                solicitud.horario = horario
+
+        if "condiciones" in data:
+            ahora = datetime.now(timezone.utc).isoformat()
+            condiciones = [
+                {"texto": texto.strip(), "autor": "soporte", "fecha": ahora}
+                for texto in (data.get("condiciones") or [])
+                if texto.strip()
+            ]
+            if contract is not None:
+                contract.condiciones = condiciones
+            if oferta is not None:
+                oferta.condiciones = condiciones
+
+        after = _negociacion_variables(contract, oferta)
+        dispute.status = "cerrada"
+        dispute.resolved_by = _actor_id()
+        dispute.resolved_at = datetime.now(timezone.utc)
+        dispute.resolution = "Decisión de soporte propuesta a las partes."
+        dispute.decision_estado = "pendiente"
+        dispute.decision_solicitante = None
+        dispute.decision_proveedor = None
+        dispute.negociacion_cerrada = False
+
+        solicitante_id = (
+            contract.solicitante_id
+            if contract is not None
+            else solicitud.solicitante_id if solicitud is not None else None
+        )
+        proveedor = (
+            None
+            if contract is not None
+            else _disputa_pds(dispute, solicitud) if solicitud is not None else None
+        )
+        proveedor_id = (
+            contract.proveedor_id
+            if contract is not None
+            else proveedor.id if proveedor is not None else None
+        )
+        participantes = {uid for uid in (solicitante_id, proveedor_id) if uid}
+        if solicitante_id is None or proveedor_id is None:
+            abort(400, message="La disputa no tiene dos partes para notificar.")
+
+        a, b = Conversation.normalize(solicitante_id, proveedor_id)
+        conv = Conversation.query.filter_by(user_a_id=a, user_b_id=b).first()
+        if conv is None:
+            conv = Conversation(user_a_id=a, user_b_id=b)
+            db.session.add(conv)
+            db.session.flush()
+
+        payload = _decision_payload(dispute, after)
+        contenido = _encode_decision(payload)
+        if dispute.decision_message_id:
+            decision_msg = db.session.get(Message, dispute.decision_message_id)
+        else:
+            decision_msg = None
+        if decision_msg is None:
+            decision_msg = Message(
+                conversation_id=conv.id,
+                sender_id=_actor_id(),
+                contenido=contenido,
+                leido=False,
+                es_soporte=True,
+            )
+            db.session.add(decision_msg)
+            db.session.flush()
+            dispute.decision_message_id = decision_msg.id
+        else:
+            decision_msg.contenido = contenido
+            decision_msg.es_soporte = True
+        write_audit(
+            _actor_id(),
+            "dispute.variables",
+            "dispute",
+            dispute.id,
+            before,
+            after,
+            _client_ip(),
+        )
+        db.session.commit()
+
+        evento = "contrato:actualizado" if contract is not None else "oferta:actualizada"
+        evento_payload = {"id": contract.id if contract is not None else oferta.id}
+        for user_id in participantes:
+            safe_emit(evento, evento_payload, room=f"user:{user_id}")
+            safe_emit(
+                "dispute:decision",
+                {"id": dispute.id, **payload},
+                room=f"user:{user_id}",
+            )
+
+        return {
+            "id": dispute.id,
+            "negociacion": after,
+            "decision": payload,
+        }
+
+
+@blp.route("/disputes/<int:dispute_id>/messages")
+class AdminDisputeMessage(MethodView):
+    @role_required(["admin", "superadmin", "soporte"])
+    @blp.arguments(DisputeMessageSchema)
+    @blp.response(201, MessageSchema)
+    def post(self, data, dispute_id):
+        """Publica un mensaje de soporte en el chat de las partes."""
+        scope = region_scope_id(_actor())
+        dispute = db.get_or_404(Dispute, dispute_id)
+        contract = (
+            db.session.get(Contract, dispute.contract_id)
+            if dispute.contract_id
+            else None
+        )
+        solicitud = _disputa_solicitud(dispute, contract)
+        if contract is not None:
+            _assert_contract_in_region(contract, scope)
+            solicitante = db.session.get(User, contract.solicitante_id)
+            proveedor = db.session.get(User, contract.proveedor_id)
+        elif solicitud is not None:
+            _assert_solicitud_in_region(solicitud, scope)
+            solicitante = db.session.get(User, solicitud.solicitante_id)
+            proveedor = _disputa_pds(dispute, solicitud)
+        else:
+            abort(400, message="La disputa no tiene una conversación asociada.")
+
+        if solicitante is None or proveedor is None:
+            abort(400, message="La disputa no tiene dos partes asociadas.")
+
+        a, b = Conversation.normalize(solicitante.id, proveedor.id)
+        conv = Conversation.query.filter_by(user_a_id=a, user_b_id=b).first()
+        if conv is None:
+            conv = Conversation(user_a_id=a, user_b_id=b)
+            db.session.add(conv)
+            db.session.flush()
+
+        msg = Message(
+            conversation_id=conv.id,
+            sender_id=_actor_id(),
+            contenido=data["contenido"],
+            leido=False,
+            es_soporte=True,
+        )
+        db.session.add(msg)
+        db.session.commit()
+
+        payload = MessageSchema().dump(msg)
+        if not conv.oculta:
+            safe_emit("message", payload, room=f"conversation_{conv.id}")
+            safe_emit("message", payload, room=f"user:{solicitante.id}")
+            safe_emit("message", payload, room=f"user:{proveedor.id}")
+        return msg, 201
+
+
+@blp.route("/disputes/<int:dispute_id>/conversation")
+class AdminDisputeConversation(MethodView):
+    @role_required(["admin", "superadmin", "soporte"])
+    @blp.response(200)
+    def get(self, dispute_id):
+        """Chat entre los usuarios de la negociación donde se radicó la disputa."""
+        scope = region_scope_id(_actor())
+        dispute = db.get_or_404(Dispute, dispute_id)
+        contract = (
+            db.session.get(Contract, dispute.contract_id)
+            if dispute.contract_id
+            else None
+        )
+        solicitud = _disputa_solicitud(dispute, contract)
+        if contract is not None:
+            _assert_contract_in_region(contract, scope)
+            solicitante = db.session.get(User, contract.solicitante_id)
+            proveedor = db.session.get(User, contract.proveedor_id)
+        elif solicitud is not None:
+            _assert_solicitud_in_region(solicitud, scope)
+            solicitante = db.session.get(User, solicitud.solicitante_id)
+            proveedor = _disputa_pds(dispute, solicitud)
+        else:
+            return {
+                "id": None,
+                "solicitante": None,
+                "proveedor": None,
+                "messages": [],
+            }
+
+        if solicitante is None or proveedor is None:
+            return {
+                "id": None,
+                "solicitante": _user_brief(solicitante),
+                "proveedor": _user_brief(proveedor),
+                "messages": [],
+            }
+
+        a, b = Conversation.normalize(solicitante.id, proveedor.id)
+        conv = Conversation.query.filter_by(user_a_id=a, user_b_id=b).first()
+        messages = []
+        if conv is not None:
+            messages = (
+                Message.query.filter_by(conversation_id=conv.id)
+                .order_by(Message.creado_en.asc())
+                .all()
+            )
+        return {
+            "id": conv.id if conv is not None else None,
+            "solicitante": _user_brief(solicitante),
+            "proveedor": _user_brief(proveedor),
+            "messages": MessageSchema().dump(messages, many=True),
+        }
 
 
 @blp.route("/disputes/<int:dispute_id>/resolve")
 class AdminDisputeResolve(MethodView):
-    @admin_required
+    @role_required(["admin", "superadmin", "soporte"])
     @blp.arguments(DisputeResolveSchema)
     @blp.response(200)
     def post(self, data, dispute_id):
         """Resuelve una disputa (solo registro; no hay retención de fondos)."""
         scope = region_scope_id(_actor())
         dispute = db.get_or_404(Dispute, dispute_id)
-        contract = db.session.get(Contract, dispute.contract_id)
+        contract = (
+            db.session.get(Contract, dispute.contract_id)
+            if dispute.contract_id
+            else None
+        )
+        solicitud = _disputa_solicitud(dispute, contract)
         if contract is not None:
             _assert_contract_in_region(contract, scope)
-        if dispute.status == "resuelta":
-            abort(400, message="La disputa ya está resuelta.")
+        elif solicitud is not None:
+            _assert_solicitud_in_region(solicitud, scope)
+        if dispute.status in ("resuelta", "cerrada"):
+            abort(400, message="La disputa ya está cerrada.")
 
         before = {
             "status": dispute.status,
@@ -512,18 +1114,37 @@ class AdminDisputeResolve(MethodView):
         dispute.resolved_by = _actor_id()
         dispute.resolved_at = datetime.now(timezone.utc)
         dispute.resolution = data["resolution"]
-        dispute.status = "resuelta"
+        dispute.status = "cerrada"
+        dispute.chat_habilitado = True
+        dispute.chat_habilitado_solicitante = True
+        dispute.chat_habilitado_proveedor = True
 
         write_audit(
             _actor_id(), "dispute.resolve", "dispute", dispute.id,
             before,
-            {"status": "resuelta", "resolution": data["resolution"]},
+            {"status": "cerrada", "resolution": data["resolution"]},
             _client_ip(),
         )
         db.session.commit()
+
+        solicitante = (
+            db.session.get(User, contract.solicitante_id)
+            if contract is not None
+            else db.session.get(User, solicitud.solicitante_id)
+            if solicitud is not None
+            else None
+        )
+        emit_disputa_resuelta(
+            dispute, solicitante.region_id if solicitante else None
+        )
+        emit_dispute_chat(dispute, contract, solicitud)
+        notificar_disputa_resuelta(
+            dispute, contract, dispute.resolution, solicitud=solicitud
+        )
+
         return {
             "id": dispute.id,
-            "status": "resuelta",
+            "status": "cerrada",
         }
 
 
@@ -548,11 +1169,39 @@ class AdminTicketList(MethodView):
             query = query.filter(Ticket.status == status)
         total = query.count()
         tickets = query.order_by(Ticket.created_at.desc()).limit(50).all()
+
+        actor_id = _actor_id()
+        conversations = Conversation.query.filter(
+            (Conversation.user_a_id == actor_id)
+            | (Conversation.user_b_id == actor_id)
+        ).all()
+        conversacion_por_usuario = {
+            (
+                conv.user_b_id if conv.user_a_id == actor_id else conv.user_a_id
+            ): conv.id
+            for conv in conversations
+        }
+        for ticket in tickets:
+            ticket.conversation_id = conversacion_por_usuario.get(ticket.user_id)
+
         return {"items": tickets, "total": total}
 
 
 @blp.route("/tickets/<int:ticket_id>")
 class AdminTicketPatch(MethodView):
+    @role_required(["admin", "superadmin", "soporte"])
+    @blp.response(200, TicketDetailSchema)
+    def get(self, ticket_id):
+        """Detalle completo del ticket + conversación de soporte existente."""
+        scope = region_scope_id(_actor())
+        ticket = db.get_or_404(Ticket, ticket_id)
+        _assert_in_region(ticket.user_id, scope)
+
+        a, b = Conversation.normalize(_actor_id(), ticket.user_id)
+        conv = Conversation.query.filter_by(user_a_id=a, user_b_id=b).first()
+        ticket.conversation_id = conv.id if conv is not None else None
+        return ticket
+
     @role_required(["admin", "superadmin", "soporte"])
     @blp.arguments(TicketPatchSchema)
     @blp.response(200)
@@ -587,6 +1236,11 @@ class AdminTicketPatch(MethodView):
             _client_ip(),
         )
         db.session.commit()
+
+        ticket_user = db.session.get(User, ticket.user_id)
+        region_id = ticket_user.region_id if ticket_user else None
+        emit_ticket_actualizado(ticket, region_id)
+
         return {"id": ticket.id, "status": ticket.status}
 
 

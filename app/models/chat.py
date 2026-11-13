@@ -17,6 +17,9 @@ class Conversation(db.Model):
     user_b_id = db.Column(
         db.Integer, db.ForeignKey("users.id"), nullable=False
     )
+    # Chat oculto para las partes (p. ej. negociación cerrada por rechazo
+    # de la decisión de soporte). Soporte lo sigue viendo desde el panel.
+    oculta = db.Column(db.Boolean, nullable=False, default=False)
     creado_en = db.Column(
         db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )
@@ -64,6 +67,8 @@ class Message(db.Model):
     )
     contenido = db.Column(db.Text, nullable=False)
     leido = db.Column(db.Boolean, default=False, nullable=False)
+    # Mensaje enviado por soporte dentro del chat de las partes.
+    es_soporte = db.Column(db.Boolean, nullable=False, default=False)
     creado_en = db.Column(
         db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )

@@ -95,6 +95,23 @@ with app.app_context():
     # Pago directo: sin retencion de fondos. Drop idempotente de columnas.
     run("ALTER TABLE payments DROP COLUMN IF EXISTS liberado_en")
     run("ALTER TABLE disputes DROP COLUMN IF EXISTS payment_action")
+    # Disputas durante la negociacion (aun sin contrato): se ligan a la
+    # solicitud/oferta y contract_id pasa a ser opcional.
+    run("ALTER TABLE disputes ALTER COLUMN contract_id DROP NOT NULL")
+    run("ALTER TABLE disputes ADD COLUMN IF NOT EXISTS solicitud_id INTEGER")
+    run("ALTER TABLE disputes ADD COLUMN IF NOT EXISTS oferta_id INTEGER")
+    run("ALTER TABLE disputes ADD COLUMN IF NOT EXISTS chat_habilitado BOOLEAN NOT NULL DEFAULT FALSE")
+    run("ALTER TABLE disputes ADD COLUMN IF NOT EXISTS chat_habilitado_solicitante BOOLEAN NOT NULL DEFAULT FALSE")
+    run("ALTER TABLE disputes ADD COLUMN IF NOT EXISTS chat_habilitado_proveedor BOOLEAN NOT NULL DEFAULT FALSE")
+    run("ALTER TABLE messages ADD COLUMN IF NOT EXISTS es_soporte BOOLEAN NOT NULL DEFAULT FALSE")
+    run("ALTER TABLE disputes ADD COLUMN IF NOT EXISTS decision_estado VARCHAR(20)")
+    run("ALTER TABLE disputes ADD COLUMN IF NOT EXISTS decision_solicitante VARCHAR(20)")
+    run("ALTER TABLE disputes ADD COLUMN IF NOT EXISTS decision_proveedor VARCHAR(20)")
+    run("ALTER TABLE disputes ADD COLUMN IF NOT EXISTS decision_message_id INTEGER")
+    run("ALTER TABLE disputes ADD COLUMN IF NOT EXISTS negociacion_cerrada BOOLEAN NOT NULL DEFAULT FALSE")
+    run("ALTER TABLE conversations ADD COLUMN IF NOT EXISTS oculta BOOLEAN NOT NULL DEFAULT FALSE")
+    run("UPDATE disputes SET chat_habilitado_solicitante = TRUE, chat_habilitado_proveedor = TRUE WHERE chat_habilitado = TRUE")
+    run("CREATE INDEX IF NOT EXISTS ix_disputes_solicitud_creado ON disputes (solicitud_id, created_at)")
     # Recrear el enum estadopago sin el valor CONFIRMADO ("en garantia").
     run(
         "DO $$ BEGIN "
@@ -169,6 +186,16 @@ with app.app_context():
     run("ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_secret VARCHAR(255)")
     run("ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_pending_secret VARCHAR(255)")
     run("ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_confirmed_at TIMESTAMP")
+    # Preferencias UI: mapa inicial de chambas (2d | 3d).
+    run("ALTER TABLE merchant_preferences ADD COLUMN IF NOT EXISTS mapa_preferido VARCHAR(4) NOT NULL DEFAULT '2d'")
+    # Portafolio: datos visibles de la card y galería del trabajo.
+    run("ALTER TABLE portfolio_items ADD COLUMN IF NOT EXISTS precio INTEGER")
+    run("ALTER TABLE portfolio_items ADD COLUMN IF NOT EXISTS calificacion DOUBLE PRECISION")
+    run("ALTER TABLE portfolio_items ADD COLUMN IF NOT EXISTS resena_texto TEXT")
+    run("ALTER TABLE portfolio_items ADD COLUMN IF NOT EXISTS resena_autor VARCHAR(120)")
+    run("ALTER TABLE portfolio_items ADD COLUMN IF NOT EXISTS antes JSON NOT NULL DEFAULT '[]'::json")
+    run("ALTER TABLE portfolio_items ADD COLUMN IF NOT EXISTS despues JSON NOT NULL DEFAULT '[]'::json")
+    run("ALTER TABLE portfolio_items ADD COLUMN IF NOT EXISTS galeria JSON NOT NULL DEFAULT '[]'::json")
     run(
         "CREATE TABLE IF NOT EXISTS two_factor_recovery_codes ("
         "id SERIAL PRIMARY KEY, "
