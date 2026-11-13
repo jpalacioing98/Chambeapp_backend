@@ -68,6 +68,12 @@ class Register(MethodView):
         db.session.add(profile)
         db.session.flush()  # obtener user.id para LegalAcceptance
 
+        # Billetera virtual automática para cualquier rol (PDS, solicitante,
+        # comerciante): monedas + saldo COP para contratos.
+        from app.services.wallet import get_or_create_wallet
+
+        get_or_create_wallet(user.id)
+
         # Si el celular ya se validó por OTP antes del registro, el documento
         # KYC de contacto queda aprobado automáticamente.
         if user.telefono:

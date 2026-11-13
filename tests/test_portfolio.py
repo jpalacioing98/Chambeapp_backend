@@ -253,8 +253,8 @@ class TestPortfolioBlueprint:
         from app import create_app
         
         # Mock storage
-        with patch('app.services.storage.storage.upload_image') as mock_upload:
-            mock_upload.return_value = "http://minio:9000/test.webp"
+        with patch('app.services.storage.storage.upload_portfolio_image') as mock_upload:
+            mock_upload.return_value = "http://localhost:9000/chambeapp-portafolio-publico/portfolio/42/test.webp"
             
             # Sin archivo
             response = client.post(
@@ -272,8 +272,8 @@ class TestPortfolioBlueprint:
         """POST /upload debe rechazar tipo inválido."""
         from app import create_app
         
-        with patch('app.services.storage.storage.upload_image') as mock_upload:
-            mock_upload.return_value = "http://minio:9000/test.webp"
+        with patch('app.services.storage.storage.upload_portfolio_image') as mock_upload:
+            mock_upload.return_value = "http://localhost:9000/chambeapp-portafolio-publico/portfolio/42/test.webp"
             
             # Crear archivo fake
             data = {
@@ -295,8 +295,8 @@ class TestPortfolioBlueprint:
         """POST /upload debe subir exitosamente."""
         from app import create_app
         
-        with patch('app.services.storage.storage.upload_image') as mock_upload:
-            mock_upload.return_value = "http://minio:9000/test.webp"
+        with patch('app.services.storage.storage.upload_portfolio_image') as mock_upload:
+            mock_upload.return_value = "http://localhost:9000/chambeapp-portafolio-publico/portfolio/42/test.webp"
             
             data = {
                 'archivo': (io.BytesIO(b"fake image"), 'test.png'),
@@ -315,4 +315,6 @@ class TestPortfolioBlueprint:
             
             assert response.status_code == 201
             assert response.json['titulo'] == 'Reparación tubería'
-            assert response.json['url'] == 'http://minio:9000/test.webp'
+            assert response.json['url'] == (
+                'http://localhost:9000/chambeapp-portafolio-publico/portfolio/42/test.webp'
+            )

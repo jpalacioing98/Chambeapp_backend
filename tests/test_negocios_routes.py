@@ -181,7 +181,7 @@ class TestMapaNegocios:
         resp = client.get(f"{NEGOCIOS_URL}/mapa")
         assert resp.status_code == 200
         data = resp.get_json()
-        assert set(data.keys()) == {"clusters", "pins"}
+        assert set(data.keys()) == {"clusters", "pins", "rutas"}
         assert len(data["pins"]) == 1
         assert data["pins"][0]["lat"] == 10.4806
         assert data["pins"][0]["lng"] == -73.2495
@@ -312,6 +312,130 @@ class TestDetalleNegocio:
 
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║  Rutas del negocio ambulante                                                 ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
+
+_RUTA_PAYLOAD = {
+    "nombre": "Ruta Centro",
+    "descripcion": "Recorrido de la mañana",
+    "puntos": [
+        {"lat": 10.4806, "lng": -73.2495},
+        {"lat": 10.4820, "lng": -73.2510},
+        {"lat": 10.4840, "lng": -73.2530},
+    ],
+    "calles": ["Calle 16", "Carrera 9"],
+    "color": "#D63950",
+}
+
+
+@pytest.mark.integration
+class TestRutasNegocio:
+
+    def _ambulante(self, client, email="rutas@test.com"):
+        h = _create_merchant(client, email)
+        resp = _crear_negocio(client, h)
+        nid = resp.get_json()["id"]
+        client.put(
+            f"{NEGOCIOS_URL}/{nid}",
+            json={"modalidad": "ambulante"},
+            headers=h,
+        )
+        return h, nid
+
+    def test_crear_ruta_requiere_modalidad_ambulante(self, client):
+        h = _create_merchant(client, "ruta_est@test.com")
+        resp = _crear_negocio(client, h)
+        nid = resp.get_json()["id"]
+        r = client.post(
+            f"{NEGOCIOS_URL}/{nid}/rutas", json=_RUTA_PAYLOAD, headers=h
+        )
+        assert r.status_code == 400
+        assert "ambulante" in r.get_json()["message"].lower()
+
+    def test_crud_ruta(self, client):
+        h, nid = self._ambulante(client, "ruta_crud@test.com")
+
+        creada = client.post(
+            f"{NEGOCIOS_URL}/{nid}/rutas", json=_RUTA_PAYLOAD, headers=h
+        )
+        assert creada.status_code == 201
+        ruta = creada.get_json()
+        assert ruta["nombre"] == "Ruta Centro"
+        assert len(ruta["puntos"]) == 3
+        assert ruta["calles"] == ["Calle 16", "Carrera 9"]
+        assert ruta["en_curso"] is False
+
+        # Lista pública (sin auth)
+        lista = client.get(f"{NEGOCIOS_URL}/{nid}/rutas")
+        assert lista.status_code == 200
+        assert len(lista.get_json()) == 1
+
+        # Iniciar recorrido + progreso
+        upd = client.put(
+            f"{NEGOCIOS_URL}/{nid}/rutas/{ruta['id']}",
+            json={"en_curso": True, "progreso": 0.4},
+            headers=h,
+        )
+        assert upd.status_code == 200
+        assert upd.get_json()["en_curso"] is True
+        assert upd.get_json()["progreso"] == 0.4
+
+        # El mapa público incluye la estela en curso (el negocio debe estar activo)
+        from app.models.negocio import EstadoNegocio, Negocio
+        negocio = db.session.get(Negocio, nid)
+        negocio.estado = EstadoNegocio.ACTIVO
+        db.session.commit()
+
+        mapa = client.get(f"{NEGOCIOS_URL}/mapa")
+        assert mapa.status_code == 200
+        rutas = mapa.get_json()["rutas"]
+        assert any(r["id"] == ruta["id"] for r in rutas)
+
+        # Eliminar
+        dele = client.delete(
+            f"{NEGOCIOS_URL}/{nid}/rutas/{ruta['id']}", headers=h
+        )
+        assert dele.status_code == 204
+        assert client.get(f"{NEGOCIOS_URL}/{nid}/rutas").get_json() == []
+
+    def test_solo_una_ruta_en_curso(self, client):
+        h, nid = self._ambulante(client, "ruta_una@test.com")
+        r1 = client.post(
+            f"{NEGOCIOS_URL}/{nid}/rutas", json=_RUTA_PAYLOAD, headers=h
+        ).get_json()
+        r2 = client.post(
+            f"{NEGOCIOS_URL}/{nid}/rutas",
+            json={**_RUTA_PAYLOAD, "nombre": "Ruta Norte"},
+            headers=h,
+        ).get_json()
+
+        client.put(
+            f"{NEGOCIOS_URL}/{nid}/rutas/{r1['id']}",
+            json={"en_curso": True},
+            headers=h,
+        )
+        client.put(
+            f"{NEGOCIOS_URL}/{nid}/rutas/{r2['id']}",
+            json={"en_curso": True},
+            headers=h,
+        )
+
+        rutas = client.get(f"{NEGOCIOS_URL}/{nid}/rutas").get_json()
+        en_curso = [r for r in rutas if r["en_curso"]]
+        assert len(en_curso) == 1
+        assert en_curso[0]["id"] == r2["id"]
+
+    def test_ruta_requiere_puntos_minimos(self, client):
+        h, nid = self._ambulante(client, "ruta_puntos@test.com")
+        r = client.post(
+            f"{NEGOCIOS_URL}/{nid}/rutas",
+            json={**_RUTA_PAYLOAD, "puntos": [{"lat": 10.48, "lng": -73.25}]},
+            headers=h,
+        )
+        assert r.status_code == 422
+
+
+# ╔══════════════════════════════════════════════════════════════════════════════╗
 # ║  PUT /negocios/<id> — Actualizar negocio                                    ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
@@ -330,6 +454,35 @@ class TestActualizarNegocio:
         )
         assert put_resp.status_code == 200
         assert put_resp.get_json()["nombre"] == "Nombre Actualizado"
+
+    def test_actualizar_servicios_sin_titulo_ok(self, client):
+        """Servicios antiguos (solo descripción) no deben romper el PUT."""
+        h = _create_merchant(client)
+        resp = _crear_negocio(client, h)
+        nid = resp.get_json()["id"]
+        put_resp = client.put(
+            f"{NEGOCIOS_URL}/{nid}",
+            json={"servicios": [{"descripcion": "Solo descripción"}]},
+            headers=h,
+        )
+        assert put_resp.status_code == 200
+        servicios = put_resp.get_json()["servicios"]
+        assert servicios[0]["descripcion"] == "Solo descripción"
+
+    def test_actualizar_permite_vaciar_campos(self, client):
+        """Enviar null debe limpiar el campo (no conservar el valor previo)."""
+        h = _create_merchant(client)
+        resp = _crear_negocio(client, h, {"sitio_web": "https://ejemplo.co"})
+        nid = resp.get_json()["id"]
+        put_resp = client.put(
+            f"{NEGOCIOS_URL}/{nid}",
+            json={"sitio_web": None, "descripcion": None},
+            headers=h,
+        )
+        assert put_resp.status_code == 200
+        data = put_resp.get_json()
+        assert data["sitio_web"] is None
+        assert data["descripcion"] is None
 
     def test_actualizar_negocio_no_owner(self, client):
         """Otro usuario no puede actualizar → 403."""

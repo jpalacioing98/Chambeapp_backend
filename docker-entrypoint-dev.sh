@@ -183,6 +183,42 @@ with app.app_context():
         "CREATE INDEX IF NOT EXISTS ix_2fa_recovery_user "
         "ON two_factor_recovery_codes (user_id)"
     )
+
+    # Migración 027: tipo y visibilidad de anuncios.
+    run("ALTER TABLE anuncios_laborales ADD COLUMN IF NOT EXISTS tipo VARCHAR(12) NOT NULL DEFAULT 'empleo'")
+    run("ALTER TABLE anuncios_laborales ADD COLUMN IF NOT EXISTS visible_mapa BOOLEAN NOT NULL DEFAULT TRUE")
+    # Migración 019 (anuncios vinculantes): dev hace stamp y no la ejecutó.
+    run(
+        "DO $$ BEGIN CREATE TYPE modalidadanuncio AS ENUM "
+        "('contacto','contrato'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;"
+    )
+    run("ALTER TABLE anuncios_laborales ADD COLUMN IF NOT EXISTS modalidad modalidadanuncio NOT NULL DEFAULT 'contacto'")
+    run("ALTER TABLE anuncios_laborales ADD COLUMN IF NOT EXISTS presupuesto DOUBLE PRECISION")
+    run("ALTER TABLE anuncios_laborales ADD COLUMN IF NOT EXISTS fecha_deseada DATE")
+    run("ALTER TABLE anuncios_laborales ADD COLUMN IF NOT EXISTS horario VARCHAR(80)")
+    run("ALTER TABLE anuncios_laborales ADD COLUMN IF NOT EXISTS contract_ids JSON")
+    run("ALTER TABLE anuncios_postulaciones ADD COLUMN IF NOT EXISTS contract_id INTEGER")
+
+    # Migración 029: negocios ambulantes + rutas de recorrido.
+    run("ALTER TABLE negocios ADD COLUMN IF NOT EXISTS modalidad VARCHAR(20) NOT NULL DEFAULT 'estatico'")
+    run(
+        "CREATE TABLE IF NOT EXISTS negocio_rutas ("
+        "id SERIAL PRIMARY KEY, "
+        "negocio_id INTEGER NOT NULL REFERENCES negocios(id), "
+        "nombre VARCHAR(80) NOT NULL, "
+        "descripcion TEXT, "
+        "puntos JSON NOT NULL, "
+        "calles JSON NOT NULL, "
+        "color VARCHAR(9), "
+        "activa BOOLEAN NOT NULL DEFAULT TRUE, "
+        "en_curso BOOLEAN NOT NULL DEFAULT FALSE, "
+        "progreso DOUBLE PRECISION NOT NULL DEFAULT 0, "
+        "creado_en TIMESTAMP, "
+        "actualizado_en TIMESTAMP)"
+    )
+    run("CREATE INDEX IF NOT EXISTS ix_negocio_rutas_negocio_id ON negocio_rutas (negocio_id)")
+    run("CREATE INDEX IF NOT EXISTS ix_negocio_rutas_negocio_en_curso ON negocio_rutas (negocio_id, en_curso)")
+
     # VAPID: genera claves UNA vez si pywebpush/py-vapid están instalados.
     try:
         from app.models.config import SystemConfig

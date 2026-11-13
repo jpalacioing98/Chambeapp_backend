@@ -167,6 +167,20 @@ def create_app(config_class: str = "app.config.DevelopmentConfig") -> Flask:
             except Exception:
                 pass
 
+            # Paquetes de monedas base (solo si la tabla está vacía).
+            try:
+                from app.data.seed_paquetes import sync_paquetes_monedas
+                sync_paquetes_monedas()
+            except Exception:
+                pass
+
+            # Toda cuenta debe tener billetera (backfill idempotente).
+            try:
+                from app.data.seed_wallets import sync_wallets
+                sync_wallets()
+            except Exception:
+                pass
+
     # Carga el usuario desde el identity del JWT (current_user / lookup).
     @jwt.user_lookup_loader
     def user_lookup_callback(_jwt_header, jwt_data):

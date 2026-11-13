@@ -199,8 +199,8 @@ class TestFlujo2PerfilPDS:
         hdrs = _create_pds(client, "pds_port@test.com")
 
         titulo_send = "Reparacion tuberia"
-        with patch('app.services.storage.storage.upload_image') as mock_upload:
-            mock_upload.return_value = "http://minio:9000/test.webp"
+        with patch('app.services.storage.storage.upload_portfolio_image') as mock_upload:
+            mock_upload.return_value = "http://localhost:9000/chambeapp-portafolio-publico/test.webp"
 
             # Upload
             resp = client.post("/api/v1/portfolio/upload", headers=hdrs, data={
@@ -214,7 +214,7 @@ class TestFlujo2PerfilPDS:
             item = resp.get_json()
             assert item["titulo"] == titulo_send
             assert item["tipo"] == "foto"
-            assert item["url"] == "http://minio:9000/test.webp"
+            assert item["url"] == "http://localhost:9000/chambeapp-portafolio-publico/test.webp"
 
         # List items
         list_resp = client.get("/api/v1/portfolio/items", headers=hdrs)

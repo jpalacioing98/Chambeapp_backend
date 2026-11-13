@@ -2325,20 +2325,39 @@ def create_communications(
     add_all_batched(cascades, 100)
 
     anuncios: list[AnuncioLaboral] = []
+    tipos_anuncio = ("empleo", "servicio", "producto", "oferta")
     for i in range(sizes.anuncios):
         negocio = negocios[i % len(negocios)]
         merchant = next(u for u in users["merchants"] if u.id == negocio.owner_id)
         categoria = negocio.categoria_principal
+        tipo = tipos_anuncio[i % len(tipos_anuncio)]
+        titulos = {
+            "empleo": f"Buscamos auxiliar de {categoria}",
+            "servicio": f"Servicio de {categoria} para tu negocio",
+            "producto": f"Producto destacado de {categoria}",
+            "oferta": f"Oferta 2x1 en {categoria}",
+        }
         anuncios.append(
             AnuncioLaboral(
                 negocio_id=merchant.id,
-                titulo=f"Buscamos auxiliar de {categoria}",
-                descripcion="Anuncio laboral simulado para probar postulaciones y contacto.",
+                tipo=tipo,
+                titulo=titulos[tipo],
+                descripcion=(
+                    "Anuncio simulado para probar postulaciones y contacto."
+                    if tipo == "empleo"
+                    else "Anuncio simulado para probar el mapa y los banners."
+                ),
                 categoria=categoria,
+                visible_mapa=True,
                 ubicacion=negocio.direccion,
                 latitud=negocio.latitud,
                 longitud=negocio.longitud,
-                vacantes=rng.randint(1, 3),
+                vacantes=rng.randint(1, 3) if tipo == "empleo" else None,
+                presupuesto=(
+                    float(rng.randrange(20000, 120000, 5000))
+                    if tipo != "empleo"
+                    else None
+                ),
                 estado=EstadoAnuncio.PUBLICADO if i < sizes.anuncios - 2 else EstadoAnuncio.CERRADO,
                 creado_en=clamp_dt(NOW - timedelta(days=rng.randint(0, 90)), NOW),
                 actualizado_en=clamp_dt(NOW - timedelta(days=rng.randint(0, 20)), NOW),
@@ -2348,8 +2367,9 @@ def create_communications(
     db.session.flush()
 
     postulaciones: list[AnuncioPostulacion] = []
+    anuncios_empleo = [a for a in anuncios if a.tipo == "empleo"] or anuncios
     for i in range(sizes.postulaciones):
-        anuncio = rng.choice(anuncios)
+        anuncio = rng.choice(anuncios_empleo)
         pds = rng.choice(users["pds"])
         postulaciones.append(
             AnuncioPostulacion(

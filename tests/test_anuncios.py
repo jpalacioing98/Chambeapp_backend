@@ -84,7 +84,64 @@ def test_crear_anuncio_solo_negocio(client):
     assert resp.status_code == 403
 
 
+def test_anuncio_servicio_solo_perfil_publico(client, app):
+    _register(client, "neg@example.com", rol="merchant")
+    neg_h = _headers(client, "neg@example.com")
+    uid = _user_id(app, "neg@example.com")
+    r = client.post(
+        "/api/v1/anuncios/",
+        json={
+            "titulo": "Mantenimiento de aire acondicionado",
+            "descripcion": "Limpieza y recarga de gas.",
+            "categoria": "tecnologia",
+            "tipo": "servicio",
+            "visible_mapa": False,
+            "presupuesto": 80000,
+        },
+        headers=neg_h,
+    )
+    assert r.status_code == 201, r.get_json()
+    assert r.get_json()["tipo"] == "servicio"
+    assert r.get_json()["visible_mapa"] is False
+
+    # No aparece en el mapa/feed público…
+    feed = client.get("/api/v1/anuncios/")
+    assert feed.status_code == 200
+    assert all(a["id"] != r.get_json()["id"] for a in feed.get_json())
+
+    # …pero sí en el perfil público del negocio (sin JWT).
+    perfil = client.get(f"/api/v1/anuncios/negocio/{uid}")
+    assert perfil.status_code == 200
+    assert any(a["id"] == r.get_json()["id"] for a in perfil.get_json())
+
+
 # ---------------- Feed público (todos los roles) ----------------
+def test_crear_anuncio_oferta(client):
+    """El tipo oferta (promoción) es válido y sale en el feed del mapa."""
+    _register(client, "neg@example.com", rol="merchant")
+    neg_h = _headers(client, "neg@example.com")
+    r = client.post(
+        "/api/v1/anuncios/",
+        json={
+            "titulo": "2x1 en almuerzos ejecutivos",
+            "descripcion": "Promoción válida de lunes a viernes.",
+            "categoria": "restaurante",
+            "tipo": "oferta",
+            "presupuesto": 25000,
+            "visible_mapa": True,
+        },
+        headers=neg_h,
+    )
+    assert r.status_code == 201, r.get_json()
+    body = r.get_json()
+    assert body["tipo"] == "oferta"
+    assert body["presupuesto"] == 25000
+
+    feed = client.get("/api/v1/anuncios/")
+    assert feed.status_code == 200
+    assert any(a["id"] == body["id"] for a in feed.get_json())
+
+
 def test_feed_publico_solo_publicados(client):
     _register(client, "neg@example.com", rol="merchant")
     neg_h = _headers(client, "neg@example.com")

@@ -24,6 +24,11 @@ class EstadoNegocio(str, Enum):
     RECHAZADO = "rechazado"
 
 
+class ModalidadNegocio(str, Enum):
+    ESTATICO = "estatico"       # Local/punto fijo
+    AMBULANTE = "ambulante"     # Recorre rutas (calles)
+
+
 class EstadoReporte(str, Enum):
     ABIERTO = "abierto"
     INVESTIGANDO = "investigando"
@@ -54,6 +59,12 @@ class Negocio(db.Model):
     descripcion = db.Column(db.Text, nullable=True)
     tipo = db.Column(db.String(30), nullable=False,
                      default=TipoNegocio.COMERCIO.value)
+    # estático (punto fijo) o ambulante (recorre rutas)
+    modalidad = db.Column(
+        db.String(20),
+        nullable=False,
+        default=ModalidadNegocio.ESTATICO.value,
+    )
 
     # ── Multimedia ──
     logo_url = db.Column(db.String(500), nullable=True)
@@ -126,6 +137,74 @@ class Negocio(db.Model):
         "NegocioReporte", back_populates="negocio",
         cascade="all, delete-orphan",
     )
+    rutas = db.relationship(
+        "NegocioRuta", back_populates="negocio",
+        cascade="all, delete-orphan",
+        order_by="NegocioRuta.id",
+    )
+
+
+class NegocioRuta(db.Model):
+    """Ruta de un negocio ambulante: trazado + calles que recorre."""
+
+    __tablename__ = "negocio_rutas"
+
+    id = db.Column(db.Integer, primary_key=True)
+    negocio_id = db.Column(
+        db.Integer, db.ForeignKey("negocios.id"), nullable=False, index=True
+    )
+    nombre = db.Column(db.String(80), nullable=False)
+    descripcion = db.Column(db.Text, nullable=True)
+
+    # Trazado del recorrido: [{lat, lng}, ...] (mínimo 2)
+    puntos = db.Column(db.JSON, nullable=False, default=list)
+    # Calles/zonas que toca la ruta (texto libre)
+    calles = db.Column(db.JSON, nullable=False, default=list)
+    # Color del trazado en el mapa (hex #RRGGBB); null → color por defecto
+    color = db.Column(db.String(9), nullable=True)
+
+    activa = db.Column(db.Boolean, nullable=False, default=True)
+    # Solo una ruta puede estar en curso por negocio
+    en_curso = db.Column(db.Boolean, nullable=False, default=False)
+    # Avance del recorrido actual (0.0 → 1.0)
+    progreso = db.Column(db.Float, nullable=False, default=0.0)
+
+    creado_en = db.Column(
+        db.DateTime, default=lambda: datetime.now(timezone.utc)
+    )
+    actualizado_en = db.Column(
+        db.DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    __table_args__ = (
+        db.Index(
+            "ix_negocio_rutas_negocio_en_curso",
+            "negocio_id",
+            "en_curso",
+        ),
+    )
+
+    negocio = db.relationship("Negocio", back_populates="rutas")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "negocio_id": self.negocio_id,
+            "nombre": self.nombre,
+            "descripcion": self.descripcion,
+            "puntos": self.puntos or [],
+            "calles": self.calles or [],
+            "color": self.color,
+            "activa": self.activa,
+            "en_curso": self.en_curso,
+            "progreso": self.progreso or 0.0,
+            "creado_en": self.creado_en.isoformat() if self.creado_en else None,
+            "actualizado_en": (
+                self.actualizado_en.isoformat() if self.actualizado_en else None
+            ),
+        }
 
 
 class NegocioHorario(db.Model):

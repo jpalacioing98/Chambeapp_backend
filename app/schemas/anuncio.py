@@ -15,6 +15,12 @@ class AnuncioCreateSchema(Schema):
     titulo = fields.String(required=True, validate=validate.Length(min=3, max=200))
     descripcion = fields.String(required=True, validate=validate.Length(min=3, max=4000))
     categoria = fields.String(required=True, validate=validate.Length(min=2, max=120))
+    tipo = fields.String(
+        required=False,
+        load_default="empleo",
+        validate=validate.OneOf(["empleo", "servicio", "producto", "oferta"]),
+    )
+    visible_mapa = fields.Boolean(required=False, load_default=True)
     ubicacion = fields.String(required=False, allow_none=True, validate=validate.Length(max=160))
     latitud = fields.Float(required=False, allow_none=True)
     longitud = fields.Float(required=False, allow_none=True)
@@ -95,6 +101,8 @@ class AnuncioSchema(Schema):
     titulo = fields.String()
     descripcion = fields.String()
     categoria = fields.String()
+    tipo = fields.String()
+    visible_mapa = fields.Boolean()
     ubicacion = fields.String(allow_none=True)
     latitud = fields.Float(allow_none=True)
     longitud = fields.Float(allow_none=True)

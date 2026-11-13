@@ -179,9 +179,14 @@ class AnuncioRoot(MethodView):
             user_id, "REQUIRE_KYC_TO_MERCHANT", "publicar anuncios laborales"
         )
 
-        modalidad = ModalidadAnuncio(data.get("modalidad") or ModalidadAnuncio.CONTACTO)
+        tipo = data.get("tipo") or "empleo"
+        modalidad = (
+            ModalidadAnuncio(data.get("modalidad") or ModalidadAnuncio.CONTACTO)
+            if tipo == "empleo"
+            else ModalidadAnuncio.CONTACTO
+        )
         presupuesto = data.get("presupuesto")
-        if modalidad == ModalidadAnuncio.CONTRATO:
+        if tipo == "empleo" and modalidad == ModalidadAnuncio.CONTRATO:
             if presupuesto is None:
                 abort(
                     400,
@@ -201,14 +206,16 @@ class AnuncioRoot(MethodView):
             titulo=data["titulo"],
             descripcion=data["descripcion"],
             categoria=data["categoria"],
+            tipo=tipo,
+            visible_mapa=bool(data.get("visible_mapa", True)),
             ubicacion=data.get("ubicacion"),
             latitud=data.get("latitud"),
             longitud=data.get("longitud"),
-            vacantes=data.get("vacantes"),
+            vacantes=data.get("vacantes") if tipo == "empleo" else None,
             modalidad=modalidad,
             presupuesto=presupuesto,
-            fecha_deseada=data.get("fecha_deseada"),
-            horario=data.get("horario"),
+            fecha_deseada=data.get("fecha_deseada") if tipo == "empleo" else None,
+            horario=data.get("horario") if tipo == "empleo" else None,
             contract_ids=[],
             estado=EstadoAnuncio.PUBLICADO,
         )
@@ -221,14 +228,12 @@ class AnuncioRoot(MethodView):
         safe_emit("anuncio:nuevo", payload, room="anuncios")
         return _anuncio_con_negocio(anuncio)
 
-    @jwt_required()
     @blp.response(200)
     def get(self):
-        """Feed público de anuncios (todos los roles; visible en el mapa)."""
-        query = (
-            AnuncioLaboral.query.filter_by(estado=EstadoAnuncio.PUBLICADO)
-            .order_by(AnuncioLaboral.creado_en.desc())
-        )
+        """Feed público de anuncios visibles en el mapa (todos los roles)."""
+        query = AnuncioLaboral.query.filter_by(estado=EstadoAnuncio.PUBLICADO)
+        query = query.filter(AnuncioLaboral.visible_mapa.is_(True))
+        query = query.order_by(AnuncioLaboral.creado_en.desc())
         categoria = request.args.get("categoria")
         if categoria:
             query = query.filter(AnuncioLaboral.categoria == categoria)
@@ -240,11 +245,12 @@ class AnuncioRoot(MethodView):
 
 @blp.route("/negocio/<int:uid>")
 class AnunciosDelNegocio(MethodView):
-    @jwt_required()
+    @jwt_required(optional=True)
     @blp.response(200)
     def get(self, uid):
         """Anuncios del negocio (dueño ve todos + contadores; otros solo publicados)."""
-        user_id = int(get_jwt_identity())
+        identity = get_jwt_identity()
+        user_id = int(identity) if identity is not None else None
         es_dueño = user_id == uid
         query = AnuncioLaboral.query.filter_by(negocio_id=uid)
         if not es_dueño:
@@ -261,13 +267,14 @@ class AnunciosDelNegocio(MethodView):
 
 @blp.route("/<int:anuncio_id>")
 class AnuncioDetail(MethodView):
-    @jwt_required()
+    @jwt_required(optional=True)
     @blp.response(200)
     def get(self, anuncio_id):
         """Detalle del anuncio (postulaciones solo para el dueño)."""
-        user_id = int(get_jwt_identity())
+        identity = get_jwt_identity()
+        user_id = int(identity) if identity is not None else None
         anuncio = db.get_or_404(AnuncioLaboral, anuncio_id)
-        es_dueño = anuncio.negocio_id == user_id
+        es_dueño = user_id is not None and anuncio.negocio_id == user_id
         dump = AnuncioSchema().dump(_anuncio_con_negocio(anuncio))
         if es_dueño:
             dump["postulaciones"] = AnuncioPostulacionSchema(many=True).dump(

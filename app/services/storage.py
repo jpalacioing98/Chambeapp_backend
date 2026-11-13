@@ -15,7 +15,9 @@ Uso:
 
 import os
 import io
+import re
 import json
+import uuid
 import logging
 from typing import Optional
 
@@ -54,6 +56,17 @@ class StorageService:
     # partes (fotos de la chamba, cotizaciones en PDF) se sirven desde aquí
     # con permiso de SOLO lectura; la URL usa el endpoint público.
     S3_CHAT_BUCKET = os.environ.get("S3_CHAT_BUCKET", "chambeapp-chat")
+
+    # Bucket PÚBLICO de imágenes de negocios (logo, banner y galería).
+    # La galería se muestra en el perfil público, así que no puede vivir en
+    # el bucket privado (KYC/portafolio) ni devolver el host interno `minio`.
+    S3_BUSINESS_BUCKET = os.environ.get("S3_BUSINESS_BUCKET", "chambeapp-negocios")
+
+    # Bucket PÚBLICO del portafolio del PDS (fotos de trabajos). Separado del
+    # bucket privado para no exponer documentos KYC.
+    S3_PORTFOLIO_BUCKET = os.environ.get(
+        "S3_PORTFOLIO_BUCKET", "chambeapp-portafolio-publico"
+    )
     
     # Límites de archivo
     MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10MB
@@ -77,6 +90,8 @@ class StorageService:
         self._ensure_bucket()
         self._ensure_public_bucket()
         self._ensure_chat_bucket()
+        self._ensure_business_bucket()
+        self._ensure_portfolio_bucket()
     
     def _ensure_bucket(self):
         """Crea el bucket si no existe."""
@@ -151,6 +166,64 @@ class StorageService:
             )
         except (ClientError, BotoCoreError) as e:
             logger.error(f"Error aplicando política pública del chat: {e}")
+
+    def _ensure_business_bucket(self):
+        """Crea el bucket público de imágenes de negocios (SOLO lectura)."""
+        try:
+            self.client.head_bucket(Bucket=self.S3_BUSINESS_BUCKET)
+        except (ClientError, BotoCoreError):
+            try:
+                self.client.create_bucket(Bucket=self.S3_BUSINESS_BUCKET)
+                logger.info(f"Bucket público '{self.S3_BUSINESS_BUCKET}' creado")
+            except (ClientError, BotoCoreError) as e:
+                logger.error(f"Error creando bucket de negocios: {e}")
+                return
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Principal": {"AWS": ["*"]},
+                    "Action": ["s3:GetObject"],
+                    "Resource": [f"arn:aws:s3:::{self.S3_BUSINESS_BUCKET}/*"],
+                }
+            ],
+        }
+        try:
+            self.client.put_bucket_policy(
+                Bucket=self.S3_BUSINESS_BUCKET, Policy=json.dumps(policy)
+            )
+        except (ClientError, BotoCoreError) as e:
+            logger.error(f"Error aplicando política pública de negocios: {e}")
+
+    def _ensure_portfolio_bucket(self):
+        """Crea el bucket público del portafolio del PDS (SOLO lectura)."""
+        try:
+            self.client.head_bucket(Bucket=self.S3_PORTFOLIO_BUCKET)
+        except (ClientError, BotoCoreError):
+            try:
+                self.client.create_bucket(Bucket=self.S3_PORTFOLIO_BUCKET)
+                logger.info(f"Bucket público '{self.S3_PORTFOLIO_BUCKET}' creado")
+            except (ClientError, BotoCoreError) as e:
+                logger.error(f"Error creando bucket de portafolio: {e}")
+                return
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Principal": {"AWS": ["*"]},
+                    "Action": ["s3:GetObject"],
+                    "Resource": [f"arn:aws:s3:::{self.S3_PORTFOLIO_BUCKET}/*"],
+                }
+            ],
+        }
+        try:
+            self.client.put_bucket_policy(
+                Bucket=self.S3_PORTFOLIO_BUCKET, Policy=json.dumps(policy)
+            )
+        except (ClientError, BotoCoreError) as e:
+            logger.error(f"Error aplicando política pública del portafolio: {e}")
 
     def upload_chat_file(
         self, file_bytes: bytes, conversation_id: str, filename: str, content_type: str
@@ -311,6 +384,79 @@ class StorageService:
         )
         return f"{self.S3_PUBLIC_ENDPOINT}/{self.S3_PUBLIC_BUCKET}/{key}"
 
+    @staticmethod
+    def _safe_name(filename: str) -> str:
+        """Nombre de objeto seguro: sin espacios, acentos, rutas ni duplicados."""
+        stem = os.path.splitext(os.path.basename(filename or "archivo"))[0]
+        stem = re.sub(r"[^a-zA-Z0-9_-]+", "-", stem).strip("-_").lower()
+        return f"{stem[:40] or 'archivo'}-{uuid.uuid4().hex[:8]}"
+
+    @staticmethod
+    def key_from_url(url: str, bucket: str) -> Optional[str]:
+        """Extrae la clave de un objeto a partir de su URL pública."""
+        marker = f"/{bucket}/"
+        if not url or marker not in url:
+            return None
+        return url.split(marker, 1)[1] or None
+
+    def upload_business_image(
+        self, file_bytes: bytes, negocio_id: str, filename: str
+    ) -> str:
+        """Sube logo/banner/galería del negocio al bucket PÚBLICO.
+
+        Devuelve una URL con `S3_PUBLIC_ENDPOINT` (resoluble desde el
+        navegador), nunca el host interno `minio`.
+        """
+        if len(file_bytes) > self.MAX_IMAGE_SIZE:
+            raise ValueError(f"Imagen excede {self.MAX_IMAGE_SIZE} bytes")
+
+        img = Image.open(io.BytesIO(file_bytes))
+        if img.mode in ('RGBA', 'P'):
+            img = img.convert('RGB')
+        img.thumbnail(
+            (self.IMAGE_MAX_DIMENSION, self.IMAGE_MAX_DIMENSION),
+            Image.Resampling.LANCZOS
+        )
+        buffer = io.BytesIO()
+        img.save(buffer, format=self.IMAGE_FORMAT, quality=self.IMAGE_QUALITY)
+        buffer.seek(0)
+
+        key = f"negocios/{negocio_id}/{self._safe_name(filename)}.webp"
+        self.client.put_object(
+            Bucket=self.S3_BUSINESS_BUCKET,
+            Key=key,
+            Body=buffer.getvalue(),
+            ContentType="image/webp",
+        )
+        return f"{self.S3_PUBLIC_ENDPOINT}/{self.S3_BUSINESS_BUCKET}/{key}"
+
+    def upload_portfolio_image(
+        self, file_bytes: bytes, pds_id: str, filename: str
+    ) -> str:
+        """Sube una foto del portafolio del PDS al bucket PÚBLICO."""
+        if len(file_bytes) > self.MAX_IMAGE_SIZE:
+            raise ValueError(f"Imagen excede {self.MAX_IMAGE_SIZE} bytes")
+
+        img = Image.open(io.BytesIO(file_bytes))
+        if img.mode in ('RGBA', 'P'):
+            img = img.convert('RGB')
+        img.thumbnail(
+            (self.IMAGE_MAX_DIMENSION, self.IMAGE_MAX_DIMENSION),
+            Image.Resampling.LANCZOS
+        )
+        buffer = io.BytesIO()
+        img.save(buffer, format=self.IMAGE_FORMAT, quality=self.IMAGE_QUALITY)
+        buffer.seek(0)
+
+        key = f"portfolio/{pds_id}/{self._safe_name(filename)}.webp"
+        self.client.put_object(
+            Bucket=self.S3_PORTFOLIO_BUCKET,
+            Key=key,
+            Body=buffer.getvalue(),
+            ContentType="image/webp",
+        )
+        return f"{self.S3_PUBLIC_ENDPOINT}/{self.S3_PORTFOLIO_BUCKET}/{key}"
+
     def upload_video(self, file_bytes: bytes, pds_id: str, filename: str) -> str:
         """Sube video al portafolio.
         
@@ -353,14 +499,15 @@ class StorageService:
             content_type="application/pdf"
         )
     
-    def delete_file(self, key: str):
-        """Elimina un archivo del bucket.
-        
+    def delete_file(self, key: str, bucket: Optional[str] = None):
+        """Elimina un archivo del bucket (privado por defecto).
+
         Args:
             key: Ruta/clave en el bucket
+            bucket: Bucket alternativo (p. ej. el público del portafolio)
         """
         try:
-            self.client.delete_object(Bucket=self.S3_BUCKET, Key=key)
+            self.client.delete_object(Bucket=bucket or self.S3_BUCKET, Key=key)
         except ClientError as e:
             logger.error(f"Error eliminando archivo {key}: {e}")
             raise

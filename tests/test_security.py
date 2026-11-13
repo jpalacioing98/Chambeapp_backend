@@ -19,6 +19,9 @@ from app.auth.socket_auth import decode_socket_user_id
 
 PUBLIC_GET_ALLOW = {
     "/api/v1/auth/health",
+    "/api/v1/anuncios/",
+    "/api/v1/anuncios/negocio/<int:uid>",
+    "/api/v1/anuncios/<int:anuncio_id>",
     "/api/v1/legal/politica-datos",
     "/api/v1/legal/tyc",
     "/api/v1/negocios/",

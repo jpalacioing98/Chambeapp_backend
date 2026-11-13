@@ -25,12 +25,22 @@ from app.models.audit import AuditLog, write_audit
 from app.models.config import SystemConfig, FeatureFlag
 from app.models.kyc import DocumentoRequerido, DocumentoUsuario
 from app.models.subscription import Suscripcion
-from app.models.wallet import Wallet, Transaction, TipoTransaccion, TipoMoneda, Coin
+from app.models.wallet import (
+    Wallet,
+    Transaction,
+    TipoTransaccion,
+    TipoMoneda,
+    TipoMovimientoMonedas,
+    Coin,
+    PaqueteMonedas,
+    CompraPaquete,
+    MovimientoMonedas,
+)
 from app.models.modalidad import Modalidad, Milestone, TipoModalidad, EstadoHito
 from app.models.badges import BadgeType
 from app.models.negocio import (
-    Negocio, NegocioHorario, NegocioRating, NegocioReporte,
-    TipoNegocio, EstadoNegocio, EstadoReporte, TipoReporte,
+    Negocio, NegocioHorario, NegocioRating, NegocioReporte, NegocioRuta,
+    TipoNegocio, EstadoNegocio, ModalidadNegocio, EstadoReporte, TipoReporte,
 )
 # Modelos que antes solo se importaban desde su submódulo: sin registrarlos
 # aquí, db.create_all() NO creaba sus tablas (p.ej. notification_cascades)
@@ -88,7 +98,11 @@ __all__ = [
     "Transaction",
     "TipoTransaccion",
     "TipoMoneda",
+    "TipoMovimientoMonedas",
     "Coin",
+    "PaqueteMonedas",
+    "CompraPaquete",
+    "MovimientoMonedas",
     "Modalidad",
     "Milestone",
     "TipoModalidad",
@@ -99,8 +113,10 @@ __all__ = [
     "NegocioHorario",
     "NegocioRating",
     "NegocioReporte",
+    "NegocioRuta",
     "TipoNegocio",
     "EstadoNegocio",
+    "ModalidadNegocio",
     "EstadoReporte",
     "TipoReporte",
     # Modelos registrados para que create_all() cubra todo el esquema

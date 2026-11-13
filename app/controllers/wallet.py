@@ -15,12 +15,16 @@ from app.models.contract import Contract
 from app.models.solicitud import Solicitud
 from app.schemas.wallet import (
     WalletSchema,
-    WalletDepositSchema,
     WalletWithdrawSchema,
     TransactionSchema,
     CoinSchema,
     CoinBuySchema,
     CoinUseSchema,
+    PaqueteMonedasSchema,
+    PaqueteCreateSchema,
+    PaqueteUpdateSchema,
+    CompraPaqueteSchema,
+    MovimientoMonedasSchema,
     ModalidadSchema,
     ModalidadCreateSchema,
     MilestoneSchema,
@@ -30,12 +34,17 @@ from app.schemas.wallet import (
 from app.services.wallet import (
     get_or_create_wallet,
     get_wallet,
-    depositar,
     retirar,
     get_historial,
     get_saldo_monedas,
-    comprar_monedas,
+    get_movimientos_monedas,
+    get_paquetes,
+    crear_paquete,
+    actualizar_paquete,
+    eliminar_paquete,
+    comprar_paquete,
     usar_monedas,
+    get_resumen_financiero,
     crear_modalidad,
     get_modalidad,
     crear_hitos,
@@ -43,7 +52,6 @@ from app.services.wallet import (
     rechazar_hito,
     get_hitos,
     verificar_todos_aprobados,
-    PAQUETES_MONEDAS,
 )
 from app.services.pagination import paginate_query
 
@@ -53,6 +61,11 @@ blp = Blueprint("wallet", __name__, description="Billetera virtual y monedas (RF
 def _es_admin(user_id: int) -> bool:
     user = db.session.get(User, user_id)
     return user is not None and user.rol in (RolUsuario.ADMIN, RolUsuario.SUPERADMIN)
+
+
+def _es_superadmin(user_id: int) -> bool:
+    user = db.session.get(User, user_id)
+    return user is not None and user.rol == RolUsuario.SUPERADMIN
 
 
 # --------------------------------------------------------------------------
@@ -71,38 +84,13 @@ class WalletDetail(MethodView):
         return wallet
 
 
-@blp.route("/deposit")
-class WalletDeposit(MethodView):
-    @jwt_required()
-    @blp.arguments(WalletDepositSchema)
-    @blp.response(201, TransactionSchema)
-    def post(self, data):
-        """RF-25.5: deposita fondos en la billetera."""
-        user_id = int(get_jwt_identity())
-        try:
-            tx = depositar(user_id, data["monto"], data.get("pasarela", "nequi"))
-        except ValueError as e:
-            abort(400, message=str(e))
-        db.session.commit()
-
-        # P2-5: Badge awarding after first deposit (monedero_activo)
-        try:
-            from app.services.badges import check_and_award_all
-            check_and_award_all(user_id)
-            db.session.commit()
-        except Exception:
-            pass
-
-        return tx
-
-
 @blp.route("/withdraw")
 class WalletWithdraw(MethodView):
     @jwt_required()
     @blp.arguments(WalletWithdrawSchema)
     @blp.response(201, TransactionSchema)
     def post(self, data):
-        """RF-25.3: retira fondos de la billetera."""
+        """RF-25.3: retira fondos COP de la billetera."""
         user_id = int(get_jwt_identity())
         try:
             tx = retirar(user_id, data["monto"], data["cuenta_destino"])
@@ -117,22 +105,14 @@ class WalletHistory(MethodView):
     @jwt_required()
     @blp.response(200, TransactionSchema(many=True))
     def get(self):
-        """RF-25.6: historial de transacciones de la billetera.
-        
-        Supports optional page/per_page query params for pagination (P2-4).
-        If no params, returns all items (backward compatible).
-        """
+        """RF-25.6: historial de transacciones COP de la billetera."""
         user_id = int(get_jwt_identity())
         wallet = get_wallet(user_id)
         query = Transaction.query.filter_by(wallet_id=wallet.id)
 
         page = request.args.get("page")
         per_page = request.args.get("per_page")
-        result = paginate_query(query, page=page, per_page=per_page)
-
-        if isinstance(result, list):
-            return result
-        return result
+        return paginate_query(query, page=page, per_page=per_page)
 
 
 # --------------------------------------------------------------------------
@@ -144,25 +124,24 @@ class CoinsDetail(MethodView):
     @jwt_required()
     @blp.response(200)
     def get(self):
-        """RF-27.5: consulta saldo de monedas por tipo."""
+        """RF-27.5: saldo actual y totales de monedas."""
         user_id = int(get_jwt_identity())
         return get_saldo_monedas(user_id)
 
 
-@blp.route("/coins/buy")
-class CoinsBuy(MethodView):
+@blp.route("/coins/movimientos")
+class CoinsMovements(MethodView):
     @jwt_required()
-    @blp.arguments(CoinBuySchema)
-    @blp.response(201, CoinSchema)
-    def post(self, data):
-        """RF-27.1: compra monedas con dinero real."""
+    @blp.response(200, MovimientoMonedasSchema(many=True))
+    def get(self):
+        """Historial de movimientos de monedas."""
         user_id = int(get_jwt_identity())
+        limite = request.args.get("limite", 100)
         try:
-            coin = comprar_monedas(user_id, data["paquete"])
-        except ValueError as e:
-            abort(400, message=str(e))
-        db.session.commit()
-        return coin
+            limite_int = int(limite)
+        except (TypeError, ValueError):
+            limite_int = 100
+        return get_movimientos_monedas(user_id, limite_int)
 
 
 @blp.route("/coins/use")
@@ -181,12 +160,104 @@ class CoinsUse(MethodView):
         return {"mensaje": "Monedas descontadas exitosamente"}
 
 
-@blp.route("/coins/packages")
-class CoinsPackages(MethodView):
+@blp.route("/paquetes")
+class PaquetesList(MethodView):
+    @jwt_required()
+    @blp.response(200, PaqueteMonedasSchema(many=True))
+    def get(self):
+        """Paquetes de monedas activos para comprar."""
+        return get_paquetes(solo_activos=True)
+
+
+@blp.route("/coins/buy")
+class CoinsBuy(MethodView):
+    @jwt_required()
+    @blp.arguments(CoinBuySchema)
+    @blp.response(201)
+    def post(self, data):
+        """Compra un paquete de monedas (pasarela simulada)."""
+        user_id = int(get_jwt_identity())
+        try:
+            compra = comprar_paquete(user_id, data["paquete_id"])
+        except ValueError as e:
+            abort(400, message=str(e))
+        db.session.commit()
+        return {
+            "compra": CompraPaqueteSchema().dump(compra),
+            "saldo": get_saldo_monedas(user_id),
+        }
+
+
+@blp.route("/resumen")
+class WalletResumen(MethodView):
+    @jwt_required()
     @blp.response(200)
     def get(self):
-        """Lista paquetes de monedas disponibles."""
-        return PAQUETES_MONEDAS
+        """Situación financiera general y por rol."""
+        user_id = int(get_jwt_identity())
+        user = db.session.get(User, user_id)
+        if user is None:
+            abort(404, message="Usuario no encontrado.")
+        return get_resumen_financiero(user_id, user.rol.value)
+
+
+# --------------------------------------------------------------------------
+# Paquetes de monedas — administración exclusiva del Superadmin
+# --------------------------------------------------------------------------
+
+@blp.route("/admin/paquetes")
+class AdminPaquetes(MethodView):
+    @jwt_required()
+    @blp.response(200, PaqueteMonedasSchema(many=True))
+    def get(self):
+        user_id = int(get_jwt_identity())
+        if not _es_superadmin(user_id):
+            abort(403, message="Solo el superadministrador gestiona los paquetes.")
+        return get_paquetes(solo_activos=False)
+
+    @jwt_required()
+    @blp.arguments(PaqueteCreateSchema)
+    @blp.response(201, PaqueteMonedasSchema)
+    def post(self, data):
+        user_id = int(get_jwt_identity())
+        if not _es_superadmin(user_id):
+            abort(403, message="Solo el superadministrador gestiona los paquetes.")
+        try:
+            paquete = crear_paquete(data, creado_por=user_id)
+        except ValueError as e:
+            abort(400, message=str(e))
+        db.session.commit()
+        return paquete
+
+
+@blp.route("/admin/paquetes/<int:paquete_id>")
+class AdminPaqueteDetail(MethodView):
+    @jwt_required()
+    @blp.arguments(PaqueteUpdateSchema)
+    @blp.response(200, PaqueteMonedasSchema)
+    def patch(self, data, paquete_id):
+        user_id = int(get_jwt_identity())
+        if not _es_superadmin(user_id):
+            abort(403, message="Solo el superadministrador gestiona los paquetes.")
+        try:
+            paquete = actualizar_paquete(paquete_id, data)
+        except ValueError as e:
+            abort(400, message=str(e))
+        db.session.commit()
+        return paquete
+
+    @jwt_required()
+    @blp.response(200)
+    def delete(self, paquete_id):
+        user_id = int(get_jwt_identity())
+        if not _es_superadmin(user_id):
+            abort(403, message="Solo el superadministrador gestiona los paquetes.")
+        try:
+            paquete = eliminar_paquete(paquete_id)
+        except ValueError as e:
+            abort(400, message=str(e))
+        db.session.commit()
+        return {"mensaje": "Paquete desactivado", "id": paquete.id}
 
 
 # --------------------------------------------------------------------------

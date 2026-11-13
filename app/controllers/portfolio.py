@@ -68,7 +68,7 @@ class PortfolioUpload(MethodView):
         # Subir según tipo (portada)
         try:
             if tipo == 'foto':
-                url = storage.upload_image(file_bytes, str(user_id), file.filename or 'image')
+                url = storage.upload_portfolio_image(file_bytes, str(user_id), file.filename or 'image')
             elif tipo == 'video':
                 url = storage.upload_video(file_bytes, str(user_id), file.filename or 'video')
             else:
@@ -89,7 +89,7 @@ class PortfolioUpload(MethodView):
                     continue
                 try:
                     urls.append(
-                        storage.upload_image(
+                        storage.upload_portfolio_image(
                             data, str(user_id), extra.filename or campo
                         )
                     )
@@ -109,7 +109,10 @@ class PortfolioUpload(MethodView):
             tipo=tipo,
             categoria=categoria,
             precio=precio,
-            s3_key=f"portfolio/{user_id}/{file.filename}",
+            s3_key=(
+                storage.key_from_url(url, storage.S3_PORTFOLIO_BUCKET)
+                or f"portfolio/{user_id}/{file.filename}"
+            ),
             url=url,
             antes=antes,
             despues=despues,
@@ -166,9 +169,15 @@ class PortfolioItemDetail(MethodView):
         if item.pds_id != user_id:
             abort(403, message="No tienes permiso para eliminar este item")
         
-        # Eliminar de MinIO
+        # Eliminar de MinIO (bucket público nuevo o privado heredado)
         try:
-            storage.delete_file(item.s3_key)
+            key_publico = storage.key_from_url(
+                item.url or "", storage.S3_PORTFOLIO_BUCKET
+            )
+            if key_publico:
+                storage.delete_file(key_publico, bucket=storage.S3_PORTFOLIO_BUCKET)
+            elif item.s3_key:
+                storage.delete_file(item.s3_key)
         except Exception as e:
             abort(500, message=f"Error eliminando archivo: {str(e)}")
         

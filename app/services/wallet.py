@@ -9,8 +9,20 @@ Implementa la lógica de negocio para:
 
 from datetime import datetime, timedelta, timezone
 
+from sqlalchemy import func
+
 from app.extensions import db
-from app.models.wallet import Wallet, Transaction, TipoTransaccion, Coin, TipoMoneda
+from app.models.wallet import (
+    Wallet,
+    Transaction,
+    TipoTransaccion,
+    Coin,
+    TipoMoneda,
+    TipoMovimientoMonedas,
+    PaqueteMonedas,
+    CompraPaquete,
+    MovimientoMonedas,
+)
 from app.models.modalidad import Modalidad, Milestone, TipoModalidad, EstadoHito
 from app.models.contract import Contract, EstadoContrato
 from app.models.solicitud import Solicitud
@@ -36,27 +48,6 @@ def get_wallet(user_id: int) -> Wallet:
     if wallet is None:
         raise ValueError("El usuario no tiene billetera.")
     return wallet
-
-
-def depositar(user_id: int, monto: int, pasarela: str = "nequi") -> Transaction:
-    """RF-25.5: Deposita fondos en la billetera."""
-    if monto < 1000:
-        raise ValueError("El monto mínimo de depósito es $1,000 COP.")
-
-    wallet = get_or_create_wallet(user_id)
-    wallet.saldo += monto
-    wallet.updated_at = datetime.now(timezone.utc)
-
-    tx = Transaction(
-        wallet_id=wallet.id,
-        tipo=TipoTransaccion.DEPOSITO,
-        monto=monto,
-        descripcion=f"Depósito vía {pasarela}",
-        referencia=f"DEP-{pasarela.upper()}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",
-    )
-    db.session.add(tx)
-    db.session.flush()
-    return tx
 
 
 def retirar(user_id: int, monto: int, cuenta_destino: str) -> Transaction:
@@ -135,60 +126,227 @@ def get_historial(user_id: int, desde=None, hasta=None) -> list:
 
 
 # --------------------------------------------------------------------------
-# Sistema de Monedas (RF-27)
+# Sistema de Monedas (RF-27) — billetera de monedas virtuales
 # --------------------------------------------------------------------------
 
-# Paquetes de monedas (RF-27.2)
-PAQUETES_MONEDAS = {
-    "basico": {"cantidad": 50, "precio": 5000, "bonus": 0},
-    "estandar": {"cantidad": 150, "precio": 15000, "bonus": 15},  # +10%
-    "premium": {"cantidad": 350, "precio": 30000, "bonus": 50},  # +17%
-}
+def _registrar_movimiento_monedas(
+    user_id: int,
+    wallet: Wallet,
+    tipo: TipoMovimientoMonedas,
+    cantidad: int,
+    descripcion: str | None = None,
+    referencia: str | None = None,
+    paquete_id: int | None = None,
+    vence_en: datetime | None = None,
+) -> MovimientoMonedas:
+    """Aplica un movimiento al saldo de monedas y lo deja en el libro."""
+    wallet.monedas_saldo = max(0, int(wallet.monedas_saldo) + int(cantidad))
+    wallet.updated_at = datetime.now(timezone.utc)
+    mov = MovimientoMonedas(
+        user_id=user_id,
+        wallet_id=wallet.id,
+        tipo=tipo.value,
+        cantidad=int(cantidad),
+        saldo_resultante=wallet.monedas_saldo,
+        descripcion=descripcion,
+        referencia=referencia,
+        paquete_id=paquete_id,
+        vence_en=vence_en,
+    )
+    db.session.add(mov)
+    db.session.flush()
+    return mov
 
 
 def get_saldo_monedas(user_id: int) -> dict:
-    """Obtiene el saldo de monedas por tipo."""
+    """Saldo actual y totales históricos de monedas."""
+    wallet = get_or_create_wallet(user_id)
     coins = Coin.query.filter_by(user_id=user_id).all()
-    resultado = {"comprada": 0, "promocional": 0, "ganada": 0}
+    por_tipo = {"comprada": 0, "promocional": 0, "ganada": 0}
     for coin in coins:
-        if coin.tipo in resultado:
-            resultado[coin.tipo.value] += coin.cantidad
-    return resultado
+        if coin.tipo.value in por_tipo:
+            por_tipo[coin.tipo.value] += coin.cantidad
 
-
-def comprar_monedas(user_id: int, paquete: str) -> Coin:
-    """RF-27.1: Compra monedas con dinero real."""
-    if paquete not in PAQUETES_MONEDAS:
-        raise ValueError(f"Paquete no válido: {paquete}")
-
-    config = PAQUETES_MONEDAS[paquete]
-    cantidad_total = config["cantidad"] + config["bonus"]
-
-    coin = Coin(
-        user_id=user_id,
-        cantidad=cantidad_total,
-        tipo=TipoMoneda.COMPRADA,
-        vence_en=None,  # Las compradas no expiran
+    gastada = (
+        db.session.query(func.coalesce(func.sum(MovimientoMonedas.cantidad), 0))
+        .filter(
+            MovimientoMonedas.user_id == user_id,
+            MovimientoMonedas.tipo == TipoMovimientoMonedas.GASTO.value,
+        )
+        .scalar()
+        or 0
     )
-    db.session.add(coin)
+
+    return {
+        "saldo": wallet.monedas_saldo,
+        "comprada": por_tipo["comprada"],
+        "promocional": por_tipo["promocional"],
+        "ganada": por_tipo["ganada"],
+        "gastada": abs(int(gastada)),
+        "total": wallet.monedas_saldo,
+    }
+
+
+def get_movimientos_monedas(user_id: int, limite: int = 100) -> list:
+    """Historial de movimientos de monedas, más reciente primero."""
+    return (
+        MovimientoMonedas.query.filter_by(user_id=user_id)
+        .order_by(MovimientoMonedas.creado_en.desc(), MovimientoMonedas.id.desc())
+        .limit(max(1, min(int(limite), 500)))
+        .all()
+    )
+
+
+def get_paquetes(solo_activos: bool = True) -> list:
+    """Paquetes de monedas disponibles (o todos, para el superadmin)."""
+    query = PaqueteMonedas.query
+    if solo_activos:
+        query = query.filter_by(activo=True)
+    return query.order_by(PaqueteMonedas.orden.asc(), PaqueteMonedas.id.asc()).all()
+
+
+def crear_paquete(data: dict, creado_por: int | None = None) -> PaqueteMonedas:
+    """Crea un paquete de monedas (superadmin)."""
+    paquete = PaqueteMonedas(
+        nombre=data["nombre"].strip(),
+        descripcion=(data.get("descripcion") or None),
+        cantidad=int(data["cantidad"]),
+        bonus=int(data.get("bonus", 0)),
+        precio_cop=int(data["precio_cop"]),
+        activo=bool(data.get("activo", True)),
+        en_oferta=bool(data.get("en_oferta", False)),
+        precio_oferta_cop=data.get("precio_oferta_cop"),
+        oferta_desde=data.get("oferta_desde"),
+        oferta_hasta=data.get("oferta_hasta"),
+        orden=int(data.get("orden", 0)),
+        creado_por=creado_por,
+    )
+    _validar_paquete(paquete)
+    db.session.add(paquete)
     db.session.flush()
-    return coin
+    return paquete
+
+
+def actualizar_paquete(paquete_id: int, data: dict) -> PaqueteMonedas:
+    """Edita un paquete existente (parcial)."""
+    paquete = db.session.get(PaqueteMonedas, paquete_id)
+    if paquete is None:
+        raise ValueError("El paquete no existe.")
+
+    for campo in (
+        "nombre",
+        "descripcion",
+        "cantidad",
+        "bonus",
+        "precio_cop",
+        "activo",
+        "en_oferta",
+        "precio_oferta_cop",
+        "oferta_desde",
+        "oferta_hasta",
+        "orden",
+    ):
+        if campo in data:
+            valor = data[campo]
+            if campo == "nombre" and isinstance(valor, str):
+                valor = valor.strip()
+            setattr(paquete, campo, valor)
+
+    _validar_paquete(paquete)
+    db.session.flush()
+    return paquete
+
+
+def eliminar_paquete(paquete_id: int) -> PaqueteMonedas:
+    """Desactiva un paquete (no se borran compras históricas)."""
+    paquete = db.session.get(PaqueteMonedas, paquete_id)
+    if paquete is None:
+        raise ValueError("El paquete no existe.")
+    paquete.activo = False
+    db.session.flush()
+    return paquete
+
+
+def _validar_paquete(paquete: PaqueteMonedas) -> None:
+    if paquete.cantidad < 1:
+        raise ValueError("El paquete debe tener al menos 1 moneda.")
+    if paquete.precio_cop < 1:
+        raise ValueError("El precio del paquete debe ser mayor que 0.")
+    if paquete.bonus < 0:
+        raise ValueError("El bonus no puede ser negativo.")
+    if paquete.en_oferta and not paquete.precio_oferta_cop:
+        raise ValueError("Una oferta requiere precio promocional.")
+    if (
+        paquete.oferta_desde
+        and paquete.oferta_hasta
+        and paquete.oferta_desde > paquete.oferta_hasta
+    ):
+        raise ValueError("La fecha de inicio de la oferta no puede ser posterior a la de fin.")
+
+
+def comprar_paquete(
+    user_id: int,
+    paquete_id: int,
+    pasarela: str = "simulada",
+) -> CompraPaquete:
+    """Compra un paquete y acredita sus monedas al instante.
+
+    La pasarela real se conectará detrás de esta función; mientras tanto el
+    pago se registra como `simulada` y la compra queda en estado completado.
+    """
+    paquete = db.session.get(PaqueteMonedas, paquete_id)
+    if paquete is None or not paquete.activo:
+        raise ValueError("El paquete no está disponible.")
+
+    total_monedas = int(paquete.cantidad) + int(paquete.bonus or 0)
+    precio = paquete.precio_efectivo()
+
+    compra = CompraPaquete(
+        user_id=user_id,
+        paquete_id=paquete.id,
+        monedas=total_monedas,
+        precio_cop=precio,
+        pasarela=pasarela,
+        estado="completado",
+        referencia=f"CMP-{user_id}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}",
+    )
+    db.session.add(compra)
+    db.session.flush()
+
+    wallet = get_or_create_wallet(user_id)
+    _registrar_movimiento_monedas(
+        user_id,
+        wallet,
+        TipoMovimientoMonedas.COMPRA,
+        total_monedas,
+        descripcion=f"Compra de {paquete.nombre}",
+        referencia=compra.referencia,
+        paquete_id=paquete.id,
+    )
+
+    # Compatibilidad con el desglose por tipo de moneda.
+    db.session.add(
+        Coin(user_id=user_id, cantidad=total_monedas, tipo=TipoMoneda.COMPRADA)
+    )
+    db.session.flush()
+    return compra
 
 
 def usar_monedas(user_id: int, cantidad: int, motivo: str) -> bool:
-    """RF-27.2: Usa monedas (descuenta del saldo)."""
-    saldo = get_saldo_monedas(user_id)
-    total_disponible = saldo["comprada"] + saldo["promocional"] + saldo["ganada"]
+    """Descuenta monedas del saldo y lo registra en el libro."""
+    if cantidad < 1:
+        raise ValueError("La cantidad de monedas debe ser mayor que 0.")
 
-    if total_disponible < cantidad:
+    wallet = get_or_create_wallet(user_id)
+    if wallet.monedas_saldo < cantidad:
         raise ValueError("Monedas insuficientes.")
 
-    # Descontar primero promocionales (pesan menos), luego ganadas, luego compradas
+    # Descontar primero promocionales, luego ganadas, luego compradas
     restante = cantidad
-    for tipo in ["promocional", "ganada", "comprada"]:
+    for tipo in (TipoMoneda.PROMOCIONAL, TipoMoneda.GANADA, TipoMoneda.COMPRADA):
         if restante <= 0:
             break
-        coins = Coin.query.filter_by(user_id=user_id, tipo=TipoMoneda(tipo)).all()
+        coins = Coin.query.filter_by(user_id=user_id, tipo=tipo).all()
         for coin in coins:
             if restante <= 0:
                 break
@@ -199,48 +357,237 @@ def usar_monedas(user_id: int, cantidad: int, motivo: str) -> bool:
                 coin.cantidad -= restante
                 restante = 0
 
-    db.session.flush()
+    _registrar_movimiento_monedas(
+        user_id,
+        wallet,
+        TipoMovimientoMonedas.GASTO,
+        -cantidad,
+        descripcion=motivo,
+        referencia=motivo,
+    )
     return True
 
 
-def dar_monedas_promocionales(user_id: int, cantidad: int, dias_vencimiento: int = 30) -> Coin:
+def dar_monedas_promocionales(user_id: int, cantidad: int, dias_vencimiento: int = 30) -> MovimientoMonedas:
     """Otorga monedas promocionales (bonificaciones)."""
-    coin = Coin(
-        user_id=user_id,
-        cantidad=cantidad,
-        tipo=TipoMoneda.PROMOCIONAL,
-        vence_en=datetime.now(timezone.utc) + timedelta(days=dias_vencimiento),
+    wallet = get_or_create_wallet(user_id)
+    vence = datetime.now(timezone.utc) + timedelta(days=dias_vencimiento)
+    db.session.add(
+        Coin(
+            user_id=user_id,
+            cantidad=cantidad,
+            tipo=TipoMoneda.PROMOCIONAL,
+            vence_en=vence,
+        )
     )
-    db.session.add(coin)
-    db.session.flush()
-    return coin
+    return _registrar_movimiento_monedas(
+        user_id,
+        wallet,
+        TipoMovimientoMonedas.PROMOCIONAL,
+        cantidad,
+        descripcion="Monedas promocionales",
+        vence_en=vence,
+    )
 
 
-def dar_monedas_ganadas(user_id: int, cantidad: int) -> Coin:
+def dar_monedas_ganadas(user_id: int, cantidad: int) -> MovimientoMonedas:
     """Otorga monedas por completar servicios."""
-    coin = Coin(
-        user_id=user_id,
-        cantidad=cantidad,
-        tipo=TipoMoneda.GANADA,
-        vence_en=None,  # Las ganadas no expiran
+    wallet = get_or_create_wallet(user_id)
+    db.session.add(
+        Coin(user_id=user_id, cantidad=cantidad, tipo=TipoMoneda.GANADA)
     )
-    db.session.add(coin)
-    db.session.flush()
-    return coin
+    return _registrar_movimiento_monedas(
+        user_id,
+        wallet,
+        TipoMovimientoMonedas.GANADA,
+        cantidad,
+        descripcion="Monedas ganadas",
+    )
 
 
 def limpiar_monedas_vencidas() -> int:
-    """Limpia monedas promocionales vencidas."""
+    """Expira monedas promocionales vencidas y ajusta el saldo."""
     cutoff = datetime.now(timezone.utc)
     vencidas = Coin.query.filter(
         Coin.tipo == TipoMoneda.PROMOCIONAL,
+        Coin.vence_en.isnot(None),
         Coin.vence_en < cutoff,
         Coin.cantidad > 0,
     ).all()
     for coin in vencidas:
+        wallet = get_or_create_wallet(coin.user_id)
+        a_expirar = min(coin.cantidad, wallet.monedas_saldo)
         coin.cantidad = 0
+        if a_expirar > 0:
+            _registrar_movimiento_monedas(
+                coin.user_id,
+                wallet,
+                TipoMovimientoMonedas.VENCIMIENTO,
+                -a_expirar,
+                descripcion="Vencimiento de monedas promocionales",
+            )
     db.session.flush()
     return len(vencidas)
+
+
+# --------------------------------------------------------------------------
+# Situación financiera por rol
+# --------------------------------------------------------------------------
+
+def get_resumen_financiero(user_id: int, rol: str) -> dict:
+    """Resumen de monedas + finanzas de la actividad en COP.
+
+    Las cifras COP NO son el saldo interno de la billetera: representan lo
+    que el usuario ha ganado o gastado dentro de la app (chambas, marañas,
+    contratos, comisiones y retiros).
+    """
+    monedas = get_saldo_monedas(user_id)
+
+    def _tx_total(tipo: TipoTransaccion) -> float:
+        total = (
+            db.session.query(func.coalesce(func.sum(Transaction.monto), 0))
+            .join(Wallet, Wallet.id == Transaction.wallet_id)
+            .filter(
+                Wallet.user_id == user_id,
+                Transaction.tipo == tipo,
+            )
+            .scalar()
+            or 0
+        )
+        return abs(float(total))
+
+    from app.models.contract import Contract, EstadoContrato
+    from app.models.marana import Marana, EstadoMarana
+
+    contratos_pds = Contract.query.filter_by(proveedor_id=user_id).all()
+    contratos_pds_ok = [
+        c for c in contratos_pds if c.estado == EstadoContrato.COMPLETADO
+    ]
+    contratos_cliente = Contract.query.filter_by(solicitante_id=user_id).all()
+    contratos_cliente_ok = [
+        c for c in contratos_cliente if c.estado == EstadoContrato.COMPLETADO
+    ]
+
+    maranas_pds = Marana.query.filter(
+        Marana.pds_asignado_id == user_id,
+        Marana.estado == EstadoMarana.PAGADO,
+    ).all()
+    maranas_cliente = Marana.query.filter(
+        Marana.solicitante_id == user_id,
+        Marana.estado == EstadoMarana.PAGADO,
+    ).all()
+
+    valor_chambas = sum(
+        float(c.monto or (c.service.presupuesto if c.service else 0) or 0)
+        for c in contratos_pds_ok
+    )
+    valor_maranas = sum(
+        float(m.pago_monto_final or m.presupuesto or 0) for m in maranas_pds
+    )
+    valor_contratos_cliente = sum(
+        float(c.monto or (c.service.presupuesto if c.service else 0) or 0)
+        for c in contratos_cliente_ok
+    )
+    valor_maranas_cliente = sum(
+        float(m.pago_monto_final or m.presupuesto or 0)
+        for m in maranas_cliente
+    )
+    comisiones = _tx_total(TipoTransaccion.COMISION)
+    retiros = _tx_total(TipoTransaccion.RETIRO)
+
+    if rol == "pds":
+        ingresos_detalle = {
+            "chambas_cop": valor_chambas,
+            "maranas_cop": valor_maranas,
+            "otros_cop": 0.0,
+        }
+        egresos_detalle = {
+            "chambas_cop": 0.0,
+            "maranas_cop": 0.0,
+            "comisiones_cop": comisiones,
+            "otros_cop": 0.0,
+        }
+    else:
+        # Solicitante y comerciante: pagan contratos/marañas dentro de la app.
+        ingresos_detalle = {
+            "chambas_cop": 0.0,
+            "maranas_cop": 0.0,
+            "otros_cop": 0.0,
+        }
+        egresos_detalle = {
+            "chambas_cop": valor_contratos_cliente,
+            "maranas_cop": valor_maranas_cliente,
+            "comisiones_cop": comisiones,
+            "otros_cop": 0.0,
+        }
+
+    ingresos = sum(ingresos_detalle.values())
+    egresos = sum(egresos_detalle.values())
+
+    resumen: dict = {
+        "rol": rol,
+        "monedas": {
+            "saldo": monedas["saldo"],
+            "compradas": monedas["comprada"],
+            "gastadas": monedas["gastada"],
+            "promocionales": monedas["promocional"],
+            "ganadas": monedas["ganada"],
+        },
+        "finanzas": {
+            "ingresos_cop": ingresos,
+            "egresos_cop": egresos,
+            "neto_cop": ingresos - egresos,
+            "ingresos_detalle": ingresos_detalle,
+            "egresos_detalle": egresos_detalle,
+            "retiros_cop": retiros,
+        },
+    }
+
+    if rol == "pds":
+        resumen["pds"] = {
+            "contratos_total": len(contratos_pds),
+            "contratos_completados": len(contratos_pds_ok),
+            "valor_contratos_cop": sum(
+                float(c.monto or (c.service.presupuesto if c.service else 0) or 0)
+                for c in contratos_pds
+            ),
+            "valor_completados_cop": valor_chambas,
+            "ganancias_chambas_cop": valor_chambas,
+            "ganancias_maranas_cop": valor_maranas,
+            "retiros_cop": retiros,
+            "comisiones_cop": comisiones,
+            "gastado_plataforma_monedas": monedas["gastada"],
+        }
+
+    elif rol == "merchant":
+        from app.models.anuncio import (
+            AnuncioLaboral,
+            AnuncioPostulacion,
+            EstadoAnuncio,
+        )
+
+        anuncios = AnuncioLaboral.query.filter_by(negocio_id=user_id).all()
+        publicados = [a for a in anuncios if a.estado == EstadoAnuncio.PUBLICADO]
+        postulaciones = (
+            db.session.query(func.count(AnuncioPostulacion.id))
+            .join(
+                AnuncioLaboral,
+                AnuncioLaboral.id == AnuncioPostulacion.anuncio_id,
+            )
+            .filter(AnuncioLaboral.negocio_id == user_id)
+            .scalar()
+            or 0
+        )
+        resumen["merchant"] = {
+            "anuncios_total": len(anuncios),
+            "anuncios_publicados": len(publicados),
+            "postulaciones_recibidas": int(postulaciones),
+            "gastado_plataforma_monedas": monedas["gastada"],
+            "ventas_cop": None,  # Pendiente: no existe modelo de ventas.
+        }
+
+    return resumen
+
 
 
 # --------------------------------------------------------------------------

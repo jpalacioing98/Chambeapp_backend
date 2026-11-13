@@ -472,10 +472,19 @@ class TestNegocioImagenUpload:
                 "categoria_principal": "gastronomia",
             }, headers=headers)
 
-    def _upload(self, client, nid, headers, filename="foto.jpg", content_type="image/jpeg"):
+    def _upload(
+        self,
+        client,
+        nid,
+        headers,
+        filename="foto.jpg",
+        content_type="image/jpeg",
+        destino=None,
+    ):
         import io
+        qs = f"?destino={destino}" if destino else ""
         return client.post(
-            f"/api/v1/negocios/{nid}/imagenes/upload",
+            f"/api/v1/negocios/{nid}/imagenes/upload{qs}",
             data={"file": (io.BytesIO(b"\xff\xd8\xff\xe0fakejpeg"), filename, content_type)},
             headers=headers,
             content_type="multipart/form-data",
@@ -488,7 +497,7 @@ class TestNegocioImagenUpload:
         nid = r.get_json()["id"]
 
         with patch("app.services.storage.storage") as mock_storage:
-            mock_storage.upload_image.return_value = "https://minio/negocios/1/foto.webp"
+            mock_storage.upload_business_image.return_value = "https://minio/negocios/1/foto.webp"
             resp = self._upload(client, nid, h)
         assert resp.status_code == 201
         data = resp.get_json()
@@ -498,6 +507,46 @@ class TestNegocioImagenUpload:
         # La URL quedó en el array imagenes del negocio
         detalle = client.get(f"/api/v1/negocios/{nid}").get_json()
         assert "https://minio/negocios/1/foto.webp" in detalle["imagenes"]
+
+    def test_upload_logo_no_entra_a_galeria(self, client):
+        """?destino=logo guarda logo_url y NO toca la galería."""
+        h = _create_merchant(client, "up_logo@test.com")
+        r = self._crear_negocio(client, h)
+        nid = r.get_json()["id"]
+
+        with patch("app.services.storage.storage") as mock_storage:
+            mock_storage.upload_business_image.return_value = "https://minio/negocios/1/logo.webp"
+            resp = self._upload(client, nid, h, destino="logo")
+        assert resp.status_code == 201
+        assert resp.get_json()["destino"] == "logo"
+
+        detalle = client.get(f"/api/v1/negocios/{nid}").get_json()
+        assert detalle["logo_url"] == "https://minio/negocios/1/logo.webp"
+        assert detalle["imagenes"] == []
+
+    def test_upload_banner_no_entra_a_galeria(self, client):
+        """?destino=banner guarda banner_url y NO toca la galería."""
+        h = _create_merchant(client, "up_banner@test.com")
+        r = self._crear_negocio(client, h)
+        nid = r.get_json()["id"]
+
+        with patch("app.services.storage.storage") as mock_storage:
+            mock_storage.upload_business_image.return_value = "https://minio/negocios/1/banner.webp"
+            resp = self._upload(client, nid, h, destino="banner")
+        assert resp.status_code == 201
+        assert resp.get_json()["destino"] == "banner"
+
+        detalle = client.get(f"/api/v1/negocios/{nid}").get_json()
+        assert detalle["banner_url"] == "https://minio/negocios/1/banner.webp"
+        assert detalle["imagenes"] == []
+
+    def test_upload_destino_invalido(self, client):
+        """?destino=foo → 400."""
+        h = _create_merchant(client, "up_dest@test.com")
+        r = self._crear_negocio(client, h)
+        nid = r.get_json()["id"]
+        resp = self._upload(client, nid, h, destino="foo")
+        assert resp.status_code == 400
 
     def test_upload_imagen_no_owner(self, client):
         """Otro merchant no puede subir → 403."""

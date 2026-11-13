@@ -2,7 +2,13 @@
 
 from marshmallow import Schema, fields, validate
 
-from app.models.negocio import TipoNegocio, EstadoNegocio, EstadoReporte, TipoReporte
+from app.models.negocio import (
+    TipoNegocio,
+    EstadoNegocio,
+    ModalidadNegocio,
+    EstadoReporte,
+    TipoReporte,
+)
 
 
 class HorarioSchema(Schema):
@@ -13,9 +19,62 @@ class HorarioSchema(Schema):
 
 
 class ServicioSchema(Schema):
-    """Servicio del negocio: solo título + descripción."""
-    titulo = fields.String(required=True)
+    """Servicio del negocio: solo título + descripción.
+
+    `titulo` no es obligatorio para tolerar servicios antiguos (seed) que
+    solo traen descripción; editarlos no debe romper el PUT de la ficha.
+    """
+    titulo = fields.String(load_default="", validate=validate.Length(max=150))
     descripcion = fields.String(allow_none=True)
+
+
+class RutaPuntoSchema(Schema):
+    """Punto del trazado de una ruta (coordenadas WGS84)."""
+    lat = fields.Float(required=True, validate=validate.Range(min=-90, max=90))
+    lng = fields.Float(required=True, validate=validate.Range(min=-180, max=180))
+
+
+class NegocioRutaCreateSchema(Schema):
+    nombre = fields.String(required=True, validate=validate.Length(min=1, max=80))
+    descripcion = fields.String(allow_none=True)
+    puntos = fields.List(
+        fields.Nested(RutaPuntoSchema),
+        required=True,
+        validate=validate.Length(min=2, max=500),
+    )
+    calles = fields.List(fields.String(), load_default=[])
+    color = fields.String(allow_none=True, validate=validate.Length(max=9))
+    activa = fields.Boolean(load_default=True)
+
+
+class NegocioRutaUpdateSchema(Schema):
+    nombre = fields.String(validate=validate.Length(min=1, max=80))
+    descripcion = fields.String(allow_none=True)
+    puntos = fields.List(
+        fields.Nested(RutaPuntoSchema),
+        validate=validate.Length(min=2, max=500),
+    )
+    calles = fields.List(fields.String())
+    color = fields.String(allow_none=True, validate=validate.Length(max=9))
+    activa = fields.Boolean()
+    # Control del recorrido (solo una ruta en curso por negocio)
+    en_curso = fields.Boolean()
+    progreso = fields.Float(validate=validate.Range(min=0, max=1))
+
+
+class NegocioRutaResponseSchema(Schema):
+    id = fields.Integer()
+    negocio_id = fields.Integer()
+    nombre = fields.String()
+    descripcion = fields.String(allow_none=True)
+    puntos = fields.List(fields.Nested(RutaPuntoSchema))
+    calles = fields.List(fields.String())
+    color = fields.String(allow_none=True)
+    activa = fields.Boolean()
+    en_curso = fields.Boolean()
+    progreso = fields.Float()
+    creado_en = fields.String(allow_none=True)
+    actualizado_en = fields.String(allow_none=True)
 
 
 class NegocioCreateSchema(Schema):
@@ -23,6 +82,10 @@ class NegocioCreateSchema(Schema):
     descripcion = fields.String(allow_none=True)
     tipo = fields.String(load_default="comercio",
                          validate=validate.OneOf([e.value for e in TipoNegocio]))
+    modalidad = fields.String(
+        load_default="estatico",
+        validate=validate.OneOf([e.value for e in ModalidadNegocio]),
+    )
     latitud = fields.Float(required=True)
     longitud = fields.Float(required=True)
     direccion = fields.String(required=True)
@@ -44,6 +107,9 @@ class NegocioUpdateSchema(Schema):
     nombre = fields.String(validate=validate.Length(max=150))
     descripcion = fields.String(allow_none=True)
     tipo = fields.String(validate=validate.OneOf([e.value for e in TipoNegocio]))
+    modalidad = fields.String(
+        validate=validate.OneOf([e.value for e in ModalidadNegocio])
+    )
     logo_url = fields.String(allow_none=True)
     banner_url = fields.String(allow_none=True)
     imagenes = fields.List(fields.String())
@@ -72,6 +138,7 @@ class NegocioResponseSchema(Schema):
     slug = fields.String()
     descripcion = fields.String(allow_none=True)
     tipo = fields.String()
+    modalidad = fields.String()
     logo_url = fields.String(allow_none=True)
     banner_url = fields.String(allow_none=True)
     imagenes = fields.List(fields.String())
@@ -146,6 +213,7 @@ class NegocioRatingResponseSchema(Schema):
 
 class NegocioMapPinSchema(Schema):
     id = fields.Integer()
+    owner_id = fields.Integer()
     nombre = fields.String()
     slug = fields.String()
     lat = fields.Float()
@@ -155,6 +223,19 @@ class NegocioMapPinSchema(Schema):
     verificado = fields.Boolean()
     abierto = fields.Boolean()
     logo_url = fields.String(allow_none=True)
+    modalidad = fields.String()
+
+
+class NegocioMapRutaSchema(Schema):
+    """Ruta en curso que el mapa público dibuja en vivo."""
+    id = fields.Integer()
+    negocio_id = fields.Integer()
+    negocio_nombre = fields.String()
+    nombre = fields.String()
+    puntos = fields.List(fields.Nested(RutaPuntoSchema))
+    calles = fields.List(fields.String())
+    color = fields.String(allow_none=True)
+    progreso = fields.Float()
 
 
 class NegocioMapClusterSchema(Schema):
@@ -167,3 +248,4 @@ class NegocioMapClusterSchema(Schema):
 class NegocioMapResponseSchema(Schema):
     clusters = fields.List(fields.Nested(NegocioMapClusterSchema))
     pins = fields.List(fields.Nested(NegocioMapPinSchema))
+    rutas = fields.List(fields.Nested(NegocioMapRutaSchema))

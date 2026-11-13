@@ -60,6 +60,10 @@ class AnuncioLaboral(db.Model):
     titulo = db.Column(db.String(200), nullable=False)
     descripcion = db.Column(db.Text, nullable=False)
     categoria = db.Column(db.String(120), nullable=False)
+    # Tipo de anuncio: empleo | servicio | producto | oferta.
+    tipo = db.Column(db.String(12), nullable=False, default="empleo")
+    # true → aparece en el mapa; false → solo en el perfil público.
+    visible_mapa = db.Column(db.Boolean, nullable=False, default=True)
     ubicacion = db.Column(db.String(160), nullable=True)
     latitud = db.Column(db.Float, nullable=True)
     longitud = db.Column(db.Float, nullable=True)

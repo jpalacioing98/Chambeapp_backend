@@ -14,13 +14,16 @@ from app.extensions import db
 from app.ai.geo import haversine_km, is_postgis
 from app.models.user import User, RolUsuario
 from app.models.negocio import (
-    Negocio, NegocioHorario, NegocioRating, NegocioReporte,
-    TipoNegocio, EstadoNegocio, EstadoReporte, TipoReporte,
+    Negocio, NegocioHorario, NegocioRating, NegocioReporte, NegocioRuta,
+    TipoNegocio, EstadoNegocio, ModalidadNegocio, EstadoReporte, TipoReporte,
 )
 from app.schemas.negocios import (
     NegocioCreateSchema,
     NegocioUpdateSchema,
     NegocioResponseSchema,
+    NegocioRutaCreateSchema,
+    NegocioRutaUpdateSchema,
+    NegocioRutaResponseSchema,
     HorarioSchema,
     NegocioReporteSchema,
     NegocioReporteResponseSchema,
@@ -74,6 +77,7 @@ def _pin_negocio(negocio: Negocio) -> dict:
     """Pin mínimo del negocio para refrescar el mapa en vivo."""
     return {
         "id": negocio.id,
+        "owner_id": negocio.owner_id,
         "nombre": negocio.nombre,
         "slug": negocio.slug,
         "lat": negocio.latitud,
@@ -83,7 +87,38 @@ def _pin_negocio(negocio: Negocio) -> dict:
         "verificado": negocio.verificado,
         "abierto": calcular_estado_horario(negocio.horarios).get("esta_abierto", False),
         "logo_url": negocio.logo_url,
+        "modalidad": negocio.modalidad,
     }
+
+
+def _ruta_map_payload(ruta: NegocioRuta, negocio: Negocio | None = None) -> dict:
+    """Ruta mínima para pintar la estela en el mapa público."""
+    return {
+        "id": ruta.id,
+        "negocio_id": ruta.negocio_id,
+        "negocio_nombre": (
+            negocio.nombre if negocio is not None else ruta.negocio.nombre
+        ),
+        "nombre": ruta.nombre,
+        "puntos": ruta.puntos or [],
+        "calles": ruta.calles or [],
+        "color": ruta.color,
+        "progreso": ruta.progreso or 0.0,
+    }
+
+
+def _emit_ruta(event: str, negocio: Negocio, ruta: NegocioRuta | None,
+               *, eliminar: bool = False) -> None:
+    """Notifica rutas: al owner y a la sala del mapa (estela en vivo)."""
+    payload = {
+        "negocio_id": negocio.id,
+        "ruta_id": ruta.id if ruta is not None else None,
+        "eliminada": eliminar,
+        "ruta": _ruta_map_payload(ruta, negocio) if ruta is not None else None,
+        "en_curso": bool(ruta.en_curso) if ruta is not None else False,
+    }
+    safe_emit(event, payload, room=f"user:{negocio.owner_id}")
+    safe_emit(event, payload, room="mapa")
 
 
 def _emit_negocio(event: str, negocio: Negocio, *, eliminar: bool = False) -> None:
@@ -225,14 +260,22 @@ class NegocioDetail(MethodView):
         _ensure_owner(negocio, user_id)
 
         for key, value in data.items():
-            if value is not None:
-                setattr(negocio, key, value)
+            # Se aplica también `None` para poder vaciar campos (WhatsApp,
+            # Instagram, descripción…) al guardar la configuración.
+            setattr(negocio, key, value)
+
+        # Al volver a estático se detiene cualquier ruta en curso.
+        if data.get("modalidad") == ModalidadNegocio.ESTATICO.value:
+            for ruta in negocio.rutas:
+                ruta.en_curso = False
+                ruta.progreso = 0.0
 
         # Regenerar geom si cambiaron coordenadas
         if "latitud" in data or "longitud" in data:
-            negocio.geom = text(
-                f"ST_SetSRID(ST_MakePoint({negocio.longitud}, {negocio.latitud}), 4326)"
-            )
+            if negocio.latitud is not None and negocio.longitud is not None:
+                negocio.geom = text(
+                    f"ST_SetSRID(ST_MakePoint({negocio.longitud}, {negocio.latitud}), 4326)"
+                )
 
         negocio.actualizado_en = datetime.now(timezone.utc)
         db.session.commit()
@@ -313,6 +356,7 @@ class NegociosMapa(MethodView):
             horario = calcular_estado_horario(n.horarios)
             pins.append({
                 "id": n.id,
+                "owner_id": n.owner_id,
                 "nombre": n.nombre,
                 "slug": n.slug,
                 "lat": n.latitud,
@@ -322,6 +366,7 @@ class NegociosMapa(MethodView):
                 "verificado": n.verificado,
                 "abierto": horario.get("esta_abierto", False),
                 "logo_url": n.logo_url,
+                "modalidad": n.modalidad,
             })
 
         # Clustering simple por celda de grilla (round 2 decimales)
@@ -345,7 +390,33 @@ class NegociosMapa(MethodView):
             else:
                 single_pins.extend(items)
 
-        return {"clusters": clusters, "pins": single_pins}
+        # Rutas en curso (ambulantes): el mapa dibuja solo la estela activa.
+        ids = [n.id for n in negocios]
+        rutas = []
+        if ids:
+            en_curso = (
+                NegocioRuta.query
+                .filter(
+                    NegocioRuta.negocio_id.in_(ids),
+                    NegocioRuta.en_curso.is_(True),
+                    NegocioRuta.activa.is_(True),
+                )
+                .all()
+            )
+            nombres = {n.id: n.nombre for n in negocios}
+            for ruta in en_curso:
+                rutas.append({
+                    "id": ruta.id,
+                    "negocio_id": ruta.negocio_id,
+                    "negocio_nombre": nombres.get(ruta.negocio_id, ""),
+                    "nombre": ruta.nombre,
+                    "puntos": ruta.puntos or [],
+                    "calles": ruta.calles or [],
+                    "color": ruta.color,
+                    "progreso": ruta.progreso or 0.0,
+                })
+
+        return {"clusters": clusters, "pins": single_pins, "rutas": rutas}
 
 
 # ── Búsqueda fuzzy ────────────────────────────────────────────────────
@@ -671,10 +742,22 @@ class NegocioImagenUpload(MethodView):
     @blp.response(201)
     @jwt_required()
     def post(self, negocio_id):
-        """Sube una imagen real del negocio a MinIO (Form-data con campo 'file')."""
+        """Sube una imagen real del negocio a MinIO (Form-data con campo 'file').
+
+        Query `destino`:
+            galeria (default) → se agrega a `imagenes`
+            logo              → se guarda en `logo_url`
+            banner            → se guarda en `banner_url`
+
+        Logo y banner NO forman parte de la galería del negocio.
+        """
         user_id = int(get_jwt_identity())
         negocio = _get_negocio_or_404(negocio_id)
         _ensure_owner(negocio, user_id)
+
+        destino = (request.args.get("destino") or "galeria").lower()
+        if destino not in ("galeria", "logo", "banner"):
+            abort(400, message="Destino no válido. Usa: galeria, logo o banner.")
 
         # Validar archivo
         file = request.files.get("file")
@@ -695,9 +778,9 @@ class NegocioImagenUpload(MethodView):
         if len(file_bytes) > 5 * 1024 * 1024:
             abort(400, message="El archivo excede el límite de 5MB.")
 
-        # Límite 20 imágenes por negocio
+        # Límite 20 imágenes por negocio (solo galería)
         imagenes_actuales = list(negocio.imagenes or [])
-        if len(imagenes_actuales) >= 20:
+        if destino == "galeria" and len(imagenes_actuales) >= 20:
             abort(400, message="Máximo 20 imágenes por negocio.")
 
         # Subir a MinIO
@@ -708,17 +791,130 @@ class NegocioImagenUpload(MethodView):
         try:
             import time
             filename = f"negocio_{negocio_id}_{int(time.time())}"
-            url = storage.upload_image(file_bytes, str(negocio_id), filename)
+            url = storage.upload_business_image(file_bytes, str(negocio_id), filename)
         except ValueError as e:
             abort(400, message=str(e))
         except Exception as e:
             abort(500, message=f"Error subiendo imagen: {str(e)}")
 
-        # Agregar URL al array de imágenes del negocio
-        imagenes_actuales.append(url)
-        negocio.imagenes = imagenes_actuales
+        # Logo y banner se guardan aparte: no contaminan la galería.
+        if destino == "logo":
+            negocio.logo_url = url
+        elif destino == "banner":
+            negocio.banner_url = url
+        else:
+            imagenes_actuales.append(url)
+            negocio.imagenes = imagenes_actuales
+
         negocio.actualizado_en = datetime.now(timezone.utc)
         db.session.commit()
 
         _emit_negocio("negocio:actualizado", negocio)
-        return {"url": url, "negocio_id": negocio_id}, 201
+        return {"url": url, "negocio_id": negocio_id, "destino": destino}, 201
+
+# -- Rutas del negocio ambulante ---------------------------------------
+
+def _ruta_of_negocio_or_404(negocio_id: int, ruta_id: int) -> NegocioRuta:
+    ruta = NegocioRuta.query.filter_by(
+        id=ruta_id, negocio_id=negocio_id
+    ).first()
+    if ruta is None:
+        abort(404, message="Ruta no encontrada.")
+    return ruta
+
+
+def _solo_una_en_curso(negocio_id: int, ruta_id: int) -> None:
+    """Deja en curso únicamente la ruta indicada."""
+    (
+        NegocioRuta.query
+        .filter(
+            NegocioRuta.negocio_id == negocio_id,
+            NegocioRuta.id != ruta_id,
+            NegocioRuta.en_curso.is_(True),
+        )
+        .update({"en_curso": False, "progreso": 0.0}, synchronize_session=False)
+    )
+
+
+@blp.route("/<int:negocio_id>/rutas")
+class NegocioRutas(MethodView):
+    @blp.doc()
+    @blp.response(200, NegocioRutaResponseSchema(many=True))
+    def get(self, negocio_id):
+        """Lista pública de rutas del negocio (perfil público)."""
+        negocio = _get_negocio_or_404(negocio_id)
+        return negocio.rutas
+
+    @blp.doc()
+    @blp.arguments(NegocioRutaCreateSchema)
+    @blp.response(201, NegocioRutaResponseSchema)
+    @jwt_required()
+    def post(self, data, negocio_id):
+        """Crea una ruta (solo owner y negocio ambulante)."""
+        user_id = int(get_jwt_identity())
+        negocio = _get_negocio_or_404(negocio_id)
+        _ensure_owner(negocio, user_id)
+
+        if negocio.modalidad != ModalidadNegocio.AMBULANTE.value:
+            abort(400, message="Activa la modalidad ambulante para crear rutas.")
+
+        ruta = NegocioRuta(
+            negocio_id=negocio_id,
+            nombre=data["nombre"].strip(),
+            descripcion=data.get("descripcion"),
+            puntos=data["puntos"],
+            calles=data.get("calles", []),
+            color=data.get("color"),
+            activa=data.get("activa", True),
+        )
+        db.session.add(ruta)
+        db.session.commit()
+        _emit_ruta("negocio:ruta", negocio, ruta)
+        return ruta
+
+
+@blp.route("/<int:negocio_id>/rutas/<int:ruta_id>")
+class NegocioRutaDetail(MethodView):
+    @blp.doc()
+    @blp.arguments(NegocioRutaUpdateSchema)
+    @blp.response(200, NegocioRutaResponseSchema)
+    @jwt_required()
+    def put(self, data, negocio_id, ruta_id):
+        """Actualiza una ruta (incluye iniciar/detener y progreso)."""
+        user_id = int(get_jwt_identity())
+        negocio = _get_negocio_or_404(negocio_id)
+        _ensure_owner(negocio, user_id)
+        ruta = _ruta_of_negocio_or_404(negocio_id, ruta_id)
+
+        if data.get("en_curso") and negocio.modalidad != ModalidadNegocio.AMBULANTE.value:
+            abort(400, message="Activa la modalidad ambulante para iniciar rutas.")
+
+        if data.get("en_curso"):
+            _solo_una_en_curso(negocio_id, ruta.id)
+            if "progreso" not in data:
+                ruta.progreso = 0.0
+
+        for key, value in data.items():
+            setattr(ruta, key, value)
+
+        if data.get("en_curso") is False and "progreso" not in data:
+            ruta.progreso = 0.0
+
+        db.session.commit()
+        _emit_ruta("negocio:ruta", negocio, ruta)
+        return ruta
+
+    @blp.doc()
+    @blp.response(204)
+    @jwt_required()
+    def delete(self, negocio_id, ruta_id):
+        """Elimina una ruta del negocio."""
+        user_id = int(get_jwt_identity())
+        negocio = _get_negocio_or_404(negocio_id)
+        _ensure_owner(negocio, user_id)
+        ruta = _ruta_of_negocio_or_404(negocio_id, ruta_id)
+
+        _emit_ruta("negocio:ruta", negocio, ruta, eliminar=True)
+        db.session.delete(ruta)
+        db.session.commit()
+        return "", 204

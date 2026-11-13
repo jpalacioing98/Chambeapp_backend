@@ -148,6 +148,24 @@ def finalizar_chamba(chamba: Chamba, estrellas: int, comentario=None,
     chamba.estado_previo = None
     chamba.fecha_finalizacion = datetime.now(timezone.utc)
 
+    # Cierra también el contrato y la solicitud: el hub del solicitante se
+    # alimenta de esos estados y, sin esta sincronización, una chamba
+    # finalizada seguía apareciendo como "En curso".
+    try:
+        from app.extensions import db
+        from app.models.contract import EstadoContrato
+        from app.models.solicitud import EstadoSolicitud, Solicitud
+
+        contract = chamba.contract
+        if contract is not None:
+            contract.estado = EstadoContrato.COMPLETADO
+            contract.fin_en = chamba.fecha_finalizacion
+            solicitud = db.session.get(Solicitud, contract.service_id)
+            if solicitud is not None:
+                solicitud.estado = EstadoSolicitud.COMPLETADO
+    except Exception:  # noqa: BLE001 — no romper la calificación
+        pass
+
     # Refleja la calificación en la tabla global de ratings y en el
     # promedio del perfil (así aparece en el portafolio y perfil público).
     try:

@@ -950,6 +950,18 @@ def test_calificar_ok_y_finalizar(client, app):
     assert body["rating_comentario"] == "Excelente"
     assert body["fecha_finalizacion"] is not None
 
+    with app.app_context():
+        from app.extensions import db as _db
+        from app.models.chamba import Chamba
+        from app.models.contract import Contract, EstadoContrato
+        from app.models.solicitud import EstadoSolicitud, Solicitud
+
+        chamba = _db.session.get(Chamba, d["id"])
+        contract = _db.session.get(Contract, chamba.contract_id)
+        assert contract.estado == EstadoContrato.COMPLETADO
+        solicitud = _db.session.get(Solicitud, contract.service_id)
+        assert solicitud.estado == EstadoSolicitud.COMPLETADO
+
 
 def test_calificar_conserva_habilidades_validadas(client, app):
     """Las habilidades se validan en la revisión; la calificación final

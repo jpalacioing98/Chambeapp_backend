@@ -4,6 +4,43 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - 2026-09-26
 
+### Added — Billetera de monedas virtuales (2026-11-12)
+- `Wallet` incorpora `monedas_saldo`; el saldo COP se mantiene **solo** para
+  pagos de contratos.
+- Nuevos modelos `PaqueteMonedas`, `CompraPaquete` y `MovimientoMonedas`
+  (libro de movimientos con saldo resultante).
+- La billetera se crea automáticamente al registrar cualquier rol (PDS,
+  solicitante, comerciante) y sigue disponible de forma perezosa.
+- Migración **028**: columnas, tablas, backfill de monedas existentes y
+  paquetes base (Básico, Estándar, Premium).
+- Nuevos endpoints:
+  - `GET /wallet/paquetes` (catálogo activo)
+  - `POST /wallet/coins/buy {paquete_id}` (pago simulado; acredita monedas)
+  - `GET /wallet/coins/movimientos`
+  - `GET /wallet/resumen` (monedas + **finanzas de la actividad en COP**:
+    ingresos/egresos por chambas, marañas, contratos, comisiones y retiros;
+    ya no expone el saldo interno de la billetera como “saldo COP”).
+  - `GET/POST/PATCH/DELETE /wallet/admin/paquetes` (solo superadmin)
+- Se **elimina** `POST /wallet/deposit` (recargas de dinero).
+- `usar_monedas`, bonificaciones y vencimientos actualizan el saldo y dejan
+  traza en el libro.
+
+### Added — Anuncios por tipo y visibilidad (2026-11-12)
+- `AnuncioLaboral` ahora distingue **empleo / servicio / producto** y tiene
+  `visible_mapa` para publicar en el mapa o solo en el perfil público.
+- Nuevo tipo **oferta** (promoción/descuento) en la validación de creación,
+  además de los tres tipos existentes.
+- El feed público filtra por `visible_mapa`; el perfil público del negocio
+  puede consultar sus anuncios sin autenticación.
+- Migración **027** y complemento idempotente en el entrypoint dev (también
+  repara columnas faltantes de anuncios vinculantes).
+
+### Fixed — Chamba finalizada cierra contrato y solicitud (2026-11-12)
+- `finalizar_chamba` ahora marca el `Contract` como `COMPLETADO` y la
+  `Solicitud` como `COMPLETADO`, además de la chamba. Antes la chamba quedaba
+  finalizada pero el hub del solicitante seguía mostrándola en curso.
+- Backfill aplicado sobre las chambas finalizadas existentes.
+
 ### Added — 2FA por SMS, app autenticadora y códigos de recuperación (2026-11-11)
 - **Métodos**: `two_factor_method` (`sms` | `totp`), secreto TOTP cifrado
   (Fernet) y `two_factor_pending_secret` para el setup.
