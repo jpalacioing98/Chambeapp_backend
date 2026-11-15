@@ -479,12 +479,20 @@ def reset_simulation() -> None:
         .filter(Chamba.contract_id.in_(contract_ids))
         .all()
     ]
-    marana_ids = [
+    marana_ids = {
         row[0]
         for row in db.session.query(Marana.id)
         .filter(Marana.solicitante_id.in_(ids))
         .all()
-    ]
+    }
+    if chamba_ids:
+        marana_ids.update(
+            row[0]
+            for row in db.session.query(Marana.id)
+            .filter(Marana.chamba_id.in_(chamba_ids))
+            .all()
+        )
+    marana_ids = list(marana_ids)
     negocio_ids = [
         row[0]
         for row in db.session.query(Negocio.id)
@@ -513,6 +521,14 @@ def reset_simulation() -> None:
         db.session.query(Dispute).filter(
             Dispute.contract_id.in_(contract_ids)
         ).delete(synchronize_session=False)
+
+        # endoso_habilidades se agregó después del seed original.
+        from app.models.habilidad import EndosoHabilidad
+
+        db.session.query(EndosoHabilidad).filter(
+            EndosoHabilidad.contract_id.in_(contract_ids)
+        ).delete(synchronize_session=False)
+
         db.session.query(Contract).filter(Contract.id.in_(contract_ids)).delete(
             synchronize_session=False
         )
@@ -531,6 +547,9 @@ def reset_simulation() -> None:
         ).delete(synchronize_session=False)
         db.session.query(RecommendationLog).filter(
             RecommendationLog.solicitud_id.in_(solicitud_ids)
+        ).delete(synchronize_session=False)
+        db.session.query(Dispute).filter(
+            Dispute.solicitud_id.in_(solicitud_ids)
         ).delete(synchronize_session=False)
         db.session.query(Solicitud).filter(Solicitud.id.in_(solicitud_ids)).delete(
             synchronize_session=False
@@ -553,6 +572,13 @@ def reset_simulation() -> None:
         ).delete(synchronize_session=False)
 
     if negocio_ids:
+        # negocio_rutas se agregó después del seed original y bloquea el
+        # borrado de negocios por FK.
+        from app.models.negocio import NegocioRuta
+
+        db.session.query(NegocioRuta).filter(
+            NegocioRuta.negocio_id.in_(negocio_ids)
+        ).delete(synchronize_session=False)
         db.session.query(NegocioReporte).filter(
             NegocioReporte.negocio_id.in_(negocio_ids)
         ).delete(synchronize_session=False)
@@ -582,6 +608,17 @@ def reset_simulation() -> None:
             Conversation.id.in_(conversation_ids)
         ).delete(synchronize_session=False)
 
+    ticket_ids = [
+        row[0]
+        for row in db.session.query(Ticket.id)
+        .filter(Ticket.user_id.in_(ids))
+        .all()
+    ]
+    if ticket_ids:
+        # Los reportes comunitarios pueden apuntar al ticket de soporte.
+        db.session.query(NegocioReporte).filter(
+            NegocioReporte.ticket_id.in_(ticket_ids)
+        ).delete(synchronize_session=False)
     db.session.query(Ticket).filter(Ticket.user_id.in_(ids)).delete(
         synchronize_session=False
     )
@@ -591,6 +628,18 @@ def reset_simulation() -> None:
     db.session.query(Coin).filter(Coin.user_id.in_(ids)).delete(
         synchronize_session=False
     )
+    wallet_ids = [
+        row[0]
+        for row in db.session.query(Wallet.id).filter(Wallet.user_id.in_(ids)).all()
+    ]
+    if wallet_ids:
+        # Libro de monedas: referencia wallet_id y user_id.
+        from app.models.wallet import MovimientoMonedas
+
+        db.session.query(MovimientoMonedas).filter(
+            MovimientoMonedas.wallet_id.in_(wallet_ids)
+        ).delete(synchronize_session=False)
+
     db.session.query(Transaction).filter(
         Transaction.wallet_id.in_(
             db.session.query(Wallet.id).filter(Wallet.user_id.in_(ids))
@@ -635,6 +684,26 @@ def reset_simulation() -> None:
     db.session.query(AuditLog).filter(AuditLog.actor_id.in_(ids)).delete(
         synchronize_session=False
     )
+
+    # Limpieza genérica de CUALQUIER FK a users: cubre tablas agregadas
+    # después del seed original (certificaciones, push, monedas, endosos...).
+    # Las columnas nullables se liberan; las obligatorias se eliminan.
+    for table in db.metadata.sorted_tables:
+        if table.name == "users":
+            continue
+        for fk in table.foreign_keys:
+            if fk.column.table.name != "users":
+                continue
+            column = fk.parent
+            if column.nullable:
+                db.session.execute(
+                    table.update()
+                    .where(column.in_(ids))
+                    .values({column.name: None})
+                )
+            else:
+                db.session.execute(table.delete().where(column.in_(ids)))
+
     db.session.query(User).filter(User.id.in_(ids)).delete(synchronize_session=False)
 
     db.session.commit()
@@ -759,7 +828,7 @@ def create_users(rng: random.Random, sizes: Sizes) -> dict[str, list[User]]:
             fecha_registro=registered_at,
             last_login=last_login,
             activo=status == "active",
-            two_factor_enabled=(index % 9 == 0) if role in (RolUsuario.PDS, RolUsuario.SOLICITANTE) else role in (RolUsuario.ADMIN, RolUsuario.SUPERADMIN),
+            two_factor_enabled=False,
             region_id=None if role == RolUsuario.SUPERADMIN else region_id,
         )
         profile = Profile(
@@ -1917,7 +1986,7 @@ def create_ratings(
         if owner_rating:
             chamba.rating_estrellas = owner_rating.puntaje
             chamba.rating_comentario = owner_rating.comentario
-            chamba.habilidades_validadas = list(contract_meta[contract.id]["pds"].profile.categorias or [])
+            chamba.habilidades_validadas = []
 
     business_ratings: list[NegocioRating] = []
     for idx, negocio in enumerate(negocios):
