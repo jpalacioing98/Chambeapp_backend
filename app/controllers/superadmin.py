@@ -648,3 +648,35 @@ class SuperAdminRegionsReindex(MethodView):
         )
         db.session.commit()
         return {"processed": processed, "updated": updated}
+
+
+# ==========================================================================
+# ANALÍTICA HISTÓRICA — 6 meses (metrics_daily / metrics_segment_monthly)
+# ==========================================================================
+@blp.route("/metrics/history")
+class SuperAdminMetricsHistory(MethodView):
+    @superadmin_required
+    def get(self):
+        """Histórico diario y mensual (por defecto 180 días)."""
+        from app.services.metrics_history import get_history
+        days = request.args.get("days", 180, type=int)
+        return get_history(days)
+
+
+@blp.route("/metrics/distributions")
+class SuperAdminMetricsDistributions(MethodView):
+    @superadmin_required
+    def get(self):
+        """Distribuciones por región, distancia, tiempos, género, edad y actividad."""
+        from app.services.metrics_history import get_distributions
+        return get_distributions()
+
+
+@blp.route("/metrics/segment/<string:metrica>")
+class SuperAdminMetricsSegment(MethodView):
+    @superadmin_required
+    def get(self, metrica):
+        """Desagregación de una métrica por dimensión (?by=region|oficio|...)."""
+        from app.services.metrics_history import get_segment
+        dimension = request.args.get("by", "region")
+        return {"items": get_segment(metrica, dimension)}
