@@ -382,6 +382,12 @@ def seed_config() -> int:
             "string",
             "Ciudad base de operación (geofence de solicitudes)",
         ),
+        (
+            "smmlv_vigente",
+            "1550000",
+            "int",
+            "Salario mínimo mensual legal vigente (COP) usado en las métricas de formalización",
+        ),
     ]
     for key, value, vtype, desc in config_defaults:
         if SystemConfig.query.filter_by(key=key).first():

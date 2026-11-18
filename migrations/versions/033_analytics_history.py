@@ -105,7 +105,7 @@ def _seed_daily(conn, table) -> int:
 DIMENSIONS = {
     "region": [
         "Valledupar Centro", "Valledupar Periferia", "La Mesa",
-        "Patillal", "Badillo", "Sincelejo", "Riohacha",
+        "Patillal", "Badillo",
     ],
     "oficio": [
         "Plomería", "Electricidad", "Pintura", "Jardinería",

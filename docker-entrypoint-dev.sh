@@ -320,7 +320,7 @@ flask db stamp head || echo "[dev] (aviso) stamp falló; las migraciones no se m
 
 # Analítica histórica: 180 días + 6 meses (idempotente).
 echo "[dev] Sembrando analítica histórica (6 meses)..."
-python seed_metrics_history.py || echo "[dev] (aviso) seed de métricas históricas falló."
+python -c "from app.services.metrics_seed import main; main()" || echo "[dev] (aviso) seed de métricas históricas falló."
 
 echo "[dev] Iniciando backend en modo desarrollo (run.py)..."
 exec python run.py

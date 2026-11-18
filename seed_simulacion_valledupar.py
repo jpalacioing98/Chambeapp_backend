@@ -1662,11 +1662,11 @@ def create_chambas(
             finalization = clamp_dt(liquidation + timedelta(hours=rng.randint(1, 24)), NOW)
 
         evidence_in = [
-            f"https://{SIM_DOMAIN}/chambas/{contract.id}/entrada-{j}.jpg"
+            f"https://picsum.photos/seed/chambeapp-{contract.id}-in-{j}/800/600"
             for j in range(1, rng.randint(2, 4))
         ]
         evidence_out = (
-            [f"https://{SIM_DOMAIN}/chambas/{contract.id}/salida-{j}.jpg" for j in range(1, rng.randint(2, 4))]
+            [f"https://picsum.photos/seed/chambeapp-{contract.id}-out-{j}/800/600" for j in range(1, rng.randint(2, 4))]
             if chamba_state in (EstadoChamba.PENDIENTE_VALIDACION, EstadoChamba.FINALIZADA)
             else []
         )
@@ -1986,7 +1986,13 @@ def create_ratings(
         if owner_rating:
             chamba.rating_estrellas = owner_rating.puntaje
             chamba.rating_comentario = owner_rating.comentario
-            chamba.habilidades_validadas = []
+            pds_user = next((u for u in users["pds"] if u.id == contract.proveedor_id), None)
+            skills = list((pds_user.profile.habilidades or [])) if pds_user and pds_user.profile else []
+            if skills:
+                take = min(len(skills), rng.randint(1, 3))
+                chamba.habilidades_validadas = rng.sample(skills, k=take)
+            else:
+                chamba.habilidades_validadas = []
 
     business_ratings: list[NegocioRating] = []
     for idx, negocio in enumerate(negocios):
@@ -2023,6 +2029,57 @@ def create_ratings(
     db.session.commit()
     print(f"Ratings: {len(ratings)} solicitud; {len(business_ratings)} negocio")
     return ratings, business_ratings
+
+
+def create_endosos(
+    rng: random.Random,
+    contracts: list[Contract],
+    contract_meta: dict[int, dict[str, Any]],
+) -> list[Any]:
+    """Crea endosos de competencias (validacion social) para contratos completados."""
+    import unicodedata
+
+    from app.models.habilidad import EndosoHabilidad, Habilidad
+
+    def norm(value: Any) -> str:
+        text = unicodedata.normalize("NFD", str(value or "").lower())
+        return "".join(c for c in text if unicodedata.category(c) != "Mn").strip()
+
+    oficios = Habilidad.query.all()
+    by_name = {norm(h.nombre): h for h in oficios}
+    rows: list[Any] = []
+
+    for contract in contracts:
+        if contract.estado != EstadoContrato.COMPLETADO:
+            continue
+        meta = contract_meta[contract.id]
+        sol: Solicitud = meta["sol"]
+        key = norm(sol.categoria)
+        hab = by_name.get(key) or next(
+            (h for name, h in by_name.items() if name.startswith(key) or key.startswith(name)),
+            None,
+        )
+        if hab is None:
+            continue
+        competencias = list(hab.habilidades or [])
+        if not competencias:
+            continue
+        take = rng.randint(1, min(3, len(competencias)))
+        for competencia in rng.sample(competencias, k=take):
+            rows.append(
+                EndosoHabilidad(
+                    contract_id=contract.id,
+                    pds_id=contract.proveedor_id,
+                    solicitante_id=sol.solicitante_id,
+                    habilidad_id=hab.id,
+                    competencia=competencia,
+                )
+            )
+
+    add_all_batched(rows, 300)
+    db.session.commit()
+    print(f"Endosos de competencias: {len(rows)}")
+    return rows
 
 
 def create_kyc_portfolio_badges_trust(
@@ -2773,6 +2830,7 @@ def run(args: argparse.Namespace) -> int:
         create_maranas(rng, chambas, flow["contract_meta"], users)
         create_payments_and_milestones(rng, flow["contracts"], flow["contract_meta"])
         create_ratings(rng, flow["contracts"], flow["contract_meta"], chambas, negocios, users)
+        create_endosos(rng, flow["contracts"], flow["contract_meta"])
         create_kyc_portfolio_badges_trust(rng, users, sizes)
         create_communications(
             rng,
@@ -2784,6 +2842,16 @@ def run(args: argparse.Namespace) -> int:
             sizes,
         )
         db.session.commit()
+
+        # Analítica histórica: parte del seed unificado (idempotente).
+        try:
+            from app.services.metrics_seed import seed_daily, seed_segments
+
+            hist_daily = seed_daily()
+            hist_segments = seed_segments()
+            print(f"Analitica historica: daily={hist_daily} segments={hist_segments}")
+        except Exception as exc:  # no bloquear el seed por la analitica
+            print(f"[seed] aviso analitica historica: {exc}")
 
         errors = validate_and_report(
             rng,

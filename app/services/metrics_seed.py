@@ -1,11 +1,7 @@
-"""Siembra idempotente de analítica histórica (180 días + 6 meses).
+"""Analítica histórica (180 días + 6 meses) para el seed unificado.
 
-Crea las tablas si no existen (compatibilidad con el flujo de Docker que usa
-`flask db stamp head` en lugar de `upgrade`) e inserta los históricos solo si
-están vacíos. Pensado para ejecutarse al arrancar el contenedor.
-
-Uso:
-    python seed_metrics_history.py
+Genera `metrics_daily` y `metrics_segment_monthly` de forma idempotente.
+Se invoca desde `seed_simulacion_valledupar.py`; no es un seed independiente.
 """
 
 from datetime import date, datetime, timedelta, timezone
@@ -19,7 +15,7 @@ from app.models.metrics import MetricsDaily, MetricsSegmentMonthly
 DIMENSIONS = {
     "region": [
         "Valledupar Centro", "Valledupar Periferia", "La Mesa",
-        "Patillal", "Badillo", "Sincelejo", "Riohacha",
+        "Patillal", "Badillo",
     ],
     "oficio": [
         "Plomería", "Electricidad", "Pintura", "Jardinería",
