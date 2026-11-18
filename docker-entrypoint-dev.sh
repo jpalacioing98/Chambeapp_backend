@@ -228,6 +228,25 @@ with app.app_context():
     run("ALTER TABLE anuncios_laborales ADD COLUMN IF NOT EXISTS contract_ids JSON")
     run("ALTER TABLE anuncios_postulaciones ADD COLUMN IF NOT EXISTS contract_id INTEGER")
 
+    # Migración 034: anuncios de contacto con postulantes PDS/solicitante.
+    run("ALTER TABLE anuncios_laborales ADD COLUMN IF NOT EXISTS motivo_cierre TEXT")
+    run("ALTER TABLE anuncios_postulaciones ADD COLUMN IF NOT EXISTS postulante_rol VARCHAR(20) NOT NULL DEFAULT 'pds'")
+    run("ALTER TABLE anuncios_postulaciones ADD COLUMN IF NOT EXISTS seleccionado BOOLEAN NOT NULL DEFAULT FALSE")
+
+    # Migración 028: billetera de monedas (el dev hace stamp, no upgrade).
+    # El saldo inicial se calcula una sola vez desde las monedas existentes.
+    run(
+        "DO $$ BEGIN "
+        "IF NOT EXISTS (SELECT 1 FROM information_schema.columns "
+        "WHERE table_name = 'wallets' AND column_name = 'monedas_saldo') THEN "
+        "ALTER TABLE wallets ADD COLUMN monedas_saldo INTEGER NOT NULL DEFAULT 0; "
+        "UPDATE wallets SET monedas_saldo = COALESCE(("
+        "SELECT SUM(c.cantidad) FROM coins c "
+        "WHERE c.user_id = wallets.user_id "
+        "AND (c.vence_en IS NULL OR c.vence_en > NOW())), 0); "
+        "END IF; END $$;"
+    )
+
     # Migración 029: negocios ambulantes + rutas de recorrido.
     run("ALTER TABLE negocios ADD COLUMN IF NOT EXISTS modalidad VARCHAR(20) NOT NULL DEFAULT 'estatico'")
     run(

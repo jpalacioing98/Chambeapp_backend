@@ -8,6 +8,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from app.extensions import db
 from app.models.user import User, Profile
 from app.models.solicitud import Rating
+from app.services.oficios import ALIAS_OFICIO
 from app.schemas.users import (
     ProfileUpdateSchema,
     PublicProfileSchema,
@@ -324,21 +325,16 @@ class PublicProfile(MethodView):
         # Los perfiles guardan slugs cortos ("plomeria", "limpieza"…) y el
         # catálogo usa nombres largos ("Plomería y Fontanería"). Se resuelve
         # por alias y, si no, por coincidencia parcial.
-        ALIAS_HABILIDAD = {
-            "plomeria": "Plomería y Fontanería",
-            "limpieza": "Aseo, Limpieza General y Mantenimiento de Espacios",
-            "carpinteria": "Carpintería en Madera, MDF y RH (Mueble Fijo y RTA)",
-            "calentadores": "Mantenimiento e Instalación de Aire Acondicionado y Climatización",
-        }
 
         habilidades_detalle = []
+        vistos_habilidades: set[int] = set()
         for nombre in (profile.habilidades or []):
             clave = nombre.strip()
             hab = Habilidad.query.filter(
                 Habilidad.nombre.ilike(clave)
             ).first()
             if not hab:
-                alias = ALIAS_HABILIDAD.get(clave.lower())
+                alias = ALIAS_OFICIO.get(clave.lower())
                 if alias:
                     hab = Habilidad.query.filter(
                         Habilidad.nombre.ilike(alias)
@@ -347,8 +343,9 @@ class PublicProfile(MethodView):
                 hab = Habilidad.query.filter(
                     Habilidad.nombre.ilike(f"%{clave}%")
                 ).first()
-            if not hab:
+            if not hab or hab.id in vistos_habilidades:
                 continue
+            vistos_habilidades.add(hab.id)
             completados = {
                 n.nivel_index
                 for n in HabilidadNivel.query.filter_by(

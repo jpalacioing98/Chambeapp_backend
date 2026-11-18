@@ -23,6 +23,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from app.extensions import db
 from app.models.habilidad import Habilidad, HabilidadNivel, EndosoHabilidad, CertificacionTecnica
+from app.services.oficios import ALIAS_OFICIO
 from app.models.contract import Contract
 from app.models.solicitud import Solicitud
 from app.models.user import User, Profile
@@ -410,6 +411,17 @@ class ProgresoOficios(MethodView):
             ).all()
         ]
 
+        # Contratos que validaron cada competencia (endosos de clientes).
+        endosos = EndosoHabilidad.query.filter_by(pds_id=user_id).all()
+        por_oficio: dict[int, dict[str, set[int]]] = {}
+        for endoso in endosos:
+            competencia = (endoso.competencia or "").strip()
+            if not competencia:
+                continue
+            por_oficio.setdefault(endoso.habilidad_id, {}).setdefault(
+                competencia, set()
+            ).add(endoso.contract_id)
+
         def normalizar(s: str) -> str:
             import unicodedata
             return "".join(
@@ -417,6 +429,7 @@ class ProgresoOficios(MethodView):
             ).lower()
 
         resultados = []
+        vistos: set[int] = set()
         for nombre in (profile.habilidades or []):
             clave = (nombre or "").strip()
             if not clave:
@@ -430,15 +443,7 @@ class ProgresoOficios(MethodView):
             # catálogo usa nombres largos ("Plomería y Fontanería"): se
             # resuelve por alias y, si no, por coincidencia parcial.
             if not hab:
-                ALIAS_HABILIDAD = {
-                    "plomeria": "Plomería y Fontanería",
-                    "limpieza": "Aseo, Limpieza General y Mantenimiento de Espacios",
-                    "carpinteria": "Carpintería en Madera, MDF y RH (Mueble Fijo y RTA)",
-                    "calentadores": "Mantenimiento e Instalación de Aire Acondicionado y Climatización",
-                    "electricidad": "Electricidad",
-                    "pintura": "Pintura",
-                }
-                alias = ALIAS_HABILIDAD.get(clave.lower())
+                alias = ALIAS_OFICIO.get(clave.lower())
                 if alias:
                     hab = Habilidad.query.filter(
                         Habilidad.nombre.ilike(alias)
@@ -455,8 +460,9 @@ class ProgresoOficios(MethodView):
                         hab = candidata
                         break
 
-            if not hab:
+            if not hab or hab.id in vistos:
                 continue
+            vistos.add(hab.id)
             trabajos = max(
                 por_categoria.get(normalizar(hab.nombre), 0),
                 por_categoria.get(normalizar(nombre), 0),
@@ -479,6 +485,18 @@ class ProgresoOficios(MethodView):
             else:
                 nivel = 1
 
+            conteo_oficio = por_oficio.get(hab.id, {})
+            competencias = [
+                {
+                    "nombre": competencia,
+                    "contratos": len(conteo_oficio.get(competencia, set())),
+                }
+                for competencia in (hab.habilidades or [])
+            ]
+            contratos_validados = len(
+                set().union(*conteo_oficio.values())
+            ) if conteo_oficio else 0
+
             resultados.append({
                 "habilidad_id": hab.id,
                 "oficio": hab.nombre,
@@ -487,9 +505,11 @@ class ProgresoOficios(MethodView):
                 "trabajos_completados": trabajos,
                 "calificacion": rating,
                 "quizzes_aprobados": quizzes_por_oficio.get(hab.id, 0),
-                "endosos": 0,
+                "endosos": sum(len(v) for v in conteo_oficio.values()),
                 "titulo_verificado": tiene_titulo,
                 "habilidades": hab.habilidades or [],
+                "competencias": competencias,
+                "contratos_validados": contratos_validados,
             })
 
         return resultados

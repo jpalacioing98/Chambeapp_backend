@@ -43,6 +43,14 @@ class ContractEstadoSchema(Schema):
     firma = fields.Nested(FirmaSchema, required=False, allow_none=True)
 
 
+class ContractParteSchema(Schema):
+    """Parte del contrato (solicitante o proveedor) para el detalle."""
+
+    id = fields.Integer()
+    nombre = fields.String(allow_none=True)
+    email = fields.Email(allow_none=True)
+
+
 class SolicitudResumenSchema(Schema):
     """Resumen de la solicitud anidado en el contrato."""
 
@@ -79,6 +87,8 @@ class ContractSchema(Schema):
     creado_en = fields.DateTime()
     actualizado_en = fields.DateTime()
     service = fields.Nested(SolicitudResumenSchema, dump_only=True, allow_none=True)
+    solicitante = fields.Nested(ContractParteSchema, dump_only=True, allow_none=True)
+    proveedor = fields.Nested(ContractParteSchema, dump_only=True, allow_none=True)
 
 
 class DisputeCreateSchema(Schema):

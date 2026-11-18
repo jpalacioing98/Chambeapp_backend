@@ -44,6 +44,10 @@ class AnuncioEstadoSchema(Schema):
         required=True,
         validate=validate.OneOf(["cerrar", "abrir"]),
     )
+    # Obligatorio si se cierra sin ningún postulante seleccionado.
+    motivo = fields.String(
+        required=False, allow_none=True, validate=validate.Length(max=500)
+    )
 
 
 class AnuncioPostulacionCreateSchema(Schema):
@@ -60,7 +64,12 @@ class AnuncioPostulacionSchema(Schema):
     id = fields.Integer()
     anuncio_id = fields.Integer()
     pds_id = fields.Integer()
+    # Alias neutro para clientes nuevos. `pds_id` se conserva por compatibilidad.
+    postulante_id = fields.Method("get_postulante_id")
+    postulante_rol = fields.String()
     pds_nombre = fields.String(dump_only=True, allow_none=True)
+    postulante_nombre = fields.Method("get_postulante_nombre")
+    seleccionado = fields.Boolean()
     mensaje = fields.String(allow_none=True)
     telefono_contacto = fields.String(allow_none=True)
     email_contacto = fields.String(allow_none=True)
@@ -68,28 +77,22 @@ class AnuncioPostulacionSchema(Schema):
     contract_id = fields.Integer(allow_none=True)
     created_at = fields.DateTime()
 
+    def get_postulante_id(self, obj) -> int:
+        return obj.pds_id
+
+    def get_postulante_nombre(self, obj) -> str | None:
+        return getattr(obj, "pds_nombre", None)
+
 
 class PostulacionEstadoSchema(Schema):
-    """Gestión de contacto: contactar / descartar."""
+    """Gestión del negocio: contactar, descartar o seleccionar."""
 
     accion = fields.String(
         required=True,
-        validate=validate.OneOf(["contactar", "descartar"]),
+        validate=validate.OneOf(
+            ["contactar", "descartar", "seleccionar", "deseleccionar"]
+        ),
     )
-
-
-class ContratarPostulacionSchema(Schema):
-    """Body para contratar a un postulante de un anuncio vinculante.
-
-    Todos los campos son opcionales: por defecto se toma el presupuesto,
-    fecha y horario definidos en el anuncio. Permite ajustar el valor
-    pactado en el momento de contratar.
-    """
-
-    monto = fields.Float(required=False, allow_none=True)
-    fecha_deseada = fields.Date(required=False, allow_none=True)
-    horario = fields.String(required=False, allow_none=True, validate=validate.Length(max=80))
-    condiciones = fields.List(fields.String(), required=False, allow_none=True)
 
 
 class AnuncioSchema(Schema):
@@ -112,6 +115,7 @@ class AnuncioSchema(Schema):
     fecha_deseada = fields.Date(allow_none=True)
     horario = fields.String(allow_none=True)
     contract_ids = fields.List(fields.Integer(), allow_none=True)
+    motivo_cierre = fields.String(allow_none=True)
     estado = fields.Enum(EstadoAnuncio, by_value=True)
     creado_en = fields.DateTime()
     actualizado_en = fields.DateTime()

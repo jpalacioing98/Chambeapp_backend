@@ -2181,13 +2181,33 @@ def create_kyc_portfolio_badges_trust(
 
     verifications: list[Verification] = []
     verifier = reviewer
-    for idx, user in enumerate(users["pds"][:100]):
-        status = "approved" if idx < 60 else ("pending" if idx < 85 else "rejected")
+    usados: set[str] = set()
+
+    def cedula_unica() -> str:
+        while True:
+            numero = f"{rng.randint(10000000, 99999999)}"
+            if numero not in usados:
+                usados.add(numero)
+                return numero
+
+    pds_index = {id(user): idx for idx, user in enumerate(users["pds"])}
+    todos = (
+        users["pds"]
+        + users["solicitantes"]
+        + users["merchants"]
+        + users["staff"]
+    )
+    for user in todos:
+        idx = pds_index.get(id(user))
+        if idx is not None and idx < 100:
+            status = "approved" if idx < 60 else ("pending" if idx < 85 else "rejected")
+        else:
+            status = "approved"
         verifications.append(
             Verification(
                 user_id=user.id,
                 document_type="cedula",
-                document_number=f"{rng.randint(10000000, 99999999)}",
+                document_number=cedula_unica(),
                 status=status,
                 reviewed_by=verifier.id if status != "pending" else None,
                 reviewed_at=clamp_dt(NOW - timedelta(days=rng.randint(1, 60)), NOW) if status != "pending" else None,
@@ -2437,16 +2457,25 @@ def create_communications(
 
     postulaciones: list[AnuncioPostulacion] = []
     anuncios_empleo = [a for a in anuncios if a.tipo == "empleo"] or anuncios
-    for i in range(sizes.postulaciones):
+    solicitante_ids = {u.id for u in users["solicitantes"]}
+    candidatos = users["pds"] + users["solicitantes"]
+    ya_postulados: set[tuple[int, int]] = set()
+    for _ in range(sizes.postulaciones):
         anuncio = rng.choice(anuncios_empleo)
-        pds = rng.choice(users["pds"])
+        postulante = rng.choice(candidatos)
+        clave = (anuncio.id, postulante.id)
+        if clave in ya_postulados:
+            continue
+        ya_postulados.add(clave)
+        rol = "solicitante" if postulante.id in solicitante_ids else "pds"
         postulaciones.append(
             AnuncioPostulacion(
                 anuncio_id=anuncio.id,
-                pds_id=pds.id,
+                pds_id=postulante.id,
+                postulante_rol=rol,
                 mensaje="Me interesa la vacante y tengo experiencia en el area.",
-                telefono_contacto=pds.telefono,
-                email_contacto=pds.email,
+                telefono_contacto=postulante.telefono,
+                email_contacto=postulante.email,
                 estado=rng.choices(
                     [EstadoPostulacionAnuncio.PENDIENTE, EstadoPostulacionAnuncio.CONTACTADO, EstadoPostulacionAnuncio.DESCARTADO],
                     weights=[60, 25, 15],
@@ -2619,6 +2648,23 @@ def write_credentials(
     csv_path = docs_dir / "credenciales.csv"
     readme_path = docs_dir / "README.md"
 
+    user_ids = [
+        user.id
+        for role_key in ("pds", "solicitantes", "merchants", "staff")
+        for user in users[role_key]
+    ]
+    cedulas: dict[int, str] = {}
+    if user_ids:
+        for verification in (
+            Verification.query.filter(
+                Verification.user_id.in_(user_ids),
+                Verification.document_type == "cedula",
+            )
+            .order_by(Verification.id)
+            .all()
+        ):
+            cedulas[verification.user_id] = verification.document_number or ""
+
     rows: list[dict[str, str]] = []
     for role_key, label in (
         ("pds", "pds"),
@@ -2635,11 +2681,24 @@ def write_credentials(
                     "username": user.username or "",
                     "password": PASSWORD,
                     "estado": user.status,
+                    "cedula": cedulas.get(user.id, ""),
                 }
             )
 
     with csv_path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=["rol", "nombre", "email", "username", "password", "estado"])
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=[
+                "rol",
+                "nombre",
+                "email",
+                "username",
+                "password",
+                "estado",
+                "cedula",
+            ],
+            lineterminator="\n",
+        )
         writer.writeheader()
         writer.writerows(rows)
 

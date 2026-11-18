@@ -110,6 +110,40 @@ def test_create_order_ok(client):
     assert d["service"]["id"] == sid
 
 
+def test_contrato_incluye_nombres_de_las_partes(client):
+    """El detalle y el listado traen solicitante/proveedor (no N/A en la UI)."""
+    from app.models.user import User
+
+    emp_h = _user(client, "emp-partes@example.com", rol="solicitante")
+    _user(client, "tr-partes@example.com", rol="pds")
+    db.session.get(User, 1).nombre = "Paula Ospina Mejia"
+    db.session.get(User, 2).nombre = "Elena Navarro Jimenez"
+    db.session.commit()
+
+    sid = _crear_servicio(client, emp_h)
+    contrato = client.post(
+        "/api/v1/contracts/",
+        json={"service_id": sid, "proveedor_id": 2},
+        headers=emp_h,
+    ).get_json()
+
+    detalle = client.get(
+        f"/api/v1/contracts/{contrato['id']}", headers=emp_h
+    )
+    assert detalle.status_code == 200
+    d = detalle.get_json()
+    assert d["solicitante"]["id"] == 1
+    assert d["solicitante"]["nombre"] == "Paula Ospina Mejia"
+    assert d["solicitante"]["email"] == "emp-partes@example.com"
+    assert d["proveedor"]["id"] == 2
+    assert d["proveedor"]["nombre"] == "Elena Navarro Jimenez"
+    assert d["proveedor"]["email"] == "tr-partes@example.com"
+
+    listado = client.get("/api/v1/contracts/mine", headers=emp_h).get_json()
+    item = next(c for c in listado if c["id"] == contrato["id"])
+    assert item["proveedor"]["nombre"] == "Elena Navarro Jimenez"
+
+
 def test_create_order_not_owner(client):
     emp_h = _user(client, "emp@example.com", rol="solicitante")
     other_h = _user(client, "other@example.com", rol="solicitante")

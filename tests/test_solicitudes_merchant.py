@@ -74,6 +74,20 @@ def test_merchant_publica_chamba_ok(client):
     assert d["titulo"] == "Chamba de prueba"
 
 
+def test_solicitud_guarda_y_devuelve_imagen_360(client):
+    """La foto 360 que captura el frontend queda persistida en la solicitud."""
+    h = _headers(client, "m_360@test.com", rol="solicitante")
+    data_url = "data:image/jpeg;base64," + ("A" * 180000)
+
+    resp = _crear_solicitud(client, h, imagen_360=data_url)
+    assert resp.status_code == 201, resp.get_json()
+    sid = resp.get_json()["id"]
+
+    detalle = client.get(f"/api/v1/solicitudes/{sid}", headers=h)
+    assert detalle.status_code == 200
+    assert detalle.get_json()["imagen_360"] == data_url
+
+
 def test_merchant_publica_con_presupuesto(client):
     """Merchant publica con presupuesto válido → 201."""
     h = _headers(client, "m_pres@test.com", rol="merchant")

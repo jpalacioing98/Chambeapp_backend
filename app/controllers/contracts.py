@@ -7,6 +7,8 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from datetime import datetime, timezone
 
+from sqlalchemy.orm import joinedload
+
 from app.extensions import db
 from app.services.realtime import safe_emit
 from app.models.user import User
@@ -80,7 +82,10 @@ class MyContracts(MethodView):
         If no params, returns all items (backward compatible).
         """
         user_id = int(get_jwt_identity())
-        query = Contract.query.filter(
+        query = Contract.query.options(
+            joinedload(Contract.solicitante),
+            joinedload(Contract.proveedor),
+        ).filter(
             (Contract.solicitante_id == user_id) | (Contract.proveedor_id == user_id)
         )
         estado = request.args.get("estado")
@@ -110,7 +115,16 @@ class ContractDetail(MethodView):
     def get(self, contract_id):
         """RF-07: detalle de contrato (solo participantes)."""
         user_id = int(get_jwt_identity())
-        contract = db.get_or_404(Contract, contract_id)
+        contract = db.session.get(
+            Contract,
+            contract_id,
+            options=[
+                joinedload(Contract.solicitante),
+                joinedload(Contract.proveedor),
+            ],
+        )
+        if contract is None:
+            abort(404, message="El contrato no existe.")
         if user_id not in (contract.solicitante_id, contract.proveedor_id):
             abort(403, message="No participas en este contrato.")
         return contract

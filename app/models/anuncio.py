@@ -82,8 +82,10 @@ class AnuncioLaboral(db.Model):
     presupuesto = db.Column(db.Float, nullable=True)
     fecha_deseada = db.Column(db.Date, nullable=True)
     horario = db.Column(db.String(80), nullable=True)
-    # Trazabilidad: ids de contratos generados desde este anuncio.
+    # Trazabilidad histórica (los anuncios ya no generan contratos).
     contract_ids = db.Column(db.JSON, default=list)
+    # Motivo cuando el negocio cierra el anuncio sin seleccionar postulante.
+    motivo_cierre = db.Column(db.Text, nullable=True)
     estado = db.Column(
         db.Enum(
             EstadoAnuncio,
@@ -123,6 +125,11 @@ class AnuncioPostulacion(db.Model):
     pds_id = db.Column(
         db.Integer, db.ForeignKey("users.id"), nullable=False, index=True
     )
+    # Rol del postulante: pds | solicitante. Se conserva el nombre `pds_id`
+    # por compatibilidad con datos y clientes existentes.
+    postulante_rol = db.Column(db.String(20), nullable=False, default="pds")
+    # El negocio marca un único perfil seleccionado antes de cerrar.
+    seleccionado = db.Column(db.Boolean, nullable=False, default=False)
     mensaje = db.Column(db.Text, nullable=True)
     # Datos de contacto del PDS (gestión de contacto del negocio).
     telefono_contacto = db.Column(db.String(40), nullable=True)

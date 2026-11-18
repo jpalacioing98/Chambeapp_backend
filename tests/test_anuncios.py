@@ -194,6 +194,7 @@ def test_postular_anuncio(client, app):
     body = resp.get_json()
     assert body["estado"] == "pendiente"
     assert body["telefono_contacto"] == "3001112233"
+    assert body["postulante_rol"] == "pds"
     assert body["pds_nombre"]
 
 
@@ -208,7 +209,7 @@ def test_postulacion_duplicada(client):
     assert resp.status_code == 400
 
 
-def test_postular_solo_pds(client):
+def test_postular_solicitante(client):
     _register(client, "neg@example.com", rol="merchant")
     neg_h = _headers(client, "neg@example.com")
     anuncio = _anuncio(client, neg_h)
@@ -216,10 +217,44 @@ def test_postular_solo_pds(client):
     sol_h = _headers(client, "sol@example.com")
     resp = client.post(
         f"/api/v1/anuncios/{anuncio['id']}/postulaciones",
-        json={},
+        json={"mensaje": "Puedo ayudar con la vacante"},
         headers=sol_h,
     )
+    assert resp.status_code == 201
+    body = resp.get_json()
+    assert body["postulante_rol"] == "solicitante"
+    assert body["postulante_id"] == body["pds_id"]
+
+
+def test_postular_otro_rol_rechazado(client):
+    _register(client, "neg@example.com", rol="merchant")
+    neg_h = _headers(client, "neg@example.com")
+    anuncio = _anuncio(client, neg_h)
+    _register(client, "neg2@example.com", rol="merchant")
+    otro_h = _headers(client, "neg2@example.com")
+    resp = client.post(
+        f"/api/v1/anuncios/{anuncio['id']}/postulaciones",
+        json={},
+        headers=otro_h,
+    )
     assert resp.status_code == 403
+
+
+def test_crear_anuncio_contrato_rechazado(client):
+    _register(client, "neg@example.com", rol="merchant")
+    neg_h = _headers(client, "neg@example.com")
+    resp = client.post(
+        "/api/v1/anuncios/",
+        json={
+            "titulo": "Se busca plomero",
+            "descripcion": "Mantenimiento mensual.",
+            "categoria": "plomeria",
+            "modalidad": "contrato",
+            "presupuesto": 120000,
+        },
+        headers=neg_h,
+    )
+    assert resp.status_code == 400
 
 
 # ---------------- Gestión de contacto (negocio dueño) ----------------
@@ -285,13 +320,22 @@ def test_cerrar_y_reabrir_anuncio(client):
     neg_h = _headers(client, "neg@example.com")
     anuncio = _anuncio(client, neg_h)
 
-    r1 = client.patch(
+    # Sin postulantes seleccionados el motivo es obligatorio.
+    sin_motivo = client.patch(
         f"/api/v1/anuncios/{anuncio['id']}/estado",
         json={"accion": "cerrar"},
         headers=neg_h,
     )
+    assert sin_motivo.status_code == 400
+
+    r1 = client.patch(
+        f"/api/v1/anuncios/{anuncio['id']}/estado",
+        json={"accion": "cerrar", "motivo": "No hubo postulaciones"},
+        headers=neg_h,
+    )
     assert r1.status_code == 200
     assert r1.get_json()["estado"] == "cerrado"
+    assert r1.get_json()["motivo_cierre"] == "No hubo postulaciones"
 
     # Cerrado: ya no aparece en el feed ni acepta postulaciones.
     feed = client.get("/api/v1/anuncios/", headers=neg_h)
@@ -304,6 +348,75 @@ def test_cerrar_y_reabrir_anuncio(client):
     )
     assert r2.status_code == 200
     assert r2.get_json()["estado"] == "publicado"
+
+
+# ---------------- Selección de perfil ----------------
+def _postular_como(client, email, rol, anuncio_id):
+    _register(client, email, rol=rol)
+    headers = _headers(client, email)
+    resp = client.post(
+        f"/api/v1/anuncios/{anuncio_id}/postulaciones",
+        json={},
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.get_json()
+    return resp.get_json()["id"]
+
+
+def test_seleccionar_un_solo_perfil_y_cerrar(client):
+    _register(client, "neg@example.com", rol="merchant")
+    neg_h = _headers(client, "neg@example.com")
+    anuncio = _anuncio(client, neg_h)
+    p1 = _postular_como(client, "pds@example.com", "pds", anuncio["id"])
+    p2 = _postular_como(client, "sol@example.com", "solicitante", anuncio["id"])
+
+    r1 = client.patch(
+        f"/api/v1/anuncios/{anuncio['id']}/postulaciones/{p1}",
+        json={"accion": "seleccionar"},
+        headers=neg_h,
+    )
+    assert r1.status_code == 200
+    assert r1.get_json()["seleccionado"] is True
+
+    # Seleccionar al segundo quita la marca del primero.
+    r2 = client.patch(
+        f"/api/v1/anuncios/{anuncio['id']}/postulaciones/{p2}",
+        json={"accion": "seleccionar"},
+        headers=neg_h,
+    )
+    assert r2.status_code == 200
+    lista = client.get(
+        f"/api/v1/anuncios/{anuncio['id']}/postulaciones", headers=neg_h
+    ).get_json()
+    assert [p["seleccionado"] for p in lista] == [False, True]
+
+    # Con un perfil seleccionado se puede cerrar sin motivo.
+    cierre = client.patch(
+        f"/api/v1/anuncios/{anuncio['id']}/estado",
+        json={"accion": "cerrar"},
+        headers=neg_h,
+    )
+    assert cierre.status_code == 200
+    assert cierre.get_json()["estado"] == "cerrado"
+    assert cierre.get_json()["motivo_cierre"] is None
+
+
+def test_no_seleccionar_descartado(client):
+    _register(client, "neg@example.com", rol="merchant")
+    neg_h = _headers(client, "neg@example.com")
+    anuncio = _anuncio(client, neg_h)
+    pid = _postular_como(client, "pds@example.com", "pds", anuncio["id"])
+    client.patch(
+        f"/api/v1/anuncios/{anuncio['id']}/postulaciones/{pid}",
+        json={"accion": "descartar"},
+        headers=neg_h,
+    )
+    resp = client.patch(
+        f"/api/v1/anuncios/{anuncio['id']}/postulaciones/{pid}",
+        json={"accion": "seleccionar"},
+        headers=neg_h,
+    )
+    assert resp.status_code == 400
 
 
 # ---------------- Anuncios del negocio ----------------

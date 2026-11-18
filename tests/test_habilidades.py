@@ -236,6 +236,60 @@ def test_endoso_por_cliente(client):
     assert r4.status_code == 400
 
 
+def test_progreso_cuenta_contratos_validados_por_competencia(client):
+    """La telaraña usa contratos validados por competencia, no el nivel."""
+    _seed_hab()
+    pds_id, h = _user(client, "prog_count_pds@test.com")
+    sol_id, h_sol = _user(
+        client, "prog_count_sol@test.com", RolUsuario.SOLICITANTE
+    )
+    hab = Habilidad.query.filter_by(nombre="Plomería").first()
+
+    from app.models.user import Profile
+
+    with client.application.app_context():
+        u = _db.session.get(User, pds_id)
+        if not u.profile:
+            u.profile = Profile(user_id=pds_id)
+        u.profile.habilidades = ["Plomería"]
+        _db.session.commit()
+
+    c1 = _seed_contrato_completado(client, pds_id, sol_id)
+    c2 = _seed_contrato_completado(client, pds_id, sol_id)
+
+    for contract_id in (c1, c2):
+        r = client.post(
+            "/api/v1/habilidades/endosar",
+            headers=h_sol,
+            json={
+                "contract_id": contract_id,
+                "habilidad_id": hab.id,
+                "competencia": "Detección de fugas",
+            },
+        )
+        assert r.status_code == 200, r.get_json()
+
+    r = client.post(
+        "/api/v1/habilidades/endosar",
+        headers=h_sol,
+        json={
+            "contract_id": c1,
+            "habilidad_id": hab.id,
+            "competencia": "Termofusión de tuberías",
+        },
+    )
+    assert r.status_code == 200, r.get_json()
+
+    data = client.get("/api/v1/habilidades/progreso", headers=h).get_json()
+    assert len(data) == 1
+    assert data[0]["contratos_validados"] == 2
+    por_competencia = {
+        c["nombre"]: c["contratos"] for c in data[0]["competencias"]
+    }
+    assert por_competencia["Detección de fugas"] == 2
+    assert por_competencia["Termofusión de tuberías"] == 1
+
+
 def test_certificacion_tecnica_verificada(client):
     """Con código de verificación la certificación se crea 'en_revision'
     (el verificador la aprueba después); el código queda almacenado."""
