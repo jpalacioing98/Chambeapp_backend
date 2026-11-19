@@ -2,7 +2,7 @@
 # Entrypoint de desarrollo ChambeApp backend.
 # Orden robusto para dev:
 #   1. Espera a PostgreSQL.
-#   2. Si la base está vacía -> python seed.py (create_all + datos de ejemplo).
+#   2. Si la base está vacía -> python seed.py (create_all + simulación completa de 10 meses).
 #   3. PostGIS + columna geom + feature flags ML (idempotente, complementa migraciones).
 #   4. flask db stamp head (registra migraciones sin re-ejecutar create_table conflictivo).
 #   5. Arranca el backend con hot-reload (run.py).
@@ -286,6 +286,26 @@ with app.app_context():
     run("ALTER TABLE contracts ADD COLUMN IF NOT EXISTS cobro_solicitante_en TIMESTAMP")
     run("ALTER TABLE contracts ADD COLUMN IF NOT EXISTS cobro_proveedor_en TIMESTAMP")
     run("ALTER TABLE contracts ADD COLUMN IF NOT EXISTS cobros_reembolsados BOOLEAN NOT NULL DEFAULT FALSE")
+
+    # Migración 035: pagos simulados (checkout realista de monedas).
+    # El dev hace `stamp`, no `upgrade`: creamos la tabla a mano (idempotente).
+    run(
+        "CREATE TABLE IF NOT EXISTS pagos_simulados ("
+        "id SERIAL PRIMARY KEY, "
+        "user_id INTEGER NOT NULL REFERENCES users(id), "
+        "paquete_id INTEGER REFERENCES paquetes_monedas(id), "
+        "monedas INTEGER NOT NULL DEFAULT 0, "
+        "precio_cop INTEGER NOT NULL DEFAULT 0, "
+        "estado VARCHAR(20) NOT NULL DEFAULT 'pendiente', "
+        "referencia VARCHAR(100) UNIQUE, "
+        "pasarela VARCHAR(40) NOT NULL DEFAULT 'simulada', "
+        "compra_id INTEGER REFERENCES compras_paquetes(id), "
+        "creado_en TIMESTAMP NOT NULL DEFAULT NOW(), "
+        "expira_en TIMESTAMP, "
+        "completado_en TIMESTAMP)"
+    )
+    run("CREATE INDEX IF NOT EXISTS ix_pagos_simulados_user_id ON pagos_simulados (user_id)")
+    run("CREATE INDEX IF NOT EXISTS ix_pagos_simulados_paquete_id ON pagos_simulados (paquete_id)")
 
     # VAPID: genera claves UNA vez si pywebpush/py-vapid están instalados.
     try:

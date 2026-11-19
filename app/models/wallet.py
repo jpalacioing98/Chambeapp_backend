@@ -47,6 +47,28 @@ class TipoMovimientoMonedas(str, Enum):
         return [t.value for t in cls]
 
 
+def _como_utc(valor: datetime | None) -> datetime | None:
+    """Normaliza a UTC aware un datetime (SQLite/Postgres pueden dar naive)."""
+    if valor is None:
+        return None
+    if valor.tzinfo is None:
+        return valor.replace(tzinfo=timezone.utc)
+    return valor.astimezone(timezone.utc)
+
+
+class EstadoPagoSimulado(str, Enum):
+    """Estados de un pago simulado (checkout de paquetes de monedas)."""
+
+    PENDIENTE = "pendiente"
+    COMPLETADO = "completado"
+    FALLIDO = "fallido"
+    EXPIRADO = "expirado"
+
+    @classmethod
+    def values(cls):
+        return [e.value for e in cls]
+
+
 class Wallet(db.Model):
     """Billetera virtual del usuario (RF-25).
 
@@ -169,10 +191,12 @@ class PaqueteMonedas(db.Model):
         """true si la oferta está activa y dentro de su vigencia."""
         if not self.en_oferta or self.precio_oferta_cop is None:
             return False
-        now = now or datetime.now(timezone.utc)
-        if self.oferta_desde and now < self.oferta_desde:
+        ahora = _como_utc(now) or datetime.now(timezone.utc)
+        desde = _como_utc(self.oferta_desde)
+        hasta = _como_utc(self.oferta_hasta)
+        if desde and ahora < desde:
             return False
-        if self.oferta_hasta and now > self.oferta_hasta:
+        if hasta and ahora > hasta:
             return False
         return True
 
@@ -208,6 +232,48 @@ class CompraPaquete(db.Model):
 
     def __repr__(self):
         return f"<CompraPaquete {self.id} user={self.user_id} monedas={self.monedas}>"
+
+
+class PagoSimulado(db.Model):
+    """Intento de pago de un paquete de monedas (checkout realista simulado).
+
+    Se crea en estado `pendiente` sin acreditar monedas; al confirmarse se
+    delega en `comprar_paquete` y queda vinculado a la `CompraPaquete`.
+    """
+
+    __tablename__ = "pagos_simulados"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(
+        db.Integer, db.ForeignKey("users.id"), nullable=False, index=True
+    )
+    paquete_id = db.Column(
+        db.Integer, db.ForeignKey("paquetes_monedas.id"), nullable=True, index=True
+    )
+    monedas = db.Column(db.Integer, nullable=False, default=0)
+    precio_cop = db.Column(db.Integer, nullable=False, default=0)
+    estado = db.Column(
+        db.String(20), nullable=False, default=EstadoPagoSimulado.PENDIENTE.value
+    )
+    referencia = db.Column(db.String(100), nullable=True, unique=True)
+    pasarela = db.Column(db.String(40), nullable=False, default="simulada")
+    compra_id = db.Column(
+        db.Integer, db.ForeignKey("compras_paquetes.id"), nullable=True
+    )
+    creado_en = db.Column(
+        db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    expira_en = db.Column(db.DateTime, nullable=True)
+    completado_en = db.Column(db.DateTime, nullable=True)
+
+    paquete = db.relationship("PaqueteMonedas")
+    compra = db.relationship("CompraPaquete")
+
+    def __repr__(self):
+        return (
+            f"<PagoSimulado {self.id} user={self.user_id} "
+            f"estado={self.estado} precio={self.precio_cop}>"
+        )
 
 
 class MovimientoMonedas(db.Model):

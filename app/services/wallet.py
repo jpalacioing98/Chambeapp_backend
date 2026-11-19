@@ -9,7 +9,7 @@ Implementa la lógica de negocio para:
 
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 from app.extensions import db
 from app.models.wallet import (
@@ -22,6 +22,8 @@ from app.models.wallet import (
     PaqueteMonedas,
     CompraPaquete,
     MovimientoMonedas,
+    EstadoPagoSimulado,
+    PagoSimulado,
 )
 from app.models.modalidad import Modalidad, Milestone, TipoModalidad, EstadoHito
 from app.models.contract import Contract, EstadoContrato
@@ -313,11 +315,13 @@ def comprar_paquete(
     user_id: int,
     paquete_id: int,
     pasarela: str = "simulada",
+    referencia: str | None = None,
 ) -> CompraPaquete:
     """Compra un paquete y acredita sus monedas al instante.
 
     La pasarela real se conectará detrás de esta función; mientras tanto el
     pago se registra como `simulada` y la compra queda en estado completado.
+    `referencia` permite enlazar la compra con el pago simulado que la originó.
     """
     paquete = db.session.get(PaqueteMonedas, paquete_id)
     if paquete is None or not paquete.activo:
@@ -333,7 +337,8 @@ def comprar_paquete(
         precio_cop=precio,
         pasarela=pasarela,
         estado="completado",
-        referencia=f"CMP-{user_id}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}",
+        referencia=referencia
+        or f"CMP-{user_id}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}",
     )
     db.session.add(compra)
     db.session.flush()
@@ -355,6 +360,250 @@ def comprar_paquete(
     )
     db.session.flush()
     return compra
+
+
+# --------------------------------------------------------------------------
+# Pago simulado de paquetes (checkout realista)
+# --------------------------------------------------------------------------
+
+def crear_pago_simulado(user_id: int, paquete_id: int) -> PagoSimulado:
+    """Crea un intento de pago pendiente (todavía NO acredita monedas)."""
+    paquete = db.session.get(PaqueteMonedas, paquete_id)
+    if paquete is None or not paquete.activo:
+        raise ValueError("El paquete no está disponible.")
+
+    ahora = datetime.now(timezone.utc)
+    pago = PagoSimulado(
+        user_id=user_id,
+        paquete_id=paquete.id,
+        monedas=int(paquete.cantidad) + int(paquete.bonus or 0),
+        precio_cop=int(paquete.precio_efectivo()),
+        estado=EstadoPagoSimulado.PENDIENTE.value,
+        referencia=f"PAGO-{user_id}-{ahora.strftime('%Y%m%d%H%M%S%f')}",
+        pasarela="simulada",
+        expira_en=ahora + timedelta(minutes=15),
+    )
+    db.session.add(pago)
+    db.session.flush()
+    return pago
+
+
+def _como_utc(valor: datetime | None) -> datetime | None:
+    """Normaliza a UTC aware (SQLite devuelve naive)."""
+    if valor is None:
+        return None
+    if valor.tzinfo is None:
+        return valor.replace(tzinfo=timezone.utc)
+    return valor.astimezone(timezone.utc)
+
+
+def _esta_expirado(pago: PagoSimulado, ahora: datetime | None = None) -> bool:
+    expira = _como_utc(pago.expira_en)
+    if expira is None:
+        return False
+    return expira < (ahora or datetime.now(timezone.utc))
+
+
+def get_pago_simulado(
+    user_id: int, pago_id: int, permitir_admin: bool = False
+) -> PagoSimulado:
+    """Detalle de un pago simulado (dueño o admin) con expiración perezosa."""
+    pago = db.session.get(PagoSimulado, pago_id)
+    if pago is None:
+        raise ValueError("El pago no existe.")
+    if pago.user_id != user_id and not permitir_admin:
+        raise ValueError("No puedes ver este pago.")
+
+    if (
+        pago.estado == EstadoPagoSimulado.PENDIENTE.value
+        and _esta_expirado(pago)
+    ):
+        pago.estado = EstadoPagoSimulado.EXPIRADO.value
+        db.session.flush()
+    return pago
+
+
+def confirmar_pago_simulado(user_id: int, pago_id: int) -> PagoSimulado:
+    """Confirma el pago y acredita las monedas (idempotente)."""
+    pago = db.session.get(PagoSimulado, pago_id)
+    if pago is None:
+        raise ValueError("El pago no existe.")
+    if pago.user_id != user_id:
+        raise ValueError("No puedes ver este pago.")
+
+    if pago.estado == EstadoPagoSimulado.COMPLETADO.value:
+        return pago
+    if pago.estado in (
+        EstadoPagoSimulado.FALLIDO.value,
+        EstadoPagoSimulado.EXPIRADO.value,
+    ):
+        raise ValueError("El pago no está disponible para confirmar.")
+
+    if _esta_expirado(pago):
+        pago.estado = EstadoPagoSimulado.EXPIRADO.value
+        db.session.flush()
+        raise ValueError("El pago expiró. Crea uno nuevo.")
+
+    paquete = db.session.get(PaqueteMonedas, pago.paquete_id)
+    if paquete is None or not paquete.activo:
+        pago.estado = EstadoPagoSimulado.FALLIDO.value
+        db.session.flush()
+        raise ValueError("El paquete no está disponible.")
+
+    compra = comprar_paquete(
+        user_id,
+        pago.paquete_id,
+        pasarela="simulada",
+        referencia=pago.referencia,
+    )
+    pago.compra_id = compra.id
+    pago.estado = EstadoPagoSimulado.COMPLETADO.value
+    pago.completado_en = datetime.now(timezone.utc)
+    db.session.flush()
+    return pago
+
+
+def cancelar_pago_simulado(user_id: int, pago_id: int) -> PagoSimulado:
+    """Cancela un pago pendiente (idempotente si ya falló/expiró)."""
+    pago = get_pago_simulado(user_id, pago_id)
+    if pago.estado == EstadoPagoSimulado.COMPLETADO.value:
+        raise ValueError("El pago ya fue completado.")
+    if pago.estado == EstadoPagoSimulado.PENDIENTE.value:
+        pago.estado = EstadoPagoSimulado.FALLIDO.value
+        db.session.flush()
+    return pago
+
+
+def expirar_pagos_simulados() -> int:
+    """Marca como expirados los pagos pendientes vencidos."""
+    ahora = datetime.now(timezone.utc)
+    pendientes = PagoSimulado.query.filter(
+        PagoSimulado.estado == EstadoPagoSimulado.PENDIENTE.value,
+        PagoSimulado.expira_en.isnot(None),
+    ).all()
+    total = 0
+    for pago in pendientes:
+        if _esta_expirado(pago, ahora):
+            pago.estado = EstadoPagoSimulado.EXPIRADO.value
+            total += 1
+    if total:
+        db.session.flush()
+    return total
+
+
+# --------------------------------------------------------------------------
+# Superadmin: tarifas, usuarios y compras
+# --------------------------------------------------------------------------
+
+DESCRIPCIONES_TARIFAS = {
+    "pct_contrato": "Porcentaje del monto del contrato cobrado en monedas a cada parte",
+    "precio_moneda_cop": "Precio de referencia de 1 moneda en COP (recalcula paquetes)",
+    "monedas_fijas": "Monedas fijas sumadas al cobro de contrato",
+    "min_monedas_contrato": "Mínimo de monedas por parte al firmar",
+    "costo_publicar_anuncio": "Monedas para publicar un anuncio",
+    "costo_reactivar_anuncio": "Monedas para reactivar un anuncio",
+}
+
+
+def get_tarifas_admin() -> list[dict]:
+    """Todas las tarifas con su descripción y auditoría (panel superadmin)."""
+    from app.models.cobro import TARIFAS_DEFAULT, TarifaCobro
+
+    filas = {t.clave: t for t in TarifaCobro.query.all()}
+    claves = list(TARIFAS_DEFAULT.keys())
+    for clave in filas:
+        if clave not in claves:
+            claves.append(clave)
+
+    items = []
+    for clave in claves:
+        fila = filas.get(clave)
+        if fila is not None:
+            valor = float(fila.valor)
+            descripcion = fila.descripcion or DESCRIPCIONES_TARIFAS.get(clave)
+            actualizado_en = fila.actualizado_en
+            actualizado_por = fila.actualizado_por
+        else:
+            valor = float(TARIFAS_DEFAULT[clave])
+            descripcion = DESCRIPCIONES_TARIFAS.get(clave)
+            actualizado_en = None
+            actualizado_por = None
+        items.append(
+            {
+                "clave": clave,
+                "valor": valor,
+                "descripcion": descripcion,
+                "actualizado_en": actualizado_en,
+                "actualizado_por": actualizado_por,
+            }
+        )
+    return items
+
+
+def get_usuario_wallet_admin(user_id: int) -> dict:
+    """Ficha completa de billetera de un usuario (panel superadmin)."""
+    from app.models.user import User
+
+    user = db.session.get(User, user_id)
+    if user is None:
+        raise ValueError("El usuario no existe.")
+
+    wallet = get_or_create_wallet(user_id)
+    compras = (
+        CompraPaquete.query.filter_by(user_id=user_id)
+        .order_by(CompraPaquete.creado_en.desc(), CompraPaquete.id.desc())
+        .limit(200)
+        .all()
+    )
+    return {
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "nombre": user.nombre,
+            "rol": user.rol.value,
+        },
+        "wallet": wallet,
+        "monedas": get_saldo_monedas(user_id),
+        "resumen": get_resumen_financiero(user_id, user.rol.value),
+        "movimientos": get_movimientos_monedas(user_id, 200),
+        "compras": compras,
+    }
+
+
+def buscar_usuarios_admin(q: str, limite: int = 20) -> list[dict]:
+    """Busca usuarios por email o id para el panel superadmin."""
+    from app.models.user import User
+
+    limite = max(1, min(int(limite or 20), 50))
+    texto = (q or "").strip()
+    query = User.query
+    if texto:
+        filtros = [User.email.ilike(f"%{texto}%")]
+        if texto.isdigit():
+            filtros.append(User.id == int(texto))
+        query = query.filter(or_(*filtros))
+
+    usuarios = query.order_by(User.id.asc()).limit(limite).all()
+    if not usuarios:
+        return []
+
+    ids = [u.id for u in usuarios]
+    wallets = {
+        w.user_id: w for w in Wallet.query.filter(Wallet.user_id.in_(ids)).all()
+    }
+    return [
+        {
+            "id": u.id,
+            "email": u.email,
+            "nombre": u.nombre,
+            "rol": u.rol.value,
+            "monedas_saldo": (
+                wallets[u.id].monedas_saldo if u.id in wallets else 0
+            ),
+            "saldo_cop": wallets[u.id].saldo if u.id in wallets else 0,
+        }
+        for u in usuarios
+    ]
 
 
 def usar_monedas(

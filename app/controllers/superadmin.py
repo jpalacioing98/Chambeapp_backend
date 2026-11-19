@@ -659,7 +659,7 @@ class SuperAdminMetricsHistory(MethodView):
     def get(self):
         """Histórico diario y mensual (por defecto 180 días)."""
         from app.services.metrics_history import get_history
-        days = request.args.get("days", 180, type=int)
+        days = request.args.get("days", 300, type=int)
         return get_history(days)
 
 

@@ -35,6 +35,8 @@ from app.models.wallet import (
     PaqueteMonedas,
     CompraPaquete,
     MovimientoMonedas,
+    EstadoPagoSimulado,
+    PagoSimulado,
 )
 from app.models.modalidad import Modalidad, Milestone, TipoModalidad, EstadoHito
 from app.models.cobro import TarifaCobro, TARIFAS_DEFAULT
@@ -105,6 +107,8 @@ __all__ = [
     "PaqueteMonedas",
     "CompraPaquete",
     "MovimientoMonedas",
+    "EstadoPagoSimulado",
+    "PagoSimulado",
     "Modalidad",
     "Milestone",
     "TipoModalidad",

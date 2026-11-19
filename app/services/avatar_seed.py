@@ -28,12 +28,14 @@ USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
-TIMEOUT_SECONDS = 20
+TIMEOUT_SECONDS = 8
 # Catálogo de caras distintas del servicio; se recicla con módulo.
 DISTINCT_FACES = 70
 
 # Caché en memoria: la misma foto no se descarga dos veces en una corrida.
 _CACHE: Dict[int, bytes] = {}
+# Si el servicio está caído/bloqueado, no se reintenta en cada usuario.
+_DISABLED = False
 
 
 def face_index(index: int) -> int:
@@ -43,6 +45,9 @@ def face_index(index: int) -> int:
 
 def download_avatar(index: int) -> Optional[bytes]:
     """Descarga la foto de i.pravatar.cc. Devuelve None si falla."""
+    global _DISABLED
+    if _DISABLED:
+        return None
     face = face_index(index)
     if face in _CACHE:
         return _CACHE[face]
@@ -56,6 +61,7 @@ def download_avatar(index: int) -> Optional[bytes]:
             data = response.read()
     except (urllib.error.URLError, OSError, ValueError) as exc:
         logger.warning("No se pudo descargar la foto de avatar %s: %s", face, exc)
+        _DISABLED = True
         return None
 
     if not data:

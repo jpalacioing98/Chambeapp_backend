@@ -29,7 +29,7 @@ def _series(rows, field):
     return [int(getattr(r, field) or 0) for r in rows]
 
 
-def get_history(days: int = 180) -> dict:
+def get_history(days: int = 300) -> dict:
     """Histórico diario + agregados mensuales."""
     days = max(1, min(int(days), 366))
     rows = (
@@ -72,7 +72,7 @@ def get_history(days: int = 180) -> dict:
     for _, b in sorted(buckets.items()):
         b["first_offer_avg"] = round(b.pop("first_offer_sum") / max(1, b["days"]))
         monthly.append(b)
-    monthly = monthly[-6:]  # exactamente 6 meses para gráficas
+    monthly = monthly[-10:]  # 10 meses para la sustentación
 
     return {
         "days": len(rows),

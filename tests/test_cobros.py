@@ -221,7 +221,9 @@ def test_reactivar_anuncio_cobra(client):
     assert _saldo(neg.id) == 90
 
     client.patch(
-        f"/api/v1/anuncios/{aid}/estado", json={"accion": "cerrar"}, headers=h
+        f"/api/v1/anuncios/{aid}/estado",
+        json={"accion": "cerrar", "motivo": "Sin candidatos"},
+        headers=h,
     )
     assert _saldo(neg.id) == 90
 

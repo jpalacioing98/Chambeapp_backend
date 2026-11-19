@@ -143,6 +143,79 @@ class CompraPaqueteSchema(Schema):
     creado_en = fields.DateTime()
 
 
+class PagoSimuladoSchema(Schema):
+    """Intento de pago simulado de un paquete de monedas."""
+
+    id = fields.Integer()
+    user_id = fields.Integer()
+    paquete_id = fields.Integer(allow_none=True)
+    monedas = fields.Integer()
+    precio_cop = fields.Integer()
+    estado = fields.String()
+    referencia = fields.String(allow_none=True)
+    pasarela = fields.String()
+    compra_id = fields.Integer(allow_none=True)
+    creado_en = fields.DateTime()
+    expira_en = fields.DateTime(allow_none=True)
+    completado_en = fields.DateTime(allow_none=True)
+    paquete = fields.Nested(PaqueteMonedasSchema, allow_none=True)
+
+
+class PagoSimuladoCreateSchema(Schema):
+    """Body del checkout: qué paquete se quiere pagar."""
+
+    paquete_id = fields.Integer(required=True, validate=validate.Range(min=1))
+
+
+# --- Superadmin: tarifas y usuarios ---
+
+class TarifaAdminSchema(Schema):
+    """Tarifa de cobro con auditoría."""
+
+    clave = fields.String()
+    valor = fields.Float()
+    descripcion = fields.String(allow_none=True)
+    actualizado_en = fields.DateTime(allow_none=True)
+    actualizado_por = fields.Integer(allow_none=True)
+
+
+class TarifaAdminUpdateSchema(Schema):
+    """Edición parcial de tarifas (solo superadmin)."""
+
+    pct_contrato = fields.Float(
+        required=False, validate=validate.Range(min=0, max=100)
+    )
+    precio_moneda_cop = fields.Float(required=False, validate=validate.Range(min=1))
+    monedas_fijas = fields.Float(required=False, validate=validate.Range(min=0))
+    min_monedas_contrato = fields.Float(required=False, validate=validate.Range(min=0))
+    costo_publicar_anuncio = fields.Float(required=False, validate=validate.Range(min=0))
+    costo_reactivar_anuncio = fields.Float(
+        required=False, validate=validate.Range(min=0)
+    )
+
+
+class AdminUsuarioResumenSchema(Schema):
+    """Fila de usuario en el buscador del panel superadmin."""
+
+    id = fields.Integer()
+    email = fields.String()
+    nombre = fields.String(allow_none=True)
+    rol = fields.String()
+    monedas_saldo = fields.Integer()
+    saldo_cop = fields.Integer()
+
+
+class AdminUsuarioWalletSchema(Schema):
+    """Ficha de billetera de un usuario vista por el superadmin."""
+
+    user = fields.Raw()
+    wallet = fields.Nested(WalletSchema, allow_none=True)
+    monedas = fields.Raw()
+    resumen = fields.Raw()
+    movimientos = fields.Nested("MovimientoMonedasSchema", many=True)
+    compras = fields.Nested(CompraPaqueteSchema, many=True)
+
+
 class MovimientoMonedasSchema(Schema):
     """Movimiento del libro de monedas."""
 

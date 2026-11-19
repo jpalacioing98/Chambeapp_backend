@@ -1,30 +1,30 @@
 # Simulacion Valledupar
 
-Datos 100% ficticios generados por `seed_simulacion_valledupar.py`.
+Datos 100% ficticios generados por `seed.py` (10 meses de actividad).
 
 ## Credenciales
 
 - Todas las cuentas usan la contrasena: `ChambeApp123!`
-- PDS: `pds001@sim.chambeapp.co` ... `pds150@sim.chambeapp.co`
-- Solicitantes: `sol001@sim.chambeapp.co` ... `sol072@sim.chambeapp.co`
-- Merchants: `neg001@sim.chambeapp.co` ... `neg010@sim.chambeapp.co`
+- PDS: `pds001@sim.chambeapp.co` ... `pds300@sim.chambeapp.co`
+- Solicitantes: `sol001@sim.chambeapp.co` ... `sol180@sim.chambeapp.co`
+- Merchants: `neg001@sim.chambeapp.co` ... `neg030@sim.chambeapp.co`
 - Staff: `staff.*@sim.chambeapp.co`
 - Listado completo: `docs/simulacion/credenciales.csv`
 
 ## Volumen
 
-- Usuarios: 240
-- Solicitudes: 300
-- Ofertas: 720
-- Contratos: 185
-- Chambas: 165
-- Pagos: 150
+- Usuarios: 522
+- Solicitudes: 900
+- Ofertas: 2600
+- Contratos: 585
+- Chambas: 525
+- Pagos: 420
 
 ## Comandos
 
 ```bash
-python seed_simulacion_valledupar.py --reset
-python seed_simulacion_valledupar.py --reset --config app.config.TestingConfig --create-all
+python seed.py --reset
+python seed.py --reset --config app.config.TestingConfig --create-all
 ```
 
 El reset elimina solo cuentas `@sim.chambeapp.co` y sus dependencias.

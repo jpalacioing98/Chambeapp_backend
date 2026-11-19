@@ -1,7 +1,7 @@
-"""Analítica histórica (180 días + 6 meses) para el seed unificado.
+"""Analítica histórica (300 días + 10 meses) para el seed unificado.
 
 Genera `metrics_daily` y `metrics_segment_monthly` de forma idempotente.
-Se invoca desde `seed_simulacion_valledupar.py`; no es un seed independiente.
+Se invoca desde `seed.py`; no es un seed independiente.
 """
 
 from datetime import date, datetime, timedelta, timezone
@@ -76,7 +76,7 @@ def seed_daily() -> int:
 
     rnd = random.Random(20260115)
     end = date.today()
-    days = 180
+    days = 300
     now = datetime.now(timezone.utc)
     rows = []
 
@@ -144,8 +144,18 @@ def seed_segments() -> int:
 
     rnd = random.Random(20260201)
     current = _first_of_month(date.today())
-    periods = [_add_months(current, -i) for i in range(5, -1, -1)]
+    periods = [_add_months(current, -i) for i in range(9, -1, -1)]
     now = datetime.now(timezone.utc)
+
+    # Cohortes = los 10 meses sembrados (en vez de la lista fija de 6).
+    months_es = [
+        "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+        "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+    ]
+    dimensions = {
+        **DIMENSIONS,
+        "cohorte": [months_es[p.month - 1] for p in periods],
+    }
 
     base_by_metric = {
         "contratos": 900,
@@ -163,7 +173,7 @@ def seed_segments() -> int:
         growth = 0.72 + (idx / max(1, len(periods) - 1)) * 0.56
         for metrica, base in base_by_metric.items():
             base_val = base * growth
-            for dimension, values in DIMENSIONS.items():
+            for dimension, values in dimensions.items():
                 fixed = FIXED_WEIGHTS.get(dimension)
                 if fixed and len(fixed) == len(values):
                     weights = list(fixed)

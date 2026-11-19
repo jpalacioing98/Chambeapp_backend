@@ -9,7 +9,14 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from app.extensions import db
 from app.models.user import User, RolUsuario
-from app.models.wallet import Wallet, Transaction, Coin
+from app.models.wallet import (
+    Wallet,
+    Transaction,
+    Coin,
+    PaqueteMonedas,
+    CompraPaquete,
+    PagoSimulado,
+)
 from app.models.modalidad import Milestone
 from app.models.contract import Contract
 from app.schemas.wallet import (
@@ -25,6 +32,9 @@ from app.schemas.wallet import (
     PaqueteReorderSchema,
     CompraPaqueteSchema,
     MovimientoMonedasSchema,
+    PagoSimuladoSchema,
+    PagoSimuladoCreateSchema,
+    TarifaAdminUpdateSchema,
     MilestoneSchema,
     MilestoneCreateSchema,
     MilestoneActionSchema,
@@ -43,6 +53,13 @@ from app.services.wallet import (
     reordenar_paquetes,
     activar_paquete,
     comprar_paquete,
+    crear_pago_simulado,
+    get_pago_simulado,
+    confirmar_pago_simulado,
+    cancelar_pago_simulado,
+    get_tarifas_admin,
+    get_usuario_wallet_admin,
+    buscar_usuarios_admin,
     usar_monedas,
     get_resumen_financiero,
     crear_hitos,
@@ -381,3 +398,242 @@ class TarifasUsuario(MethodView):
         from app.services.cobros import get_config_publica
 
         return get_config_publica()
+
+
+# --------------------------------------------------------------------------
+# Pago simulado de paquetes — checkout realista
+# --------------------------------------------------------------------------
+
+def _respuesta_confirmacion(user_id: int, pago) -> dict:
+    """Cuerpo común para confirmación por JWT y por webhook."""
+    compra = (
+        db.session.get(CompraPaquete, pago.compra_id) if pago.compra_id else None
+    )
+    return {
+        "pago": PagoSimuladoSchema().dump(pago),
+        "compra": CompraPaqueteSchema().dump(compra) if compra else None,
+        "saldo": get_saldo_monedas(user_id),
+    }
+
+
+@blp.route("/coins/checkout")
+class CoinsCheckout(MethodView):
+    @jwt_required()
+    @blp.arguments(PagoSimuladoCreateSchema)
+    @blp.response(201)
+    def post(self, data):
+        """Crea un pago pendiente de un paquete (no acredita monedas aún)."""
+        user_id = int(get_jwt_identity())
+        try:
+            pago = crear_pago_simulado(user_id, data["paquete_id"])
+        except ValueError as e:
+            abort(400, message=str(e))
+        db.session.commit()
+        return {
+            "pago_id": pago.id,
+            "referencia": pago.referencia,
+            "estado": pago.estado,
+            "precio_cop": pago.precio_cop,
+            "monedas": pago.monedas,
+            "expira_en": pago.expira_en.isoformat() if pago.expira_en else None,
+            "url_redirect": f"/pago/simulado/{pago.id}",
+            "paquete": PaqueteMonedasSchema().dump(pago.paquete),
+        }
+
+
+@blp.route("/pagos/<int:pago_id>")
+class PagoSimuladoDetail(MethodView):
+    @jwt_required()
+    @blp.response(200, PagoSimuladoSchema)
+    def get(self, pago_id):
+        """Detalle del pago simulado (dueño o admin)."""
+        user_id = int(get_jwt_identity())
+        try:
+            return get_pago_simulado(
+                user_id, pago_id, permitir_admin=_es_admin(user_id)
+            )
+        except ValueError as e:
+            abort(400, message=str(e))
+
+
+@blp.route("/pagos/<int:pago_id>/confirmar")
+class PagoSimuladoConfirmar(MethodView):
+    @jwt_required()
+    @blp.response(200)
+    def post(self, pago_id):
+        """Confirma el pago y acredita las monedas (idempotente)."""
+        user_id = int(get_jwt_identity())
+        try:
+            pago = confirmar_pago_simulado(user_id, pago_id)
+        except ValueError as e:
+            abort(400, message=str(e))
+        db.session.commit()
+        return _respuesta_confirmacion(user_id, pago)
+
+
+@blp.route("/pagos/<int:pago_id>/cancelar")
+class PagoSimuladoCancelar(MethodView):
+    @jwt_required()
+    @blp.response(200)
+    def post(self, pago_id):
+        """Cancela un pago pendiente (pasa a fallido)."""
+        user_id = int(get_jwt_identity())
+        try:
+            pago = cancelar_pago_simulado(user_id, pago_id)
+        except ValueError as e:
+            abort(400, message=str(e))
+        db.session.commit()
+        return {"pago": PagoSimuladoSchema().dump(pago)}
+
+
+@blp.route("/pagos/<int:pago_id>/webhook")
+class PagoSimuladoWebhook(MethodView):
+    @blp.doc(summary="Webhook simulado de pasarela")
+    @blp.response(200)
+    def post(self, pago_id):
+        """Callback de pasarela simulado: confirma el pago sin JWT."""
+        pago = db.session.get(PagoSimulado, pago_id)
+        if pago is None:
+            abort(404, message="El pago no existe.")
+        try:
+            pago = confirmar_pago_simulado(pago.user_id, pago_id)
+        except ValueError as e:
+            abort(400, message=str(e))
+        db.session.commit()
+        return _respuesta_confirmacion(pago.user_id, pago)
+
+
+# --------------------------------------------------------------------------
+# Tarifas de cobro — administración exclusiva del Superadmin
+# --------------------------------------------------------------------------
+
+@blp.route("/admin/tarifas")
+class AdminTarifas(MethodView):
+    @jwt_required()
+    @blp.response(200)
+    def get(self):
+        """Tarifas vigentes con descripción y auditoría."""
+        user_id = int(get_jwt_identity())
+        if not _es_superadmin(user_id):
+            abort(403, message="Solo el superadministrador gestiona las tarifas.")
+        return {"items": get_tarifas_admin()}
+
+    @jwt_required()
+    @blp.arguments(TarifaAdminUpdateSchema)
+    @blp.response(200)
+    def patch(self, data):
+        """Actualiza tarifas; si cambia el precio de la moneda, recalcula paquetes."""
+        from app.services.cobros import actualizar_tarifas, get_tarifa
+
+        user_id = int(get_jwt_identity())
+        if not _es_superadmin(user_id):
+            abort(403, message="Solo el superadministrador gestiona las tarifas.")
+        if not data:
+            abort(400, message="Debes enviar al menos una tarifa.")
+
+        precio_anterior = get_tarifa("precio_moneda_cop", 100)
+        try:
+            actualizar_tarifas(data, user_id)
+        except ValueError as e:
+            abort(400, message=str(e))
+        precio_nuevo = get_tarifa("precio_moneda_cop", 100)
+        recalculados = (
+            PaqueteMonedas.query.count() if precio_nuevo != precio_anterior else 0
+        )
+        return {
+            "items": get_tarifas_admin(),
+            "paquetes_recalculados": recalculados,
+        }
+
+
+# --------------------------------------------------------------------------
+# Usuarios y compras — panel Superadmin
+# --------------------------------------------------------------------------
+
+@blp.route("/admin/usuarios")
+class AdminUsuarios(MethodView):
+    @jwt_required()
+    @blp.response(200)
+    def get(self):
+        """Busca usuarios por email o id (billetera resumida)."""
+        user_id = int(get_jwt_identity())
+        if not _es_superadmin(user_id):
+            abort(403, message="Solo el superadministrador consulta usuarios.")
+        q = request.args.get("q", "")
+        try:
+            items = buscar_usuarios_admin(q)
+        except ValueError as e:
+            abort(400, message=str(e))
+        return {"items": items}
+
+
+@blp.route("/admin/usuarios/<int:user_id>/billetera")
+class AdminUsuarioBilletera(MethodView):
+    @jwt_required()
+    @blp.response(200)
+    def get(self, user_id):
+        """Ficha completa de billetera de un usuario."""
+        actual_id = int(get_jwt_identity())
+        if not _es_superadmin(actual_id):
+            abort(403, message="Solo el superadministrador consulta usuarios.")
+        try:
+            datos = get_usuario_wallet_admin(user_id)
+        except ValueError as e:
+            abort(400, message=str(e))
+        return {
+            "user": datos["user"],
+            "wallet": WalletSchema().dump(datos["wallet"]),
+            "monedas": datos["monedas"],
+            "resumen": datos["resumen"],
+            "movimientos": MovimientoMonedasSchema(many=True).dump(
+                datos["movimientos"]
+            ),
+            "compras": CompraPaqueteSchema(many=True).dump(datos["compras"]),
+        }
+
+
+@blp.route("/admin/compras")
+class AdminCompras(MethodView):
+    @jwt_required()
+    @blp.response(200)
+    def get(self):
+        """Compras de paquetes (paginado) con datos del usuario y paquete."""
+        user_id = int(get_jwt_identity())
+        if not _es_superadmin(user_id):
+            abort(403, message="Solo el superadministrador consulta las compras.")
+
+        query = CompraPaquete.query.order_by(CompraPaquete.creado_en.desc())
+        page = request.args.get("page")
+        per_page = request.args.get("per_page")
+        result = paginate_query(query, page=page, per_page=per_page)
+        items = result if isinstance(result, list) else result["items"]
+
+        usuarios = {
+            u.id: u
+            for u in User.query.filter(
+                User.id.in_({c.user_id for c in items})
+            ).all()
+        } if items else {}
+        paquetes = {
+            p.id: p
+            for p in PaqueteMonedas.query.filter(
+                PaqueteMonedas.id.in_(
+                    {c.paquete_id for c in items if c.paquete_id is not None}
+                )
+            ).all()
+        } if items else {}
+
+        serializados = CompraPaqueteSchema(many=True).dump(items)
+        for compra, fila in zip(items, serializados):
+            usuario = usuarios.get(compra.user_id)
+            paquete = paquetes.get(compra.paquete_id) if compra.paquete_id else None
+            fila["user_email"] = usuario.email if usuario else None
+            fila["usuario_nombre"] = usuario.nombre if usuario else None
+            fila["paquete_nombre"] = paquete.nombre if paquete else None
+
+        if isinstance(result, list):
+            return serializados
+        # `paginate_query` devuelve un dict con page/per_page: se serializa
+        # aquí para que flask-smorest no aplique `many=True` al dict.
+        result["items"] = serializados
+        return result
